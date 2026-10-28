@@ -1,29 +1,33 @@
-# Spotify playback widget setup
+# Подключение Spotify на сервере `server.py`
 
-The widget reads playback state through a server-side Spotify OAuth connection. Spotify access and refresh tokens stay in the Cloudflare Worker and its existing `WATCHLIST` KV namespace; the browser only receives track metadata and progress.
+Виджет музыки на главной странице обращается к `/api/spotify`, а при отсутствии подключения автоматически переключается на `/api/lastfm`. Когда подключён Spotify, на главной отображается не только трек и обложка, но и живая шкала времени.
 
-Spotify currently requires the app owner to have an active Premium subscription for a Development Mode Web API app. Without it, the widget automatically falls back to Last.fm for track details and hides the timeline rather than showing invented progress.
+## 1. Приложение в Spotify Developer Dashboard
 
-## Connect the Spotify app
+1. Откройте [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) и создайте приложение.
+2. Скопируйте **Client ID** и **Client Secret**.
+3. В настройках приложения добавьте **Redirect URI**:
+   - Для продакшена: `https://krafen.me/api/spotify/callback`
+   - Для локальной проверки: `http://127.0.0.1:8080/api/spotify/callback`
 
-1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Add this exact Redirect URI to the app settings:
+*(Адрес формируется автоматически из переменной `PUBLIC_ORIGIN` или заголовка запроса `/api/spotify/callback`.)*
 
-   ```text
-   https://krafen.me/api/spotify/callback
-   ```
+## 2. Переменные в `.env`
 
-3. Save the app's Client ID and Client Secret in the Cloudflare Secret Store used by this Worker. The `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` bindings are declared in `wrangler.jsonc`; both matching secrets must exist in that store before deployment.
+Добавьте в `/opt/krafen/.env` (или локальный `.env`):
 
-   - `SPOTIFY_CLIENT_ID`
-   - `SPOTIFY_CLIENT_SECRET`
+```dotenv
+PUBLIC_ORIGIN=https://krafen.me
+SPOTIFY_CLIENT_ID=ваш_client_id
+SPOTIFY_CLIENT_SECRET=ваш_client_secret
+```
 
-4. Deploy the Worker and static assets.
-5. Open `https://krafen.me/watchlist` or `https://krafen.me/setup`, enter admin mode, then click **подключить Spotify** in the admin bar. This starts OAuth from the authenticated site session.
-6. Approve access with the Spotify account whose playback the widget should show. Spotify returns to the site and the Worker saves its refresh token in `WATCHLIST`.
+Перезапустите сервер (`sudo systemctl restart krafen.service`).
 
-The widget updates playback about every five seconds and animates progress once per second from Spotify's reported position. When playback is paused, progress freezes. When nothing is playing, the widget shows the most recently played track without a timeline.
+## 3. Однократная привязка аккаунта
 
-The authorization asks for `user-read-playback-state` and `user-read-recently-played`. Spotify refresh tokens can expire after six months, so reconnect from the same admin session if Spotify authorization expires.
+1. Откройте `/watchlist`, нажмите на иконку замка в нижнем доке и войдите под паролем `ADMIN_PASSWORD`.
+2. В верхней панели администратора нажмите кнопку **«подключить Spotify»** (переход на `/api/spotify/auth`).
+3. Подтвердите доступ в окне Spotify — сервер сохранит `refresh_token` в `data/krafen.db` и перенаправит обратно на главную страницу с уведомлением `Spotify успешно подключён`.
 
-For another hostname or preview deployment, register that deployment's exact HTTPS callback URL in the Spotify app and start authorization from that same hostname.
+После этого `server.py` будет сам обновлять краткоживущий `access_token` в памяти и отдавать текущий трек через `GET /api/spotify`.

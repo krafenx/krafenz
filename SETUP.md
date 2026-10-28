@@ -1,107 +1,103 @@
-# danonsha-archive — установка
+# Развёртывание на сервере
 
-Архитектура: запись идёт на диск ПК → сразу после стрима улетает в Google
-Drive (5 ТБ) → локальная копия удаляется → сайт показывает записи прямо из
-Drive через монтирование. На ПК занято место только на время одного стрима.
+Сайт работает полностью автономно на Python (`FastAPI` + `uvicorn` + `SQLite`) без внешних облачных воркеров.
 
-## 1. Установка
+## 1. Установка зависимостей
 
-```bash
-pip install -r recorder/requirements.txt
-```
-
-- **Python 3.10+** — https://python.org
-- **streamlink** — `pip install streamlink` (или скачать с streamlink.github.io)
-- **rclone** — https://rclone.org/downloads (распаковать, добавить в PATH)
-- **WinFsp** (только Windows, нужен для монтирования) — https://winfsp.dev
-
-## 2. Привязка Google Drive к rclone
+Предполагается каталог `/opt/krafen` (путь совпадает с `krafen.service`):
 
 ```bash
-rclone config
-# n) New remote → имя: gdrive
-# Storage: drive (Google Drive)
-# Оставить client_id пустым (Enter)
-# scope: 1 (Full access) — или 2 (только чтение файлов, которыми поделились)
-# root_folder_id: Enter (пусто)
-# service_account: Enter (пусто)
-# Edit advanced config: n
-# Use web browser to automatically authenticate: y
-# → откроется браузер, залогинься своим Google-аккаунтом
+sudo mkdir -p /opt/krafen
+sudo chown "$USER:$USER" /opt/krafen
+git clone https://github.com/krafenx/krafenz.git /opt/krafen
+cd /opt/krafen
+
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
 
-Проверка: `rclone lsd gdrive:` — должно показать папки твоего Drive.
-
-Создай папку для записей: `rclone mkdir gdrive:vods`
-
-## 2.5 Telegram-канал (опционально, запись дублируется туда)
-
-1. **BotFather** → `/newbot` → получи токен вида `123456:ABC...`
-2. **my.telegram.org** → API Development Tools → создай приложение → получи
-   `api_id` (число) и `api_hash`
-3. Добавь бота в канал **как администратора** (с правом постить)
-4. Узнай id канала: перешли любой пост из канала боту `@getmyid_bot` —
-   придёт отрицательное число вида `-100xxxxxxxxxx`
-
-## 3. Запуск (всегда в этом порядке)
-
-Терминал 1 — монтирование Drive как папки `vods/` (сайт читает отсюда):
+Если используется запись эфиров для `/danonsha`, установите зависимости рекордера и `ffmpeg`:
 
 ```bash
-# Windows (winfsp должен быть установлен)
-rclone mount gdrive:vods vods --vfs-cache-mode minimal --network-mode
-
-# Linux/macOS
-rclone mount gdrive:vods vods --vfs-cache-mode minimal --daemon
+sudo apt update && sudo apt install -y ffmpeg
+.venv/bin/pip install -r recorder/requirements.txt
 ```
 
-Терминал 2 — сервер + автозапись:
+## 2. Настройка `.env`
+
+Скопируйте шаблон и ограничьте права чтения файла:
 
 ```bash
-export TWITCH_CHANNEL=danonsha
-export TWITCH_CLIENT_ID=xxx        # dev.twitch.tv/console
-export TWITCH_CLIENT_SECRET=xxx
-export RCLONE_REMOTE=gdrive:vods   # ← после стрима запись улетает в Drive
-export MIN_FREE_GB=10              # удалять старое, если свободно < 10 ГБ
-# Telegram-дубль (опционально):
-export TELEGRAM_API_ID=123456
-export TELEGRAM_API_HASH=xxxxxxxx
-export TELEGRAM_BOT_TOKEN=123456:ABC...
-export TELEGRAM_CHAT_ID=-100xxxxxxxxxx
-RECORDER=1 python3 server.py
+cp .env.example .env
+chmod 600 .env
 ```
 
-Открыть http://localhost:8080
+Основные переменные:
 
-## 4. Автозапуск в фоне (опционально)
+- `HOST=127.0.0.1` и `PORT=8080` (при работе за reverse-proxy `nginx` или `Caddy`, либо `0.0.0.0` для прямого доступа)
+- `PUBLIC_ORIGIN=https://krafen.me` — публичный адрес сайта (используется для проверки Origin и OAuth redirect Spotify)
+- `ADMIN_PASSWORD` и случайный `SECRET_KEY` (`python3 -c "import secrets; print(secrets.token_hex(32))"`, если не задан — генерируется автоматически и сохраняется в `data/krafen.db`) — для входа в админ-режим коллекций
+- `TMDB_ACCESS_TOKEN` (или `TMDB_API_KEY`) — поиск фильмов и сериалов в `/watchlist`
+- `TWITCH_CLIENT_ID` и `TWITCH_CLIENT_SECRET` — статус Twitch на главной, `/danonsha` и поиск игр в IGDB (`/gamelist`)
+- `SPOTIFY_CLIENT_ID` и `SPOTIFY_CLIENT_SECRET` — текущий трек со шкалой прогресса (см. [`SPOTIFY_SETUP.md`](SPOTIFY_SETUP.md))
+- `LASTFM_API_KEY` и `LASTFM_USER` — резервный источник скробблов, если Spotify не подключён
 
-**Windows** — Планировщик задач, две задачи «При входе в систему»:
+## 3. Запуск через `systemd`
 
-1. `rclone mount gdrive:vods "C:\путь\krafen\vods" --vfs-cache-mode minimal --network-mode`
-2. `pythonw.exe C:\путь\krafen\server.py` (переменные задать в начале скрипта
-   или через `setx`)
+Создайте системного пользователя и выдайте доступ к каталогам данных:
 
-**Linux** — два systemd-юнита: `rclone mount` (зависимость winfsp не нужна)
-и `server.py`. Могу написать по запросу.
+```bash
+sudo useradd --system --home /opt/krafen --shell /usr/sbin/nologin krafen || true
+mkdir -p /opt/krafen/data /opt/krafen/vods
+sudo chown -R krafen:krafen /opt/krafen/data /opt/krafen/vods
+sudo chown root:krafen /opt/krafen/.env
+sudo chmod 640 /opt/krafen/.env
+```
 
-## 5. Как это работает
+Подключите unit-файл (отредактируйте `ExecStart` на `/opt/krafen/.venv/bin/python /opt/krafen/server.py`, если используете виртуальное окружение):
 
-1. Канал вышел в эфир → пишется `video.mp4` + `chat.jsonl` локально в
-   `vods/<дата>_<название>/`
-2. Стрим кончился → сначала в канал Telegram (пост с описанием, видео —
-   если больше ~1.9 ГБ, разбивается на части через ffmpeg, + чат и meta
-   файлами), затем `rclone move` переносит папку в `gdrive:vods`, локальная
-   копия удаляется; если места на диске < MIN_FREE_GB — стираются самые
-   старые локальные записи
-3. Сайт читает `vods/` — это смонтированный Drive, поэтому видит всё,
-   что когда-либо записано
-4. Молнии, дождь, чат в плеере — как было
+```bash
+sudo cp /opt/krafen/krafen.service /etc/systemd/system/krafen.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now krafen.service
+sudo systemctl status krafen.service
+```
 
-## Частые проблемы
+Проверка здоровья сервера:
 
-- **«rclone не найден»** — не добавлен в PATH; пропиши полный путь в RCLONE_BIN
-- **Монтирование падает на Windows** — не установлен WinFsp
-- **Загрузка в Drive не стартует** — проверь `rclone lsd gdrive:`; при ошибке
-  `rate limit` подожди, rclone сам ретраит
-- **Сайт показывает «Архив пуст»** — проверь, что монтирование работает:
-  в папке `vods/` должны быть папки записей
+```bash
+curl -fsS http://127.0.0.1:8080/api/health
+```
+
+## 4. Пример конфигурации Caddy / Nginx
+
+### Caddy (`Caddyfile`)
+
+```caddyfile
+krafen.me {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+### Nginx
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name krafen.me;
+
+    # ssl_certificate / ssl_certificate_key ...
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+}
+```
+
+`proxy_buffering off;` важен для мгновенной перемотки видеофайлов `/vods/*` через HTTP Range.

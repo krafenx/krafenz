@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 """
-Обычный сервер Krafen / danonsha-archive.
+Сервер сайта Krafen и архива стримов danonsha (FastAPI + SQLite).
 
-Заменяет Cloudflare Worker + KV:
-  - отдаёт статику сайта;
-  - хранит watchlist/gamelist/setup/wishlist в SQLite/JSON-файлах;
-  - проксирует Twitch, Last.fm, Spotify, TMDB, Shikimori, IGDB;
-  - отдаёт VOD-архив с поддержкой Range;
-  - умеет запускать recorder/recorder.py через RECORDER=1.
-
-Запуск:
-  export ADMIN_PASSWORD=...
-  export SECRET_KEY=...
-  RECORDER=1 python3 server.py
+Полностью заменяет Cloudflare Workers и Workers KV:
+  - раздаёт HTML/CSS/JS и медиа-ассеты с чистыми URL (/watchlist, /setup и т.д.);
+  - хранит коллекции (watchlist, gamelist, setup, wishlist) и OAuth-токены в SQLite (data/krafen.db)
+    с автоматической миграцией существующих JSON-файлов;
+  - реализует защищённую админ-сессию (HMAC SHA-256 cookie) и версионирование списков (revision);
+  - проксирует и кэширует Twitch Helix, Discord Invite, Spotify, Last.fm, TMDB, Shikimori и IGDB;
+  - раздаёт VOD-архив с поддержкой HTTP Range и чата записи;
+  - при RECORDER=1 запускает фоновый процесс автозаписи recorder/recorder.py.
 """
 
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import json
 import os
 import re
 import secrets
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -35,30 +34,76 @@ from urllib.parse import urlencode
 import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 
 ROOT = Path(__file__).resolve().parent
+
+
+def load_dotenv(env_file: Path) -> None:
+    """Читает локальный .env без внешних зависимостей, не перезаписывая уже заданные переменные."""
+    if not env_file.is_file():
+        return
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if not key:
+            continue
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in {'"', "'"}:
+            val = val[1:-1]
+        os.environ.setdefault(key, val)
+
+
+load_dotenv(ROOT / ".env")
+
 DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "data"))
+DB_PATH = DATA_DIR / "krafen.db"
+AUTH_DB_PATH = DATA_DIR / "auth.db"
+SEED_SQL_PATH = DATA_DIR / "seed.sql"
 RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT / "vods"))
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
+PUBLIC_ORIGIN = os.environ.get("PUBLIC_ORIGIN", "").strip().rstrip("/")
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-SECRET_KEY = os.environ.get("SECRET_KEY", ADMIN_PASSWORD or secrets.token_hex(32))
-SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "1") == "1"
-TWITCH_CHANNEL = os.environ.get("TWITCH_CHANNEL", "danonsha")
+SECURE_COOKIES_MODE = os.environ.get("SECURE_COOKIES", "auto").strip().lower()
+
+TWITCH_CHANNEL = os.environ.get("TWITCH_CHANNEL", "krafen")
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
+IGDB_CLIENT_ID = os.environ.get("IGDB_CLIENT_ID", "") or TWITCH_CLIENT_ID
+IGDB_CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET", "") or TWITCH_CLIENT_SECRET
+IGDB_ACCESS_TOKEN = os.environ.get("IGDB_ACCESS_TOKEN", "")
+
 LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY", "")
 LASTFM_USER = os.environ.get("LASTFM_USER", "krafen")
 TMDB_ACCESS_TOKEN = os.environ.get("TMDB_ACCESS_TOKEN", "")
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
+DISCORD_INVITE_CODE = os.environ.get("DISCORD_INVITE_CODE", "kGdxDzxtmK")
 
 SESSION_COOKIE = "kf_admin_session"
 SPOTIFY_STATE_COOKIE = "kf_spotify_oauth"
-SESSION_TTL_SECONDS = 8 * 60 * 60
+SESSION_TTL_SECONDS = 12 * 60 * 60
 
 TMDB_BASE = "https://api.themoviedb.org"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
@@ -69,6 +114,7 @@ LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0/"
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
+DISCORD_INVITE_BASE = "https://discord.com/api/invites"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
@@ -81,7 +127,7 @@ VALID_GAME_STATUSES = {"completed", "playing", "dropped", "wishlist", "paused"}
 VALID_SETUP_SECTIONS = {"pc", "gear"}
 VALID_SETUP_ICONS = {
     "cpu", "gpu", "ram", "board", "ssd", "hdd", "cooler", "psu", "case",
-    "audio", "monitor", "keyboard", "mouse", "mic", "other",
+    "audio", "headphones", "monitor", "keyboard", "mouse", "mic", "chair", "other",
 }
 VALID_WISH_CATEGORIES = {"hardware", "peripheral", "other"}
 VALID_WISH_STATUSES = {"want", "saving", "bought"}
@@ -93,48 +139,499 @@ MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
+    ".mp4": "video/mp4",
     ".jsonl": "application/x-ndjson; charset=utf-8",
 }
 
 LIST_SPECS = {
     "watchlist": {
-        "file": "watchlist.json",
+        "legacy_file": "watchlist.json",
         "normalizer": "watchlist",
         "max_items": 500,
         "cache_ttl": 300,
     },
     "gamelist": {
-        "file": "gamelist.json",
+        "legacy_file": "gamelist.json",
         "normalizer": "gamelist",
         "max_items": 500,
         "cache_ttl": 300,
     },
     "setup": {
-        "file": "setup.json",
+        "legacy_file": "setup.json",
         "normalizer": "setup",
         "max_items": 120,
         "cache_ttl": 300,
     },
     "wishlist": {
-        "file": "wishlist.json",
+        "legacy_file": "wishlist.json",
         "normalizer": "wishlist",
         "max_items": 500,
         "cache_ttl": 300,
     },
 }
 
-_store_lock = threading.Lock()
+_db_lock = threading.Lock()
 _list_cache: dict[str, dict[str, Any]] = {}
+_api_cache_lock = threading.Lock()
+_api_cache: dict[str, tuple[float, int, dict[str, Any]]] = {}
 _rate_lock = threading.Lock()
 _rate_buckets: dict[str, list[float]] = {}
 _twitch_token: dict[str, Any] = {}
 _igdb_token: dict[str, Any] = {}
+
+
+# ----------------------------- SQLite хранилище -----------------------------
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS collection_meta (
+    name TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watchlist_items (
+    pos INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    title_ru TEXT,
+    year TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    poster TEXT,
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gamelist_items (
+    pos INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    igdb_id INTEGER,
+    title TEXT NOT NULL,
+    year TEXT NOT NULL,
+    status TEXT NOT NULL,
+    rating REAL NOT NULL DEFAULT 0,
+    review TEXT NOT NULL DEFAULT '',
+    cover TEXT,
+    genres_json TEXT NOT NULL DEFAULT '[]',
+    platforms_json TEXT NOT NULL DEFAULT '[]',
+    category INTEGER NOT NULL DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS setup_items (
+    pos INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    item_group TEXT NOT NULL,
+    category TEXT NOT NULL,
+    name TEXT NOT NULL,
+    icon TEXT NOT NULL DEFAULT 'other',
+    note TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wishlist_items (
+    pos INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 2,
+    price REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    note TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
+    image TEXT NOT NULL DEFAULT '',
+    added_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"""
+
+
+@contextlib.contextmanager
+def db_connect():
+    conn = sqlite3.connect(DB_PATH, timeout=15, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextlib.contextmanager
+def auth_db_connect():
+    is_new = not AUTH_DB_PATH.exists()
+    conn = sqlite3.connect(AUTH_DB_PATH, timeout=15, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    if is_new:
+        try:
+            os.chmod(AUTH_DB_PATH, 0o600)
+        except OSError:
+            pass
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _normalize_legacy_list(value: Any) -> dict[str, Any]:
+    if isinstance(value, list):
+        return {"revision": 0, "items": value}
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        rev = value.get("revision")
+        if not isinstance(rev, int) or rev < 0:
+            rev = 0
+        return {"revision": rev, "items": value["items"]}
+    return {"revision": 0, "items": []}
+
+
+def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[str, Any]]:
+    if name == "watchlist":
+        rows = conn.execute("SELECT * FROM watchlist_items ORDER BY pos ASC").fetchall()
+        return [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "titleRu": r["title_ru"] or None,
+                "year": r["year"],
+                "type": r["type"],
+                "status": r["status"],
+                "poster": r["poster"] or None,
+                "addedAt": int(r["added_at"]),
+                "updatedAt": int(r["updated_at"]),
+            }
+            for r in rows
+        ]
+    if name == "gamelist":
+        rows = conn.execute("SELECT * FROM gamelist_items ORDER BY pos ASC").fetchall()
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            try:
+                genres = json.loads(r["genres_json"])
+            except Exception:
+                genres = []
+            try:
+                platforms = json.loads(r["platforms_json"])
+            except Exception:
+                platforms = []
+            items.append(
+                {
+                    "id": r["id"],
+                    "igdbId": r["igdb_id"],
+                    "title": r["title"],
+                    "year": r["year"],
+                    "status": r["status"],
+                    "rating": float(r["rating"]),
+                    "review": r["review"] or "",
+                    "cover": r["cover"] or None,
+                    "genres": genres if isinstance(genres, list) else [],
+                    "platforms": platforms if isinstance(platforms, list) else [],
+                    "category": int(r["category"] or 0),
+                    "addedAt": int(r["added_at"]),
+                    "updatedAt": int(r["updated_at"]),
+                }
+            )
+        return items
+    if name == "setup":
+        rows = conn.execute("SELECT * FROM setup_items ORDER BY pos ASC").fetchall()
+        return [
+            {
+                "id": r["id"],
+                "group": r["item_group"],
+                "category": r["category"],
+                "name": r["name"],
+                "icon": r["icon"],
+                "note": r["note"] or "",
+                "link": r["link"] or "",
+                "sort": int(r["sort_order"]),
+                "addedAt": int(r["added_at"]),
+                "updatedAt": int(r["updated_at"]),
+            }
+            for r in rows
+        ]
+    if name == "wishlist":
+        rows = conn.execute("SELECT * FROM wishlist_items ORDER BY pos ASC").fetchall()
+        return [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "category": r["category"],
+                "status": r["status"],
+                "priority": int(r["priority"]),
+                "price": float(r["price"]) if float(r["price"] or 0) > 0 else 0,
+                "currency": r["currency"],
+                "note": r["note"] or "",
+                "link": r["link"] or "",
+                "image": r["image"] or "",
+                "addedAt": int(r["added_at"]),
+                "updatedAt": int(r["updated_at"]),
+            }
+            for r in rows
+        ]
+    return []
+
+
+def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen_ids: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for it in items:
+        iid = str(it.get("id") or "")
+        if not iid or iid in seen_ids:
+            continue
+        seen_ids.add(iid)
+        deduped.append(it)
+
+    if name == "watchlist":
+        conn.execute("DELETE FROM watchlist_items")
+        conn.executemany(
+            """
+            INSERT INTO watchlist_items (pos, id, title, title_ru, year, type, status, poster, added_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    pos,
+                    it["id"],
+                    it["title"],
+                    it.get("titleRu"),
+                    it.get("year") or "-",
+                    it["type"],
+                    it["status"],
+                    it.get("poster"),
+                    int(it.get("addedAt") or 0),
+                    int(it.get("updatedAt") or 0),
+                )
+                for pos, it in enumerate(deduped)
+            ],
+        )
+    elif name == "gamelist":
+        conn.execute("DELETE FROM gamelist_items")
+        conn.executemany(
+            """
+            INSERT INTO gamelist_items (
+                pos, id, igdb_id, title, year, status, rating, review, cover,
+                genres_json, platforms_json, category, added_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    pos,
+                    it["id"],
+                    it.get("igdbId"),
+                    it["title"],
+                    it.get("year") or "-",
+                    it["status"],
+                    float(it.get("rating") or 0),
+                    it.get("review") or "",
+                    it.get("cover"),
+                    json.dumps(it.get("genres") or [], ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(it.get("platforms") or [], ensure_ascii=False, separators=(",", ":")),
+                    int(it.get("category") or 0),
+                    int(it.get("addedAt") or 0),
+                    int(it.get("updatedAt") or 0),
+                )
+                for pos, it in enumerate(deduped)
+            ],
+        )
+    elif name == "setup":
+        conn.execute("DELETE FROM setup_items")
+        conn.executemany(
+            """
+            INSERT INTO setup_items (pos, id, item_group, category, name, icon, note, link, sort_order, added_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    pos,
+                    it["id"],
+                    it.get("group") or "pc",
+                    it["category"],
+                    it["name"],
+                    it.get("icon") or "other",
+                    it.get("note") or "",
+                    it.get("link") or "",
+                    int(it.get("sort") or 0),
+                    int(it.get("addedAt") or 0),
+                    int(it.get("updatedAt") or 0),
+                )
+                for pos, it in enumerate(deduped)
+            ],
+        )
+    elif name == "wishlist":
+        conn.execute("DELETE FROM wishlist_items")
+        conn.executemany(
+            """
+            INSERT INTO wishlist_items (
+                pos, id, title, category, status, priority, price, currency, note, link, image, added_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    pos,
+                    it["id"],
+                    it["title"],
+                    it["category"],
+                    it["status"],
+                    int(it.get("priority") or 2),
+                    float(it.get("price") or 0),
+                    it.get("currency") or "RUB",
+                    it.get("note") or "",
+                    it.get("link") or "",
+                    it.get("image") or "",
+                    int(it.get("addedAt") or 0),
+                    int(it.get("updatedAt") or 0),
+                )
+                for pos, it in enumerate(deduped)
+            ],
+        )
+    return deduped
+
+
+def kv_get(key: str, default: Any = None) -> Any:
+    with _db_lock, auth_db_connect() as conn:
+        row = conn.execute("SELECT value_json FROM kv WHERE key = ?", (key,)).fetchone()
+        if not row:
+            return default
+        try:
+            return json.loads(row["value_json"])
+        except Exception:
+            return default
+
+
+def kv_set(key: str, value: Any) -> None:
+    payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    now = int(time.time())
+    with _db_lock, auth_db_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO kv (key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+            """,
+            (key, payload, now),
+        )
+
+
+def init_auth_db() -> None:
+    now = int(time.time())
+    with _db_lock, auth_db_connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kv (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        legacy_tokens = DATA_DIR / "tokens.json"
+        if legacy_tokens.is_file():
+            existing = conn.execute("SELECT 1 FROM kv WHERE key = 'tokens'").fetchone()
+            if not existing:
+                try:
+                    parsed = json.loads(legacy_tokens.read_text(encoding="utf-8"))
+                    if isinstance(parsed, dict):
+                        conn.execute(
+                            "INSERT INTO kv (key, value_json, updated_at) VALUES ('tokens', ?, ?)",
+                            (json.dumps(parsed, ensure_ascii=False, separators=(",", ":")), now),
+                        )
+                except Exception:
+                    pass
+
+
+init_auth_db()
+
+
+def resolve_secret_key() -> str:
+    env_secret = os.environ.get("SECRET_KEY", "").strip()
+    if env_secret:
+        return env_secret
+    stored = kv_get("session_secret")
+    if isinstance(stored, str) and len(stored) >= 32:
+        return stored
+    generated = secrets.token_hex(32)
+    kv_set("session_secret", generated)
+    return generated
+
+
+SECRET_KEY = resolve_secret_key()
+
+
+def read_list(name: str, use_cache: bool = True) -> dict[str, Any]:
+    if use_cache:
+        cached = _list_cache.get(name)
+        if cached and cached["ts"] > time.time() - LIST_SPECS[name]["cache_ttl"]:
+            return {"revision": cached["revision"], "items": list(cached["items"])}
+    with _db_lock, db_connect() as conn:
+        row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
+        rev = max(0, int(row["revision"] or 0)) if row else 0
+        items = _select_collection_items(conn, name)
+        state = {"revision": rev, "items": items}
+        _list_cache[name] = {"ts": time.time(), "revision": rev, "items": list(items)}
+        return state
+
+
+def update_list_atomic(name: str, expected_revision: int, items: list[dict[str, Any]]) -> tuple[bool, dict[str, Any]]:
+    now = int(time.time())
+    with _db_lock, db_connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
+            current_rev = max(0, int(row["revision"] or 0)) if row else 0
+            if expected_revision != current_rev:
+                current_items = _select_collection_items(conn, name)
+                conn.execute("ROLLBACK")
+                state = {"revision": current_rev, "items": current_items}
+                _list_cache[name] = {"ts": time.time(), "revision": current_rev, "items": list(current_items)}
+                return False, state
+
+            next_rev = current_rev + 1
+            stored_items = _write_collection_items(conn, name, items)
+            conn.execute(
+                """
+                INSERT INTO collection_meta (name, revision, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    revision = excluded.revision,
+                    updated_at = excluded.updated_at
+                """,
+                (name, next_rev, now),
+            )
+            conn.execute("COMMIT")
+            state = {"revision": next_rev, "items": stored_items}
+            _list_cache[name] = {"ts": time.time(), "revision": next_rev, "items": list(stored_items)}
+            return True, state
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+def read_tokens() -> dict[str, Any]:
+    val = kv_get("tokens", {})
+    return val if isinstance(val, dict) else {}
+
+
+def write_tokens(value: dict[str, Any]) -> None:
+    kv_set("tokens", value)
+
+
+# ----------------------------- утилиты и безопасность -----------------------------
 
 
 def text(value: Any, max_len: int = 200) -> str:
@@ -180,10 +677,15 @@ def constant_time_equal(a: str, b: str) -> bool:
 
 
 def create_session() -> str:
-    payload = b64url(json.dumps({
-        "exp": int(time.time()) + SESSION_TTL_SECONDS,
-        "nonce": secrets.token_hex(16),
-    }, separators=(",", ":")).encode())
+    payload = b64url(
+        json.dumps(
+            {
+                "exp": int(time.time()) + SESSION_TTL_SECONDS,
+                "nonce": secrets.token_hex(16),
+            },
+            separators=(",", ":"),
+        ).encode()
+    )
     return f"{payload}.{sign(payload)}"
 
 
@@ -205,16 +707,40 @@ def require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail={"error": "unauthorized"})
 
 
-def cookie_header(name: str, value: str, max_age: int, path: str = "/") -> str:
-    parts = [f"{name}={value}", f"Max-Age={max_age}", f"Path={path}", "HttpOnly", "SameSite=Strict"]
-    if SECURE_COOKIES:
+def is_https_request(request: Request) -> bool:
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    if proto:
+        return proto == "https"
+    return request.url.scheme == "https"
+
+
+def cookie_header(request: Request, name: str, value: str, max_age: int, path: str = "/") -> str:
+    https = is_https_request(request)
+    if SECURE_COOKIES_MODE == "1":
+        secure = True
+    elif SECURE_COOKIES_MODE == "0":
+        secure = False
+    else:
+        secure = https
+
+    in_iframe = request.headers.get("sec-fetch-dest", "").lower() == "iframe"
+    same_site = "None" if (in_iframe and secure) else "Lax"
+
+    parts = [f"{name}={value}", f"Max-Age={max_age}", f"Path={path}", "HttpOnly", f"SameSite={same_site}"]
+    if secure:
         parts.append("Secure")
     return "; ".join(parts)
 
 
+def client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for") or ""
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:80]
+    return request.client.host if request.client else "unknown"
+
+
 def rate_limit(request: Request, name: str, limit: int = 60, period: int = 60) -> None:
-    ip = request.client.host if request.client else "unknown"
-    key = f"{name}:{ip}"
+    key = f"{name}:{client_ip(request)}"
     now = time.time()
     with _rate_lock:
         bucket = [ts for ts in _rate_buckets.get(key, []) if ts > now - period]
@@ -233,66 +759,21 @@ def j(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> JS
     return response
 
 
-def read_json_file(path: Path, default: Any) -> Any:
-    try:
-        if not path.exists():
-            return default
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
+def cached_api_get(key: str) -> tuple[int, dict[str, Any]] | None:
+    now = time.time()
+    with _api_cache_lock:
+        entry = _api_cache.get(key)
+        if entry and entry[0] > now:
+            return entry[1], entry[2]
+    return None
 
 
-def write_json_file(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, path)
+def cached_api_set(key: str, ttl: float, status: int, payload: dict[str, Any]) -> None:
+    with _api_cache_lock:
+        _api_cache[key] = (time.time() + ttl, status, payload)
 
 
-def list_path(name: str) -> Path:
-    return DATA_DIR / LIST_SPECS[name]["file"]
-
-
-def normalize_stored_list(value: Any) -> dict[str, Any]:
-    if isinstance(value, list):
-        return {"revision": 0, "items": value}
-    if isinstance(value, dict) and isinstance(value.get("items"), list):
-        revision = value.get("revision")
-        if not isinstance(revision, int) or revision < 0:
-            revision = 0
-        return {"revision": revision, "items": value["items"]}
-    return {"revision": 0, "items": []}
-
-
-def read_list(name: str, use_cache: bool = True) -> dict[str, Any]:
-    if use_cache:
-        cached = _list_cache.get(name)
-        if cached and cached["ts"] > time.time() - LIST_SPECS[name]["cache_ttl"]:
-            return {"revision": cached["revision"], "items": list(cached["items"])}
-    state = normalize_stored_list(read_json_file(list_path(name), None))
-    with _store_lock:
-        _list_cache[name] = {"ts": time.time(), "revision": state["revision"], "items": list(state["items"])}
-    return state
-
-
-def write_list(name: str, state: dict[str, Any]) -> None:
-    with _store_lock:
-        write_json_file(list_path(name), state)
-        _list_cache[name] = {"ts": time.time(), "revision": state["revision"], "items": list(state["items"])}
-
-
-def tokens_path() -> Path:
-    return DATA_DIR / "tokens.json"
-
-
-def read_tokens() -> dict[str, Any]:
-    value = read_json_file(tokens_path(), {})
-    return value if isinstance(value, dict) else {}
-
-
-def write_tokens(value: dict[str, Any]) -> None:
-    with _store_lock:
-        write_json_file(tokens_path(), value)
+# ----------------------------- нормализация списков -----------------------------
 
 
 def clean_string_array(value: Any, max_items: int, max_text: int) -> list[str]:
@@ -330,7 +811,10 @@ def normalize_gamelist_item(item: Any) -> dict[str, Any] | None:
     item_id = text(item.get("id"), 120)
     title = text(item.get("title"), 180)
     status = text(item.get("status"), 20)
-    rating = max(0, min(10, float(item.get("rating") or 0)))
+    try:
+        rating = max(0.0, min(10.0, float(item.get("rating") or 0)))
+    except Exception:
+        rating = 0.0
     if not ITEM_ID_PATTERN.fullmatch(item_id) or not title or status not in VALID_GAME_STATUSES:
         return None
     now = int(time.time() * 1000)
@@ -355,27 +839,29 @@ def normalize_setup_item(item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
     item_id = text(item.get("id"), 120)
-    section = text(item.get("section"), 20)
-    slot = text(item.get("slot"), 80)
-    title = text(item.get("title"), 180)
-    if not ITEM_ID_PATTERN.fullmatch(item_id) or section not in VALID_SETUP_SECTIONS or not slot or not title:
+    group = text(item.get("group") or item.get("section"), 20)
+    category = text(item.get("category") or item.get("slot"), 80)
+    name = text(item.get("name") or item.get("title"), 180)
+    if not ITEM_ID_PATTERN.fullmatch(item_id) or group not in VALID_SETUP_SECTIONS or not category or not name:
         return None
     icon = text(item.get("icon"), 20) or "other"
-    order = item.get("order")
+    raw_sort = item.get("sort") if item.get("sort") is not None else item.get("order")
     try:
-        order_value = max(0, min(999, round(float(order))))
+        sort_value = max(0, min(999, round(float(raw_sort))))
     except Exception:
-        order_value = 0
+        sort_value = 0
+    now = int(time.time() * 1000)
     return {
         "id": item_id,
-        "section": section,
-        "slot": slot,
-        "title": title,
+        "group": group,
+        "category": category,
+        "name": name,
         "icon": icon if icon in VALID_SETUP_ICONS else "other",
-        "note": text(item.get("note"), 300) or None,
-        "link": clean_url(item.get("link")),
-        "order": order_value,
-        "updatedAt": int(item.get("updatedAt") or int(time.time() * 1000)),
+        "note": text(item.get("note"), 300) or "",
+        "link": clean_url(item.get("link")) or "",
+        "sort": sort_value,
+        "addedAt": int(item.get("addedAt") or now),
+        "updatedAt": int(item.get("updatedAt") or now),
     }
 
 
@@ -391,9 +877,9 @@ def normalize_wishlist_item(item: Any) -> dict[str, Any] | None:
     currency = text(item.get("currency"), 8).upper() or "RUB"
     try:
         price = float(item.get("price"))
-        price = min(1_000_000_000, round(price * 100) / 100) if price > 0 else None
+        price = min(1_000_000_000, round(price * 100) / 100) if price > 0 else 0
     except Exception:
-        price = None
+        price = 0
     try:
         priority = int(item.get("priority"))
     except Exception:
@@ -407,9 +893,9 @@ def normalize_wishlist_item(item: Any) -> dict[str, Any] | None:
         "priority": priority if priority in VALID_WISH_PRIORITIES else 2,
         "price": price,
         "currency": currency if currency in VALID_CURRENCIES else "RUB",
-        "note": text(item.get("note"), 600) or None,
-        "link": clean_url(item.get("link")),
-        "image": clean_url(item.get("image")),
+        "note": text(item.get("note"), 2000) or "",
+        "link": clean_url(item.get("link")) or "",
+        "image": clean_url(item.get("image")) or "",
         "addedAt": int(item.get("addedAt") or now),
         "updatedAt": int(item.get("updatedAt") or now),
     }
@@ -423,31 +909,77 @@ NORMALIZERS = {
 }
 
 
+def init_db() -> None:
+    now = int(time.time())
+    with _db_lock, db_connect() as conn:
+        conn.executescript(SCHEMA_SQL)
+
+        meta_count = conn.execute("SELECT COUNT(*) AS cnt FROM collection_meta").fetchone()["cnt"]
+        has_legacy_json = any((DATA_DIR / spec["legacy_file"]).is_file() for spec in LIST_SPECS.values())
+
+        if meta_count == 0 and not has_legacy_json and SEED_SQL_PATH.is_file():
+            conn.executescript(SEED_SQL_PATH.read_text(encoding="utf-8"))
+
+        for name, spec in LIST_SPECS.items():
+            row = conn.execute("SELECT 1 FROM collection_meta WHERE name = ?", (name,)).fetchone()
+            if row:
+                continue
+            legacy_path = DATA_DIR / spec["legacy_file"]
+            initial_rev = 0
+            normalized_items: list[dict[str, Any]] = []
+            if legacy_path.is_file():
+                try:
+                    raw = _normalize_legacy_list(json.loads(legacy_path.read_text(encoding="utf-8")))
+                    initial_rev = raw["revision"]
+                    norm_fn = NORMALIZERS[spec["normalizer"]]
+                    for raw_item in raw["items"]:
+                        clean = norm_fn(raw_item)
+                        if clean is not None:
+                            normalized_items.append(clean)
+                except Exception:
+                    initial_rev = 0
+                    normalized_items = []
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                _write_collection_items(conn, name, normalized_items[: spec["max_items"]])
+                conn.execute(
+                    "INSERT INTO collection_meta (name, revision, updated_at) VALUES (?, ?, ?)",
+                    (name, initial_rev, now),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+
+init_db()
+
+
 def security_headers(nonce: str | None = None) -> dict[str, str]:
-    script_src = "script-src 'self' https://cdn.tailwindcss.com"
-    style_src = "'self' 'unsafe-inline' https://fonts.googleapis.com"
+    script_src = "script-src 'self'"
     if nonce:
-        script_src += f" 'nonce-{nonce}' 'unsafe-eval'"
-        style_src += f" 'nonce-{nonce}'"
+        script_src += f" 'nonce-{nonce}'"
+    style_src = "'self' 'unsafe-inline' https://fonts.googleapis.com"
     return {
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
-        "Cross-Origin-Opener-Policy": "same-origin",
-        "Content-Security-Policy": "; ".join([
-            "default-src 'self'",
-            "base-uri 'self'",
-            "object-src 'none'",
-            "frame-ancestors 'none'",
-            "form-action 'self'",
-            script_src,
-            f"style-src {style_src}",
-            f"style-src-elem {style_src}",
-            "style-src-attr 'unsafe-inline'",
-            "font-src https://fonts.gstatic.com",
-            "img-src 'self' data: https:",
-            "connect-src 'self' https://discord.com https://shikimori.one https://api.themoviedb.org",
-        ]),
+        "Content-Security-Policy": "; ".join(
+            [
+                "default-src 'self'",
+                "base-uri 'self'",
+                "object-src 'none'",
+                "form-action 'self'",
+                script_src,
+                f"style-src {style_src}",
+                f"style-src-elem {style_src}",
+                "style-src-attr 'unsafe-inline'",
+                "font-src 'self' https://fonts.gstatic.com data:",
+                "img-src 'self' data: https:",
+                "media-src 'self' blob:",
+                "connect-src 'self' https://discord.com",
+            ]
+        ),
     }
 
 
@@ -459,13 +991,17 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+# ----------------------------- API коллекций и админки -----------------------------
+
+
 def make_get_list(name: str):
     def endpoint() -> JSONResponse:
         try:
             state = read_list(name)
-            return j({"items": state["items"], "revision": state["revision"]}, headers={"Cache-Control": f"public, max-age={LIST_SPECS[name]['cache_ttl']}"})
+            return j({"items": state["items"], "revision": state["revision"]})
         except Exception:
             return j({"error": "storage_error", "items": [], "revision": 0}, 500)
+
     endpoint.__name__ = f"get_{name}"
     return endpoint
 
@@ -474,22 +1010,24 @@ def make_put_list(name: str):
     def endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         require_admin(request)
         rate_limit(request, f"write_{name}", 60, 60)
-        state = read_list(name, use_cache=False)
         try:
             revision = int(body.get("revision"))
         except Exception:
             revision = -1
         if revision < 0:
+            state = read_list(name, use_cache=False)
             return j({"error": "revision_required", "items": state["items"], "revision": state["revision"]}, 409)
-        if revision != state["revision"]:
-            return j({"error": "revision_conflict", "items": state["items"], "revision": state["revision"]}, 409)
+
         normalizer = NORMALIZERS[name]
         raw_items = body.get("items") if isinstance(body.get("items"), list) else []
         items = [normalizer(item) for item in raw_items]
         items = [item for item in items if item][: LIST_SPECS[name]["max_items"]]
-        next_state = {"revision": state["revision"] + 1, "items": items}
-        write_list(name, next_state)
-        return j({"ok": True, "items": items, "revision": next_state["revision"]})
+
+        ok, next_state = update_list_atomic(name, revision, items)
+        if not ok:
+            return j({"error": "revision_conflict", "items": next_state["items"], "revision": next_state["revision"]}, 409)
+        return j({"ok": True, "items": next_state["items"], "revision": next_state["revision"]})
+
     endpoint.__name__ = f"put_{name}"
     return endpoint
 
@@ -499,15 +1037,27 @@ for _name in LIST_SPECS:
     app.add_api_route(f"/api/{_name}", make_put_list(_name), methods=["PUT"])
 
 
+@app.get("/api/health")
+def health() -> JSONResponse:
+    return j({"ok": True})
+
+
 @app.get("/api/admin")
 def admin_check(request: Request) -> JSONResponse:
-    return j({"ok": verify_session(request.cookies.get(SESSION_COOKIE))})
+    tokens = read_tokens()
+    return j(
+        {
+            "ok": verify_session(request.cookies.get(SESSION_COOKIE)),
+            "configured": bool(ADMIN_PASSWORD),
+            "spotifyConnected": bool(tokens.get("spotify_refresh_token")),
+        }
+    )
 
 
 @app.delete("/api/admin")
-def admin_logout() -> JSONResponse:
+def admin_logout(request: Request) -> JSONResponse:
     response = j({"ok": True})
-    response.headers["Set-Cookie"] = cookie_header(SESSION_COOKIE, "", 0)
+    response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, "", 0)
     return response
 
 
@@ -515,17 +1065,15 @@ def admin_logout() -> JSONResponse:
 def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
     rate_limit(request, "admin_login", 10, 60)
     if not ADMIN_PASSWORD:
-        return j({"error": "admin_password_missing"}, 500)
+        return j({"error": "admin_password_missing"}, 503)
     if not constant_time_equal(text(body.get("password"), 512), ADMIN_PASSWORD):
         return j({"error": "invalid_password"}, 401)
     response = j({"ok": True})
-    response.headers["Set-Cookie"] = cookie_header(SESSION_COOKIE, create_session(), SESSION_TTL_SECONDS)
+    response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, create_session(), SESSION_TTL_SECONDS)
     return response
 
 
-IGDB_CLIENT_ID = os.environ.get("IGDB_CLIENT_ID", TWITCH_CLIENT_ID)
-IGDB_CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET", TWITCH_CLIENT_SECRET)
-IGDB_ACCESS_TOKEN = os.environ.get("IGDB_ACCESS_TOKEN", "")
+# ----------------------------- Поиск (TMDB / Shikimori / IGDB) -----------------------------
 
 
 def tmdb_poster(path: Any) -> str | None:
@@ -540,9 +1088,9 @@ def igdb_cover(image_id: Any) -> str | None:
 
 def search_tmdb(query: str, item_type: str) -> JSONResponse:
     if not TMDB_ACCESS_TOKEN and not TMDB_API_KEY:
-        return j({"error": "tmdb_key_missing"}, 500)
+        return j({"error": "tmdb_key_missing"}, 503)
     endpoint = "/3/search/tv" if item_type == "series" else "/3/search/movie"
-    params = {"query": query, "language": "ru-RU", "include_adult": "false", "page": 1}
+    params: dict[str, Any] = {"query": query, "language": "ru-RU", "include_adult": "false", "page": 1}
     headers = {"Accept": "application/json"}
     if TMDB_ACCESS_TOKEN:
         headers["Authorization"] = f"Bearer {TMDB_ACCESS_TOKEN.removeprefix('Bearer ')}"
@@ -559,14 +1107,16 @@ def search_tmdb(query: str, item_type: str) -> JSONResponse:
             original = text(item.get("original_name") if item_type == "series" else item.get("original_title")) or localized
             if not original:
                 continue
-            results.append({
-                "id": f"tmdb_{'tv' if item_type == 'series' else 'movie'}_{text(item.get('id'), 40)}",
-                "title": original,
-                "titleRu": localized if localized and localized != original else None,
-                "year": year_from(item.get("first_air_date") if item_type == "series" else item.get("release_date")),
-                "type": item_type,
-                "poster": clean_url(tmdb_poster(item.get("poster_path"))),
-            })
+            results.append(
+                {
+                    "id": f"tmdb_{'tv' if item_type == 'series' else 'movie'}_{text(item.get('id'), 40)}",
+                    "title": original,
+                    "titleRu": localized if localized and localized != original else None,
+                    "year": year_from(item.get("first_air_date") if item_type == "series" else item.get("release_date")),
+                    "type": item_type,
+                    "poster": clean_url(tmdb_poster(item.get("poster_path"))),
+                }
+            )
         return j({"results": results})
     except Exception:
         return j({"error": "tmdb_unavailable"}, 502)
@@ -577,7 +1127,7 @@ def search_shikimori(query: str) -> JSONResponse:
         res = requests.get(
             f"{SHIKIMORI_BASE}/api/animes",
             params={"search": query, "limit": 10, "order": "popularity"},
-            headers={"Accept": "application/json", "User-Agent": "krafen-watchlist/1.0"},
+            headers={"Accept": "application/json", "User-Agent": "krafen-site/2.0"},
             timeout=15,
         )
         data = res.json() if res.content else []
@@ -590,15 +1140,20 @@ def search_shikimori(query: str) -> JSONResponse:
             if not item_id or not title:
                 continue
             image = item.get("image") if isinstance(item.get("image"), dict) else {}
-            original = image.get("original")
-            results.append({
-                "id": f"sh_{item_id}",
-                "title": title,
-                "titleRu": text(item.get("russian")) or None,
-                "year": year_from(item.get("aired_on")),
-                "type": "anime",
-                "poster": clean_url(f"{SHIKIMORI_BASE}{original}") if original else None,
-            })
+            original = text(image.get("original"), 300)
+            poster_url = None
+            if original:
+                poster_url = clean_url(original if original.startswith("https://") else f"{SHIKIMORI_BASE}{original}")
+            results.append(
+                {
+                    "id": f"sh_{item_id}",
+                    "title": title,
+                    "titleRu": text(item.get("russian")) or None,
+                    "year": year_from(item.get("aired_on")),
+                    "type": "anime",
+                    "poster": poster_url,
+                }
+            )
         return j({"results": results})
     except Exception:
         return j({"error": "shikimori_unavailable"}, 502)
@@ -618,19 +1173,23 @@ def search(request: Request, q: str = "", type: str = "") -> JSONResponse:
     return j({"error": "invalid_type"}, 400)
 
 
-def get_igdb_token() -> str:
+def get_igdb_token(force_refresh: bool = False) -> str:
     global _igdb_token
     if IGDB_ACCESS_TOKEN:
         return IGDB_ACCESS_TOKEN.removeprefix("Bearer ")
-    if _igdb_token.get("access_token") and _igdb_token.get("expires_at", 0) > time.time() + 60:
+    if not force_refresh and _igdb_token.get("access_token") and _igdb_token.get("expires_at", 0) > time.time() + 60:
         return _igdb_token["access_token"]
     if not IGDB_CLIENT_ID or not IGDB_CLIENT_SECRET:
         return ""
-    res = requests.post(TWITCH_TOKEN_URL, data={
-        "client_id": IGDB_CLIENT_ID,
-        "client_secret": IGDB_CLIENT_SECRET,
-        "grant_type": "client_credentials",
-    }, timeout=15)
+    res = requests.post(
+        TWITCH_TOKEN_URL,
+        data={
+            "client_id": IGDB_CLIENT_ID,
+            "client_secret": IGDB_CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        },
+        timeout=15,
+    )
     data = res.json() if res.content else {}
     if not res.ok or not data.get("access_token"):
         return ""
@@ -641,44 +1200,61 @@ def get_igdb_token() -> str:
 
 def search_igdb(query: str) -> JSONResponse:
     client_id = IGDB_CLIENT_ID
-    token = get_igdb_token()
-    if not client_id or not token:
-        return j({"error": "igdb_key_missing"}, 500)
-    safe_query = text(query, 80).replace("\\", "\\\\").replace('"', '\\"')
-    body = (
-        'fields name,cover.image_id,genres.name,platforms.abbreviation,platforms.name,first_release_date,category; '
-        f'search "{safe_query}"; where version_parent = null; limit 10;'
-    )
+    if not client_id or (not IGDB_ACCESS_TOKEN and not IGDB_CLIENT_SECRET):
+        return j({"error": "igdb_key_missing"}, 503)
     try:
+        token = get_igdb_token()
+        if not token:
+            return j({"error": "igdb_unavailable"}, 502)
+        safe_query = text(query, 80).replace("\\", "\\\\").replace('"', '\\"')
+        body = (
+            "fields name,cover.image_id,genres.name,platforms.abbreviation,platforms.name,first_release_date,category; "
+            f'search "{safe_query}"; where version_parent = null; limit 10;'
+        )
         res = requests.post(
             f"{IGDB_BASE}/games",
             data=body,
             headers={"Accept": "application/json", "Client-ID": client_id, "Authorization": f"Bearer {token}"},
             timeout=15,
         )
+        if res.status_code == 401 and not IGDB_ACCESS_TOKEN:
+            token = get_igdb_token(force_refresh=True)
+            if token:
+                res = requests.post(
+                    f"{IGDB_BASE}/games",
+                    data=body,
+                    headers={"Accept": "application/json", "Client-ID": client_id, "Authorization": f"Bearer {token}"},
+                    timeout=15,
+                )
         data = res.json() if res.content else []
         if not res.ok or not isinstance(data, list):
             return j({"error": "igdb_unavailable"}, 502)
         results = []
         for item in data:
-            platforms = [text((p or {}).get("abbreviation") or (p or {}).get("name"), 24) for p in (item.get("platforms") or []) if isinstance(p, dict)]
+            platforms = [
+                text((p or {}).get("abbreviation") or (p or {}).get("name"), 24)
+                for p in (item.get("platforms") or [])
+                if isinstance(p, dict)
+            ]
             genres = [text((g or {}).get("name"), 28) for g in (item.get("genres") or []) if isinstance(g, dict)]
             cover = item.get("cover") if isinstance(item.get("cover"), dict) else {}
             raw_id = text(item.get("id"), 40)
             title = text(item.get("name"), 180)
             if not raw_id or not title:
                 continue
-            results.append({
-                "id": f"igdb_{raw_id}",
-                "igdbId": int(raw_id) if raw_id.isdigit() else None,
-                "title": title,
-                "year": year_from_unix(item.get("first_release_date")),
-                "type": "game",
-                "cover": igdb_cover(cover.get("image_id")),
-                "genres": [value for value in genres if value][:3],
-                "platforms": [value for value in platforms if value][:4],
-                "category": int(item.get("category") or 0),
-            })
+            results.append(
+                {
+                    "id": f"igdb_{raw_id}",
+                    "igdbId": int(raw_id) if raw_id.isdigit() else None,
+                    "title": title,
+                    "year": year_from_unix(item.get("first_release_date")),
+                    "type": "game",
+                    "cover": igdb_cover(cover.get("image_id")),
+                    "genres": [value for value in genres if value][:3],
+                    "platforms": [value for value in platforms if value][:4],
+                    "category": int(item.get("category") or 0),
+                }
+            )
         return j({"results": results})
     except Exception:
         return j({"error": "igdb_unavailable"}, 502)
@@ -693,24 +1269,37 @@ def game_search(request: Request, q: str = "") -> JSONResponse:
     return search_igdb(query)
 
 
+# ----------------------------- Музыка (Spotify + Last.fm) -----------------------------
+
+
 @app.get("/api/lastfm")
 def lastfm(request: Request) -> JSONResponse:
     rate_limit(request, "lastfm", 60, 60)
     if not LASTFM_API_KEY or not LASTFM_USER:
-        return j({"error": "lastfm_key_missing"}, 500)
+        return j({"error": "lastfm_key_missing"}, 503)
+
+    hit = cached_api_get("lastfm")
+    if hit:
+        return j(hit[1], hit[0])
+
     try:
-        res = requests.get(LASTFM_API_BASE, params={
-            "method": "user.getrecenttracks",
-            "user": LASTFM_USER,
-            "api_key": LASTFM_API_KEY,
-            "format": "json",
-            "limit": 1,
-        }, timeout=15)
+        res = requests.get(
+            LASTFM_API_BASE,
+            params={
+                "method": "user.getrecenttracks",
+                "user": LASTFM_USER,
+                "api_key": LASTFM_API_KEY,
+                "format": "json",
+                "limit": 1,
+            },
+            timeout=15,
+        )
         data = res.json() if res.content else {}
         if not res.ok or data.get("error"):
             return j({"error": "lastfm_unavailable"}, 502)
         recent = data.get("recenttracks") if isinstance(data.get("recenttracks"), dict) else {}
-        raw_track = (recent.get("track") or [None])[0]
+        raw_list = recent.get("track")
+        raw_track = raw_list[0] if isinstance(raw_list, list) and raw_list else (raw_list if isinstance(raw_list, dict) else None)
         track = None
         if isinstance(raw_track, dict):
             artist = raw_track.get("artist") if isinstance(raw_track.get("artist"), dict) else {}
@@ -729,7 +1318,9 @@ def lastfm(request: Request) -> JSONResponse:
                 "image": image,
                 "nowPlaying": attrs.get("nowplaying") == "true",
             }
-        return j({"track": track}, headers={"Cache-Control": "public, max-age=5"})
+        payload = {"track": track}
+        cached_api_set("lastfm", 5.0, 200, payload)
+        return j(payload)
     except Exception:
         return j({"error": "lastfm_unavailable"}, 502)
 
@@ -739,8 +1330,16 @@ def spotify_basic_auth() -> str:
     return "Basic " + base64.b64encode(raw).decode()
 
 
+def request_origin(request: Request) -> str:
+    if PUBLIC_ORIGIN:
+        return PUBLIC_ORIGIN
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
 def spotify_callback_url(request: Request) -> str:
-    return str(request.url.replace(query=None))
+    return f"{request_origin(request)}/api/spotify/callback"
 
 
 @app.get("/api/spotify/auth")
@@ -750,39 +1349,54 @@ def spotify_auth(request: Request):
         return j({"error": "spotify_credentials_missing"}, 503)
     state = b64url(secrets.token_bytes(18))
     callback = spotify_callback_url(request)
-    query = urlencode({
-        "response_type": "code",
-        "client_id": SPOTIFY_CLIENT_ID,
-        "redirect_uri": callback,
-        "scope": "user-read-playback-state user-read-recently-played",
-        "state": state,
-    })
+    query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": SPOTIFY_CLIENT_ID,
+            "redirect_uri": callback,
+            "scope": "user-read-playback-state user-read-recently-played",
+            "state": state,
+        }
+    )
     response = RedirectResponse(f"{SPOTIFY_AUTH_URL}?{query}", status_code=302)
-    response.headers["Set-Cookie"] = cookie_header(SPOTIFY_STATE_COOKIE, state, 600, "/api/spotify/callback")
+    response.headers["Set-Cookie"] = cookie_header(request, SPOTIFY_STATE_COOKIE, state, 600, "/api/spotify/callback")
     return response
 
 
 @app.get("/api/spotify/callback")
 def spotify_callback(request: Request, state: str = "", code: str = "", error: str = "") -> Response:
     cookie_state = request.cookies.get(SPOTIFY_STATE_COOKIE, "")
-    clear_cookie = cookie_header(SPOTIFY_STATE_COOKIE, "", 0, "/api/spotify/callback")
+    clear_cookie = cookie_header(request, SPOTIFY_STATE_COOKIE, "", 0, "/api/spotify/callback")
     if not cookie_state or not state or not constant_time_equal(cookie_state, state):
-        return PlainTextResponse("Spotify authorization state check failed. Return to the site and try again.", status_code=400, headers={"Set-Cookie": clear_cookie})
+        return PlainTextResponse(
+            "Проверка состояния авторизации Spotify не прошла. Вернитесь на сайт и попробуйте снова.",
+            status_code=400,
+            headers={"Set-Cookie": clear_cookie},
+        )
     if error:
         response = RedirectResponse("/?spotify=error", status_code=303)
         response.headers["Set-Cookie"] = clear_cookie
         return response
     if not code or not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-        return PlainTextResponse("Spotify credentials missing.", status_code=503, headers={"Set-Cookie": clear_cookie})
+        return PlainTextResponse("Не заданы SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET.", status_code=503, headers={"Set-Cookie": clear_cookie})
     try:
-        res = requests.post(SPOTIFY_TOKEN_URL, data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": spotify_callback_url(request),
-        }, headers={"Authorization": spotify_basic_auth(), "Content-Type": "application/x-www-form-urlencoded"}, timeout=15)
+        res = requests.post(
+            SPOTIFY_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": spotify_callback_url(request),
+            },
+            headers={"Authorization": spotify_basic_auth(), "Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
         data = res.json() if res.content else {}
         if not res.ok or not data.get("refresh_token"):
-            return PlainTextResponse("Spotify connection failed. Check the configuration and try again.", status_code=502, headers={"Set-Cookie": clear_cookie})
+            return PlainTextResponse(
+                "Не удалось подключить Spotify. Проверьте Redirect URI и секреты в .env.",
+                status_code=502,
+                headers={"Set-Cookie": clear_cookie},
+            )
         tokens = read_tokens()
         tokens["spotify_refresh_token"] = data["refresh_token"]
         tokens["spotify_access_token"] = {
@@ -794,21 +1408,30 @@ def spotify_callback(request: Request, state: str = "", code: str = "", error: s
         response.headers["Set-Cookie"] = clear_cookie
         return response
     except Exception:
-        return PlainTextResponse("Spotify connection failed. Check the configuration and try again.", status_code=502, headers={"Set-Cookie": clear_cookie})
+        return PlainTextResponse(
+            "Ошибка соединения при подключении Spotify.",
+            status_code=502,
+            headers={"Set-Cookie": clear_cookie},
+        )
 
 
-def get_spotify_access_token() -> str:
+def get_spotify_access_token(force_refresh: bool = False) -> str:
     tokens = read_tokens()
     cached = tokens.get("spotify_access_token") if isinstance(tokens.get("spotify_access_token"), dict) else None
-    if cached and cached.get("access_token") and int(cached.get("expires_at") or 0) > time.time() + 60:
+    if not force_refresh and cached and cached.get("access_token") and int(cached.get("expires_at") or 0) > time.time() + 60:
         return cached["access_token"]
     refresh_token = text(tokens.get("spotify_refresh_token"), 4000)
     if not refresh_token or not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
         return ""
-    res = requests.post(SPOTIFY_TOKEN_URL, data={"grant_type": "refresh_token", "refresh_token": refresh_token}, headers={
-        "Authorization": spotify_basic_auth(),
-        "Content-Type": "application/x-www-form-urlencoded",
-    }, timeout=15)
+    res = requests.post(
+        SPOTIFY_TOKEN_URL,
+        data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+        headers={
+            "Authorization": spotify_basic_auth(),
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout=15,
+    )
     data = res.json() if res.content else {}
     if not res.ok or not data.get("access_token"):
         return ""
@@ -825,11 +1448,25 @@ def get_spotify_access_token() -> str:
 @app.get("/api/spotify")
 def spotify(request: Request) -> JSONResponse:
     rate_limit(request, "spotify", 60, 60)
-    token = get_spotify_access_token()
+
+    hit = cached_api_get("spotify")
+    if hit:
+        return j(hit[1], hit[0])
+
+    try:
+        token = get_spotify_access_token()
+    except Exception:
+        token = ""
     if not token:
         return j({"error": "spotify_not_connected"}, 503)
+
     try:
         res = requests.get(f"{SPOTIFY_API_BASE}/me/player", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if res.status_code == 401:
+            token = get_spotify_access_token(force_refresh=True)
+            if token:
+                res = requests.get(f"{SPOTIFY_API_BASE}/me/player", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+
         item = None
         now_playing = False
         current_playback = False
@@ -841,15 +1478,20 @@ def spotify(request: Request) -> JSONResponse:
             current_playback = bool(item)
             progress_ms = data.get("progress_ms")
         elif res.status_code == 204:
-            recent_res = requests.get(f"{SPOTIFY_API_BASE}/me/player/recently-played?limit=1", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+            recent_res = requests.get(
+                f"{SPOTIFY_API_BASE}/me/player/recently-played?limit=1",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
+            )
             recent = recent_res.json() if recent_res.content else {}
             if not recent_res.ok:
                 return j({"error": "spotify_recently_played_http_error", "status": recent_res.status_code}, 502)
             items = recent.get("items") if isinstance(recent.get("items"), list) else []
             item = items[0].get("track") if items and isinstance(items[0], dict) and isinstance(items[0].get("track"), dict) else None
         else:
-            error = "spotify_reauthorization_required" if res.status_code == 401 else "spotify_playback_http_error"
-            return j({"error": error, "status": res.status_code}, 502)
+            err = "spotify_reauthorization_required" if res.status_code == 401 else "spotify_playback_http_error"
+            return j({"error": err, "status": res.status_code}, 502)
+
         track = None
         if item:
             album = item.get("album") if isinstance(item.get("album"), dict) else {}
@@ -865,20 +1507,29 @@ def spotify(request: Request) -> JSONResponse:
                 "progressMs": progress_ms,
                 "durationMs": item.get("duration_ms"),
             }
-        return j({"track": track}, headers={"Cache-Control": "public, max-age=3"})
+        payload = {"track": track}
+        cached_api_set("spotify", 3.0, 200, payload)
+        return j(payload)
     except Exception:
         return j({"error": "spotify_failed"}, 502)
 
 
-def twitch_app_token() -> str:
+# ----------------------------- Twitch & Discord -----------------------------
+
+
+def twitch_app_token(force_refresh: bool = False) -> str:
     global _twitch_token
-    if _twitch_token.get("token") and _twitch_token.get("expires_at", 0) > time.time() + 60:
+    if not force_refresh and _twitch_token.get("token") and _twitch_token.get("expires_at", 0) > time.time() + 60:
         return _twitch_token["token"]
-    res = requests.post(TWITCH_TOKEN_URL, data={
-        "client_id": TWITCH_CLIENT_ID,
-        "client_secret": TWITCH_CLIENT_SECRET,
-        "grant_type": "client_credentials",
-    }, timeout=15)
+    res = requests.post(
+        TWITCH_TOKEN_URL,
+        data={
+            "client_id": TWITCH_CLIENT_ID,
+            "client_secret": TWITCH_CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        },
+        timeout=15,
+    )
     data = res.json() if res.content else {}
     if not res.ok or not data.get("access_token"):
         raise RuntimeError("twitch_token_failed")
@@ -888,25 +1539,39 @@ def twitch_app_token() -> str:
 
 def helix(path: str, **params: Any) -> list[dict[str, Any]]:
     token = twitch_app_token()
-    res = requests.get(f"https://api.twitch.tv/helix{path}", params=params, headers={
-        "Client-ID": TWITCH_CLIENT_ID,
-        "Authorization": f"Bearer {token}",
-    }, timeout=15)
+    res = requests.get(
+        f"https://api.twitch.tv/helix{path}",
+        params=params,
+        headers={"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    if res.status_code == 401:
+        token = twitch_app_token(force_refresh=True)
+        res = requests.get(
+            f"https://api.twitch.tv/helix{path}",
+            params=params,
+            headers={"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
     if not res.ok:
         raise RuntimeError(f"twitch_http_{res.status_code}")
     data = res.json() if res.content else {}
     return data.get("data") if isinstance(data.get("data"), list) else []
 
 
-def twitch_status(login: str) -> dict[str, Any]:
+def twitch_status(login: str) -> tuple[int, dict[str, Any]]:
     if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
-        return {"error": "twitch_key_missing"}
+        return 503, {"error": "twitch_key_missing"}
+    cache_key = f"twitch:{login.lower()}"
+    hit = cached_api_get(cache_key)
+    if hit:
+        return hit
     try:
         users = helix("/users", login=login)
         streams = helix("/streams", user_login=login)
         user = users[0] if users else {}
         stream = streams[0] if streams else None
-        return {
+        payload = {
             "live": bool(stream),
             "login": user.get("login", login),
             "displayName": user.get("display_name", login),
@@ -914,22 +1579,70 @@ def twitch_status(login: str) -> dict[str, Any]:
             "profileImage": user.get("profile_image_url", ""),
             "viewCount": user.get("view_count", 0),
             "url": f"https://www.twitch.tv/{login}",
-            "stream": ({
-                "title": stream.get("title"),
-                "gameName": stream.get("game_name"),
-                "viewerCount": stream.get("viewer_count", 0),
-                "startedAt": stream.get("started_at"),
-            } if stream else None),
+            "stream": (
+                {
+                    "title": stream.get("title"),
+                    "gameName": stream.get("game_name"),
+                    "viewerCount": stream.get("viewer_count", 0),
+                    "startedAt": stream.get("started_at"),
+                }
+                if stream
+                else None
+            ),
         }
-    except Exception as exc:
-        return {"error": f"twitch_failed: {exc}"}
+        cached_api_set(cache_key, 60.0, 200, payload)
+        return 200, payload
+    except Exception:
+        return 502, {"error": "twitch_failed"}
 
 
 @app.get("/api/twitch")
 def twitch(request: Request, login: str = TWITCH_CHANNEL) -> JSONResponse:
     rate_limit(request, "twitch", 60, 60)
-    value = text(login, 80) or TWITCH_CHANNEL
-    return j(twitch_status(value), headers={"Cache-Control": "public, max-age=300"})
+    clean_login = re.sub(r"[^A-Za-z0-9_]", "", text(login, 40)) or TWITCH_CHANNEL
+    status_code, payload = twitch_status(clean_login)
+    return j(payload, status_code)
+
+
+@app.get("/api/discord")
+def discord_invite(request: Request, code: str = DISCORD_INVITE_CODE) -> JSONResponse:
+    rate_limit(request, "discord", 60, 60)
+    clean_code = re.sub(r"[^A-Za-z0-9_-]", "", text(code, 40)) or DISCORD_INVITE_CODE
+    if not clean_code:
+        return j({"error": "discord_code_missing"}, 503)
+    cache_key = f"discord:{clean_code}"
+    hit = cached_api_get(cache_key)
+    if hit:
+        return j(hit[1], hit[0])
+    try:
+        res = requests.get(
+            f"{DISCORD_INVITE_BASE}/{clean_code}",
+            params={"with_counts": "true"},
+            headers={"Accept": "application/json", "User-Agent": "krafen-site/2.0"},
+            timeout=12,
+        )
+        data = res.json() if res.content else {}
+        if not res.ok:
+            return j({"error": "discord_unavailable"}, 502)
+        guild = data.get("guild") if isinstance(data.get("guild"), dict) else {}
+        icon_hash = text(guild.get("icon"), 80)
+        guild_id = text(guild.get("id"), 40)
+        icon_url = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128" if guild_id and icon_hash else None
+        payload = {
+            "code": clean_code,
+            "name": text(guild.get("name"), 120) or "Discord Server",
+            "memberCount": int(data.get("approximate_member_count") or 0),
+            "onlineCount": int(data.get("approximate_presence_count") or 0),
+            "icon": icon_url,
+            "url": f"https://discord.gg/{clean_code}",
+        }
+        cached_api_set(cache_key, 180.0, 200, payload)
+        return j(payload)
+    except Exception:
+        return j({"error": "discord_unavailable"}, 502)
+
+
+# ----------------------------- VOD архив -----------------------------
 
 
 def safe_name(value: str) -> bool:
@@ -989,7 +1702,7 @@ def video_file_for(folder: Path, filename: str) -> Path | None:
     return fallback if fallback.is_file() else None
 
 
-@app.get("/vods/{vod_id}/{filename}")
+@app.api_route("/vods/{vod_id}/{filename}", methods=["GET", "HEAD"])
 def vod_video(vod_id: str, filename: str, request: Request) -> Response:
     folder = find_vod(vod_id)
     if not folder:
@@ -998,10 +1711,10 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
     if not video:
         return j({"error": "not found"}, 404)
     size = video.stat().st_size
-    start, end = 0, size - 1
+    start, end = 0, max(0, size - 1)
     range_header = request.headers.get("range")
     status_code = 200
-    if range_header:
+    if range_header and size > 0:
         try:
             raw_range = range_header.replace("bytes=", "", 1)
             start_s, _, end_s = raw_range.partition("-")
@@ -1013,7 +1726,14 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
             return j({"error": "range not satisfiable"}, 416, {"Content-Range": f"bytes */{size}"})
         end = min(end, size - 1)
         status_code = 206
-    length = end - start + 1
+    length = (end - start + 1) if size > 0 else 0
+
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(length)}
+    if status_code == 206:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+
+    if request.method == "HEAD":
+        return Response(status_code=status_code, media_type="video/mp4", headers=headers)
 
     def iterator():
         with video.open("rb") as fh:
@@ -1026,14 +1746,14 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
                 remaining -= len(chunk)
                 yield chunk
 
-    headers = {"Accept-Ranges": "bytes", "Content-Length": str(length)}
-    if status_code == 206:
-        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     return StreamingResponse(iterator(), status_code=status_code, media_type="video/mp4", headers=headers)
 
 
-STATIC_ALLOWED = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".mp4", ".txt"}
-STATIC_BLOCKED_ROOTS = {"data", "recorder", "functions", "node_modules", ".git", ".github", ".wrangler"}
+# ----------------------------- Статика -----------------------------
+
+STATIC_ALLOWED = {".html", ".css", ".js", ".xml", ".txt", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".mp4"}
+STATIC_EXACT_NAMES = {"CNAME"}
+STATIC_BLOCKED_ROOTS = {"data", "recorder", "vods", ".git", ".github", ".venv", "venv", "__pycache__"}
 
 
 def resolve_static(full_path: str) -> Path | None:
@@ -1045,20 +1765,22 @@ def resolve_static(full_path: str) -> Path | None:
     if not rel or rel.startswith("/") or ".." in rel.split("/"):
         return None
     parts = rel.split("/")
+    if any(p.startswith(".") for p in parts):
+        return None
     if parts[0] in STATIC_BLOCKED_ROOTS:
         return None
-    path = ROOT / rel
-    if path.is_dir():
-        path = path / "index.html"
-    if not path.suffix and path.with_name(path.name + ".html").is_file():
-        path = path.with_name(path.name + ".html")
-    if path.suffix.lower() not in STATIC_ALLOWED:
-        return None
-    if not path.is_file():
-        return None
+    path = (ROOT / rel).resolve()
     try:
         path.relative_to(ROOT)
     except Exception:
+        return None
+    if path.is_dir():
+        path = path / "index.html"
+    if not path.suffix and path.name not in STATIC_EXACT_NAMES and path.with_name(path.name + ".html").is_file():
+        path = path.with_name(path.name + ".html")
+    if path.name not in STATIC_EXACT_NAMES and path.suffix.lower() not in STATIC_ALLOWED:
+        return None
+    if not path.is_file():
         return None
     return path
 
@@ -1075,29 +1797,30 @@ def static_file(full_path: str) -> Response:
         except UnicodeDecodeError:
             return FileResponse(path, media_type=MIME[".html"])
         response = HTMLResponse(body)
+        response.headers["Cache-Control"] = "no-cache"
         for key, value in security_headers(nonce).items():
             response.headers[key] = value
         return response
-    media_type = MIME.get(path.suffix.lower(), "application/octet-stream")
+    media_type = MIME.get(path.suffix.lower(), "text/plain; charset=utf-8")
     return FileResponse(path, media_type=media_type)
 
 
 def start_recorder() -> subprocess.Popen | None:
     script = ROOT / "recorder" / "recorder.py"
     if not script.is_file():
-        print("recorder.py не найден — автозапись выключена", flush=True)
+        print("recorder/recorder.py не найден — автозапись выключена", flush=True)
         return None
-    print("автозапись: запускаю recorder.py", flush=True)
+    print("автозапись: запускаю recorder/recorder.py", flush=True)
     return subprocess.Popen([sys.executable, str(script)])
 
 
 def main() -> None:
     if not ADMIN_PASSWORD:
-        print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, admin panel отключена", flush=True)
+        print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, вход в админ-режим отключён", flush=True)
     rec_proc = start_recorder() if os.environ.get("RECORDER") == "1" else None
-    print(f"krafen server → http://localhost:{PORT}", flush=True)
+    print(f"krafen server → http://{HOST}:{PORT}", flush=True)
     print(f"статика: {ROOT}", flush=True)
-    print(f"данные: {DATA_DIR}", flush=True)
+    print(f"база данных: {DB_PATH}", flush=True)
     print(f"папка записей: {RECORD_DIR}", flush=True)
     try:
         uvicorn.run(app, host=HOST, port=PORT, log_level="info")

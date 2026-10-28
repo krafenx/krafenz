@@ -4,1160 +4,894 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>krafen</title>
-    <meta name="description" content="Привет, я krafen. Здесь ты найдёшь ссылки на мои соцсети, Discord-сервер и способы поддержать меня.">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
+    <meta name="description" content="Привет, я krafen (Святослав). Личный сайт: статус сервисов, музыка, коллекции, соцсети и способы поддержать.">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
     <style nonce="__CSP_NONCE__">
-        :root {
-            --bg: #030303;
-            --card: rgba(13, 13, 13, 0.45);
-            --accent: #5b2333;
-            --accent-light: #f7f4f3;
-            --accent-dark: #3a1420;
-            --accent-gradient: linear-gradient(135deg, var(--accent-light), var(--accent));
-            --border: rgba(255, 255, 255, 0.04);
-        }
-
-        *,
-        *::before,
-        *::after {
-            box-sizing: border-box;
-        }
-
-        html {
-            width: 100%;
-            overflow-x: hidden;
-            scroll-behavior: smooth;
-        }
-
-        body {
-            background-color: var(--bg);
-            font-family: "JetBrains Mono", monospace;
-            color: #e4e4e7;
-            min-height: 100vh;
-            width: 100%;
-            margin: 0;
-            overflow-x: hidden;
+        /* Музыкальный виджет с размытием обложки */
+        .music-card {
             position: relative;
-        }
-
-        .glass {
-            background: var(--card);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--border);
-            border-radius: 0.85rem;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .glass:hover {
-            border-color: rgba(91, 35, 51, 0.4);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(91, 35, 51, 0.1);
-            transform: translateY(-1px);
-        }
-
-        .music-player-card {
-            position: relative;
-            background: rgba(28, 28, 30, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 0.75rem;
             overflow: hidden;
-            min-height: 5rem;
-            transition: all 0.3s ease;
+            padding: 28px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 20px;
         }
-
-        .timeline-bar { height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
-        .timeline-progress { height: 100%; width: 0%; background: rgba(255,255,255,.9); border-radius: inherit; transition: width .8s linear; }
-        #track-timeline[hidden] { display: none !important; }
-        .site-notice { position: fixed; z-index: 100; top: 1rem; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 2rem); padding: .75rem 1rem; border: 1px solid rgba(255,255,255,.12); border-radius: .75rem; background: rgba(16,16,16,.96); color: #f4f4f5; font-size: .75rem; box-shadow: 0 10px 35px rgba(0,0,0,.35); }
-
-        .music-blur-bg {
+        .music-blur {
             position: absolute;
             inset: 0;
             background-size: cover;
             background-position: center;
-            filter: blur(32px) brightness(0.5) saturate(1.4);
-            opacity: 0.45;
+            filter: blur(36px) brightness(.42) saturate(1.25);
+            opacity: .5;
+            transform: scale(1.15);
+            pointer-events: none;
             z-index: 0;
-            transform: scale(1.1);
-            pointer-events: none;
+            transition: opacity .6s var(--ease);
         }
-
-        .music-content {
-            position: relative;
-            z-index: 1;
+        .music-body { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 18px; }
+        .music-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .music-eyebrow { font-size: 9px; letter-spacing: .26em; text-transform: uppercase; color: var(--silver-dim); }
+        .music-main { display: flex; align-items: center; gap: 18px; min-width: 0; }
+        .music-art {
+            width: 72px; height: 72px; border-radius: 14px; flex-shrink: 0;
+            overflow: hidden; background: rgba(255, 255, 255, .04);
+            border: 1px solid rgba(255, 255, 255, .12);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--silver-dim);
+            box-shadow: 0 14px 32px rgba(0, 0, 0, .55);
         }
-
-        .music-status-grid {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 19.25rem;
-            gap: 0.75rem;
-            align-items: stretch;
+        .music-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .track-title {
+            font-family: var(--font-heading); font-size: 24px; color: #fff;
+            line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-
-        .time-panel {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            border-radius: 0.75rem;
-            background:
-                linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--surface-strong) 60%, transparent)),
-                color-mix(in srgb, var(--bg) 70%, transparent);
-            min-height: 5rem;
-            padding: 0.6rem 0.7rem;
+        .track-artist { margin-top: 6px; font-size: 13px; color: var(--silver); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .track-timeline {
+            display: flex; align-items: center; gap: 12px;
+            font-family: var(--font-mono); font-size: 10px; color: var(--silver);
         }
-
-        .time-panel::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(circle at top right, color-mix(in srgb, var(--accent-light) 10%, transparent), transparent 38%);
-            pointer-events: none;
+        .timeline-bar {
+            flex: 1; height: 3px; border-radius: 999px;
+            background: rgba(255, 255, 255, .12); overflow: hidden;
         }
-
-        .time-panel > * {
-            position: relative;
-            z-index: 1;
-        }
-
-        .time-value {
-            color: #fff;
-            font-size: 1.35rem;
-            font-weight: 700;
-            line-height: 1;
-            letter-spacing: 0.03em;
-        }
-
-        .birthday-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.5rem;
-        }
-
-        .birthday-chip {
-            border: none;
-            border-radius: 0;
-            background: transparent;
-            padding: 0.25rem 0 0;
-            min-width: 0;
-        }
-
-        .birthday-chip span {
-            display: block;
-            color: #71717a;
-            font-size: 0.5rem;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-        }
-
-        .birthday-chip strong {
-            display: block;
-            margin-top: 0.25rem;
-            color: #f4f4f5;
-            font-size: 0.62rem;
-            line-height: 1.35;
-            word-break: break-word;
-        }
-
-        .widget-grid {
-            display: grid;
-            gap: 0.5rem;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-
-        .widget-stat {
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 0.7rem;
-            background: rgba(0, 0, 0, 0.18);
-            padding: 0.7rem 0.8rem;
-            min-width: 0;
-        }
-
-        .widget-stat span {
-            display: block;
-            color: #71717a;
-            font-size: 0.55rem;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-        }
-
-        .widget-stat strong {
-            display: block;
-            margin-top: 0.35rem;
-            color: #f4f4f5;
-            font-size: 0.72rem;
-            line-height: 1.45;
-            word-break: break-word;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.3rem 0.55rem;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            font-size: 0.55rem;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-        }
-
-        .status-badge.live {
-            color: #d5ffec;
-            background: rgba(22, 163, 74, 0.16);
-            border-color: rgba(22, 163, 74, 0.3);
-        }
-
-        .status-badge.idle {
-            color: #f7d9e2;
-            background: rgba(91, 35, 51, 0.25);
-            border-color: rgba(91, 35, 51, 0.4);
-        }
-
-        .status-dot {
-            width: 0.4rem;
-            height: 0.4rem;
-            border-radius: 999px;
-            background: currentColor;
-        }
-
-        .hint-link {
-            position: relative;
-        }
-
-        .hint-tooltip {
-            position: absolute;
-            left: 50%;
-            bottom: calc(100% + 0.5rem);
-            z-index: 30;
-            width: max-content;
-            transform: translateX(-50%) translateY(3px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 0.4rem;
-            background: #0a0a0c;
-            padding: 0.4rem 0.6rem;
-            color: #a1a1aa;
-            font-size: 0.7rem;
-            letter-spacing: 0.05em;
-            opacity: 0;
-            pointer-events: none;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
-            transition: all 0.15s ease;
-        }
-
-        .hint-link:hover .hint-tooltip {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-        }
-
-        .shimmer {
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.03), transparent);
-            background-size: 200% 100%;
-            animation: shimmer 1.8s infinite;
-        }
-
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
-
-        .top-nav-link {
-            color: rgba(255, 255, 255, 0.3);
-            font-size: 10px;
-            letter-spacing: 0.25em;
-            text-transform: uppercase;
-            transition: all 0.2s ease;
-        }
-
-        .top-nav-link:hover {
-            color: #fff;
-            text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
-        }
-
-        .top-nav-group {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-
-        @media (max-width: 480px) {
-            .top-nav-group { gap: 0.55rem; }
-            .top-nav-link { font-size: 9px; letter-spacing: 0.14em; }
-        }
-
-        .btn-action {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #d4d4d8;
-            transition: all 0.2s ease;
-        }
-
-        .btn-action:hover {
-            background: rgba(91, 35, 51, 0.2);
-            border-color: rgba(91, 35, 51, 0.5);
-            color: #fff;
-        }
-
-        .line-clamp-2 {
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
-            overflow: hidden;
-        }
-
-        .discord-widget {
-            position: relative;
-            overflow: hidden;
-            min-height: 100%;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 0.75rem;
-            background:
-                linear-gradient(135deg, rgba(88, 101, 242, 0.14), rgba(91, 35, 51, 0.12) 44%, rgba(0, 0, 0, 0.1)),
-                rgba(0, 0, 0, 0.18);
-        }
-
-        .discord-widget::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background:
-                linear-gradient(90deg, rgba(255, 255, 255, 0.035), transparent 28%),
-                radial-gradient(circle at 88% 12%, rgba(255, 255, 255, 0.08), transparent 32%);
-            pointer-events: none;
-        }
-
-        .discord-widget > * {
-            position: relative;
-            z-index: 1;
-        }
-
-        .discord-icon {
-            width: 3.2rem;
-            height: 3.2rem;
-            border-radius: 0.85rem;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.05);
-            object-fit: cover;
-            flex-shrink: 0;
-        }
-
-        .discord-stat-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 0.5rem;
-        }
-
-        .presence-bar {
-            height: 4px;
-            overflow: hidden;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .presence-bar-fill {
-            height: 100%;
-            width: 0%;
+        .timeline-progress {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, var(--crimson-bright), #ff9e9e);
             border-radius: inherit;
-            background: linear-gradient(90deg, rgba(213, 255, 236, 0.9), rgba(88, 101, 242, 0.9));
+            box-shadow: 0 0 10px rgba(163, 19, 19, .8);
+            transition: width .8s linear;
         }
 
-        /* STARFIELD V3 */
-
-        #starfield {
-            position: fixed;
-            inset: 0;
-            overflow: hidden;
-            pointer-events: none;
-            z-index: -2;
+        /* Twitch & Discord внутри карточек */
+        .avatar {
+            width: 48px; height: 48px; border-radius: 13px; object-fit: cover;
+            border: 1px solid rgba(255, 255, 255, .12); flex-shrink: 0;
+            background: rgba(255, 255, 255, .04);
         }
+        .twitch-title { font-size: 13px; color: var(--silver-bright); line-height: 1.65; }
+        .twitch-meta { font-size: 11px; color: var(--silver-dim); letter-spacing: .04em; }
 
-        body::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background: radial-gradient(circle at 50% 0%, rgba(91, 35, 51, 0.18), transparent 55%);
-            pointer-events: none;
-            z-index: -1;
+        .stat-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .stat-cell {
+            padding: 13px 16px; border-radius: 13px;
+            background: rgba(255, 255, 255, .025);
+            border: 1px solid rgba(255, 255, 255, .07);
         }
+        .stat-cell span { display: block; font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--silver-dim); }
+        .stat-cell strong { display: block; margin-top: 6px; font-family: var(--font-mono); font-size: 16px; color: #fff; }
 
-        .stars {
-            position: absolute;
-            inset: -100%;
+        /* Крипто-строки и донаты */
+        .crypto-list { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+        .crypto-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 11px 14px; border-radius: 12px;
+            background: rgba(255, 255, 255, .025);
+            border: 1px solid rgba(255, 255, 255, .07);
+            transition: border-color .3s var(--ease), background .3s var(--ease);
         }
-
-        .stars-small {
-            background-image:
-                radial-gradient(1px 1px at 40px 60px, #fff, transparent),
-                radial-gradient(1px 1px at 120px 180px, #fff, transparent),
-                radial-gradient(1px 1px at 220px 340px, #fff, transparent),
-                radial-gradient(1px 1px at 460px 120px, #fff, transparent),
-                radial-gradient(1px 1px at 700px 540px, #fff, transparent);
-            background-size: 800px 800px;
-            opacity: 0.45;
-            animation: drift-small 240s linear infinite;
+        .crypto-row:hover { border-color: rgba(163, 19, 19, .4); background: rgba(124, 10, 10, .06); }
+        .crypto-tag {
+            font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+            letter-spacing: .12em; color: var(--crimson-bright); width: 38px; flex-shrink: 0;
         }
-
-        .stars-medium {
-            background-image:
-                radial-gradient(2px 2px at 100px 140px, #fff, transparent),
-                radial-gradient(2px 2px at 350px 500px, #fff, transparent),
-                radial-gradient(2px 2px at 700px 260px, #fff, transparent);
-            background-size: 1000px 1000px;
-            opacity: 0.35;
-            animation: drift-medium 180s linear infinite;
+        .crypto-addr {
+            font-family: var(--font-mono); font-size: 12px; color: var(--silver-bright);
+            min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-
-        .stars-large {
-            background-image:
-                radial-gradient(3px 3px at 250px 250px, #fff, transparent),
-                radial-gradient(3px 3px at 900px 600px, #fff, transparent);
-            background-size: 1200px 1200px;
-            opacity: 0.25;
-            animation: drift-large 120s linear infinite;
+        .copy-btn {
+            padding: 6px 12px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .2);
+            background: rgba(255, 255, 255, .04);
+            color: var(--silver); font-family: var(--font-sans);
+            font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+            cursor: pointer; flex-shrink: 0; transition: all .25s var(--ease);
         }
+        .copy-btn:hover { color: #fff; border-color: rgba(163, 19, 19, .6); background: rgba(124, 10, 10, .25); }
 
-        @keyframes drift-small {
-            from { transform: translateY(0); }
-            to { transform: translateY(800px); }
+        .donate-pills { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+        .hint-link { position: relative; }
+        .hint-tooltip {
+            position: absolute; left: 50%; bottom: calc(100% + 10px); z-index: 30;
+            transform: translateX(-50%) translateY(4px);
+            padding: 8px 12px; border-radius: 10px;
+            background: rgba(10, 10, 14, .96); border: 1px solid var(--glass-border);
+            color: var(--silver); font-size: 11px; letter-spacing: .03em; text-transform: none;
+            white-space: nowrap; opacity: 0; pointer-events: none;
+            box-shadow: 0 14px 34px rgba(0, 0, 0, .75);
+            transition: opacity .2s var(--ease), transform .2s var(--ease);
         }
+        .hint-link:hover .hint-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-        @keyframes drift-medium {
-            from { transform: translateY(0); }
-            to { transform: translateY(1000px); }
-        }
-
-        @keyframes drift-large {
-            from { transform: translateY(0); }
-            to { transform: translateY(1200px); }
-        }
-
-        @media (max-width: 640px) {
-            .music-status-grid,
-            .birthday-grid,
-            .discord-stat-grid {
-                grid-template-columns: minmax(0, 1fr);
-            }
-
-            .music-content {
-                flex-direction: row;
-                align-items: center;
-                gap: 0.7rem;
-            }
-
-            .music-content > .flex-1 { width: auto; }
-            #music-art-container img { width: 3.5rem; height: 3.5rem; }
-
-            .widget-grid {
-                grid-template-columns: minmax(0, 1fr);
-            }
-        }
-
-        @media (max-width: 900px) {
-            .music-status-grid {
-                grid-template-columns: minmax(0, 1fr);
-            }
+        .social-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+        @media (max-width: 980px) { .social-grid-4 { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 620px) {
+            .social-grid-4 { grid-template-columns: 1fr; }
+            .music-art { width: 58px; height: 58px; }
+            .track-title { font-size: 20px; }
         }
     </style>
-    <link rel="stylesheet" href="/styles/themes.css?v=20261009-5">
-    <script nonce="__CSP_NONCE__" src="/styles/themes.js?v=20261009-3" defer></script>
-    <link rel="stylesheet" href="/styles/krafen-unified.css?v=20261028-1">
-    <script src="/styles/krafen-unified.js?v=20261028-1" defer></script>
+    <script nonce="__CSP_NONCE__" src="/app.js" defer></script>
 </head>
-<body class="p-4 sm:p-6 md:p-10 flex flex-col items-center">
-    <div id="starfield">
-        <div class="stars stars-small"></div>
-        <div class="stars stars-medium"></div>
-        <div class="stars stars-large"></div>
+<body>
+    <div id="glow"></div>
+    <canvas id="rain"></canvas>
+    <div class="fog"></div>
+    <div class="fog f2"></div>
+    <div id="flash"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+
+    <nav class="topnav" aria-label="Навигация по сайту">
+        <a class="brand" href="#hero">kra<em>fen</em></a>
+        <div class="links">
+            <a class="active" href="#hero">Главная</a>
+            <a href="/watchlist">Watchlist</a>
+            <a href="/gamelist">Gamelist</a>
+            <a href="/setup">Setup</a>
+            <a href="/wishlist">Wishlist</a>
+            <a href="/tasks">Tasks</a>
+            <a href="/danonsha">danonsha</a>
+        </div>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Меню</button>
+    </nav>
+
+    <div class="mobile-nav" id="mobile-nav" aria-label="Мобильное меню">
+        <button class="mobile-nav-close" type="button" aria-label="Закрыть меню">✕</button>
+        <a class="active" href="#hero">Главная</a>
+        <a href="/watchlist">Watchlist</a>
+        <a href="/gamelist">Gamelist</a>
+        <a href="/setup">Setup</a>
+        <a href="/wishlist">Wishlist</a>
+        <a href="/tasks">Tasks</a>
+        <a href="/danonsha">danonsha</a>
     </div>
 
-    <div class="w-full max-w-[1440px] flex flex-col">
-        <nav class="w-full flex items-center justify-between gap-3 flex-wrap mb-5 px-1" aria-label="site sections">
-            <div class="top-nav-group">
-                <a class="top-nav-link" href="/watchlist">watchlist</a>
-                <a class="top-nav-link" href="/gamelist">gamelist</a>
-                <a class="top-nav-link" href="/danonsha">моя подруга</a>
-            </div>
-            <div class="top-nav-group">
-                <a class="top-nav-link" href="/setup">setup</a>
-                <a class="top-nav-link" href="/wishlist">wishlist</a>
-            </div>
-        </nav>
+    <div class="rail-line"></div>
+    <div class="rail-progress" id="rail-progress"></div>
+    <nav class="rail" aria-label="Секции страницы">
+        <a href="#hero" data-sec="hero"><span class="dot"></span><span class="lbl">начало</span></a>
+        <a href="#live" data-sec="live"><span class="dot"></span><span class="lbl">пульс</span></a>
+        <a href="#collections" data-sec="collections"><span class="dot"></span><span class="lbl">списки</span></a>
+        <a href="#socials" data-sec="socials"><span class="dot"></span><span class="lbl">сети</span></a>
+        <a href="#support" data-sec="support"><span class="dot"></span><span class="lbl">поддержка</span></a>
+    </nav>
 
-        <div class="grid grid-cols-12 gap-4 w-full">
-            <div class="glass col-span-12 md:col-span-8 p-5 flex flex-col justify-between min-h-[160px]">
-                <div>
-                    <h1 class="text-3xl font-bold mb-2 tracking-tight text-white">krafen</h1>
-<p class="text-zinc-400 text-xs leading-relaxed max-w-xl whitespace-pre-line">my name's svyatoslav, my nickname is krafen and i'm 20 years old.
-    i don't have much to say about myself honestly sooo...</p>
+    <main>
+        <!-- 01 / HERO -->
+        <section class="hero section" id="hero">
+            <div class="ghost">01</div>
+            <div class="hero-inner">
+                <span class="hero-status" id="hero-status"><span class="dot"></span>проверяю статус…</span>
+                <div class="hero-eyebrow">profile · collections · live status</div>
+                <h1 class="hero-name">kra<span class="grad">fen</span></h1>
+                <p class="hero-tagline">Меня зовут Святослав, мне 20 лет, никнейм — <em>krafen</em>.<br>
+                Здесь собраны мои коллекции, музыка в реальном времени, эфиры и все ссылки в одном месте.</p>
+                <div class="hero-actions">
+                    <a class="btn-primary" href="#collections">Коллекции</a>
+                    <a class="btn-ghost" href="/danonsha">danonsha ↗</a>
+                    <a class="btn-ghost" href="https://t.me/krafen" target="_blank" rel="noopener noreferrer">
+                        <svg width="15" height="15" viewBox="0 0 24 24"><path d="M21.9 4.6 18.8 19c-.2 1-.8 1.2-1.7.8l-4.6-3.4-2.2 2.1c-.3.3-.5.5-.9.5l.3-4.6 8.5-7.7c.4-.3-.1-.5-.6-.2L7.6 13.1l-4.4-1.4c-1-.3-1-1 .2-1.4l17.2-6.6c.8-.3 1.5.2 1.3.9z"/></svg>
+                        Telegram
+                    </a>
                 </div>
             </div>
+            <div class="scroll-cue"><div class="wheel"></div>листай</div>
+        </section>
 
-            <div class="glass col-span-12 md:col-span-4 p-4 flex flex-col justify-between">
-                <div class="flex justify-between items-center mb-2">
-                    <h2 class="text-[10px] font-bold uppercase text-zinc-600 tracking-[0.2em]">Twitch</h2>
-                    <span class="text-[9px] text-zinc-500">Status</span>
-                </div>
-                <div id="twitch-card" class="text-xs flex-1 flex flex-col justify-center">
-                    <div class="h-16 bg-white/5 rounded-lg shimmer"></div>
-                </div>
+        <!-- 02 / LIVE STATUS -->
+        <section class="section" id="live">
+            <div class="ghost">02</div>
+            <div class="reveal">
+                <div class="sec-eyebrow">01 / статус и время</div>
+                <h2>Сейчас в сети</h2>
+                <p class="sub">Музыка из Spotify и Last.fm, локальное время, статус канала на Twitch и Discord-сообщество.</p>
             </div>
 
-            <div class="glass col-span-12 md:col-span-7 p-2 flex flex-col justify-between">
-                <div class="sr-only">
-                    <h2 class="text-[10px] font-bold uppercase text-zinc-600 tracking-[0.2em]">Now Playing</h2>
-                    <span class="text-zinc-500 text-[9px] tracking-widest uppercase">Spotify</span>
-                </div>
-
-                <div class="music-status-grid">
-                    <div class="music-player-card p-2 sm:p-2.5">
-                        <div id="music-blur" class="music-blur-bg"></div>
-                        <div class="music-content flex flex-col sm:flex-row items-center gap-2.5 min-w-0">
-                            <div id="music-art-container" class="flex-shrink-0">
-                                <div class="w-12 h-12 sm:w-14 sm:h-14 bg-white/5 rounded-md shimmer"></div>
+            <div class="grid-2" style="margin-top:36px;">
+                <div class="glass music-card reveal" style="--d:.06s;">
+                    <div class="music-blur" id="music-blur"></div>
+                    <div class="music-body">
+                        <div class="music-head">
+                            <span class="music-eyebrow" id="music-source">Spotify / Last.fm</span>
+                            <span class="status-badge muted" id="track-playback-status"><span class="dot"></span>загрузка…</span>
+                        </div>
+                        <div class="music-main">
+                            <div class="music-art" id="music-art-container">
+                                <div class="shimmer" style="width:100%;height:100%;"></div>
                             </div>
-                            <div class="flex-1 min-w-0 w-full">
-                                <div class="flex justify-between items-start gap-2 mb-1">
-                                    <div class="min-w-0">
-                                        <div id="track-name" class="text-white font-medium truncate text-sm sm:text-base">Loading track...</div>
-                                        <div id="track-artist" class="text-zinc-400 text-xs mt-0.5">
-                                            <span class="text-zinc-500">by</span> <span class="underline decoration-zinc-600">Please wait</span>
-                                        </div>
-                                    </div>
-                                    <div class="text-zinc-400 opacity-60 hover:opacity-100 transition">
-                                        <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.494 17.306c-.216.354-.678.47-1.032.256-2.864-1.75-6.47-2.144-10.716-1.18-.404.092-.812-.162-.904-.564-.092-.403.162-.812.564-.904 4.646-1.062 8.624-.613 11.832 1.343.354.215.47.677.256 1.033zm1.467-3.258c-.272.44-.847.584-1.288.312-3.278-2.015-8.277-2.603-12.155-1.425-.494.15-1.018-.13-1.168-.623-.15-.493.13-1.018.623-1.168 4.433-1.344 9.935-.696 13.676 1.604.44.27.584.846.312 1.287zm.126-3.41c-3.93-2.334-10.418-2.55-14.19-1.405-.602.183-1.242-.152-1.425-.754-.183-.603.152-1.242.754-1.425 4.344-1.32 11.503-1.07 16.035 1.62.543.322.72 1.025.4 1.568-.323.542-1.024.72-1.574.396z"/></svg>
-                                    </div>
-                                </div>
-
-                                <div id="track-playback-status" class="mt-2.5 flex items-center gap-2 text-[10px] text-zinc-500 tracking-wider">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span>
-                                    <span>Last played</span>
-                                </div>
-                                <div id="track-timeline" class="mt-2.5 flex items-center gap-2 text-[10px] text-zinc-500 tracking-wider" hidden>
-                                    <span id="track-time-current">0:00</span>
-                                    <div class="timeline-bar flex-1"><div id="track-progress" class="timeline-progress"></div></div>
-                                    <span id="track-time-total">0:00</span>
-                                </div>
+                            <div class="col">
+                                <div class="track-title" id="track-name">Загрузка трека…</div>
+                                <div class="track-artist" id="track-artist">Пожалуйста, подождите</div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="time-panel flex flex-col justify-between gap-3">
-                        <div>
-                            <div id="local-time" class="time-value font-bold">00:00:00</div>
-                            <div id="local-date" class="mt-1 text-[9px] uppercase tracking-[0.18em] text-zinc-400">Loading date</div>
-                        </div>
-                        <div class="birthday-grid">
-                            <div class="birthday-chip">
-                                <span>Birthday</span>
-                                <strong id="birthday-date">13 January</strong>
-                            </div>
-                            <div class="birthday-chip">
-                                <span>Remaining</span>
-                                <strong id="birthday-countdown">--d --h --m --s</strong>
-                            </div>
+                        <div class="track-timeline" id="track-timeline" hidden>
+                            <span id="track-time-current">0:00</span>
+                            <div class="timeline-bar"><div class="timeline-progress" id="track-progress"></div></div>
+                            <span id="track-time-total">0:00</span>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="glass col-span-12 md:col-span-5 p-2 flex flex-col justify-between">
-                <div class="sr-only">
-                    <h2 class="text-[10px] font-bold uppercase text-zinc-600 tracking-[0.2em]">Discord Server</h2>
-                    <span class="text-[9px] text-zinc-500">Community</span>
-                </div>
-                <div id="discord-server-card" class="text-xs flex-1 flex flex-col justify-center">
-                    <div class="h-16 bg-white/5 rounded-lg shimmer"></div>
-                </div>
-            </div>
-
-            <div id="contact-card" class="glass col-span-12 md:col-span-4 p-4 flex flex-col justify-between">
-                <div class="h-24 bg-white/5 rounded-lg shimmer"></div>
-            </div>
-
-            <div id="social-links-card" class="glass col-span-12 md:col-span-8 p-4 flex flex-col justify-between">
-                <div class="h-24 bg-white/5 rounded-lg shimmer"></div>
-            </div>
-
-            <div class="glass col-span-12 p-4 sm:p-5">
-                <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4/5 pb-3">
+                <div class="glass pad-card reveal" style="--d:.12s; display:flex; flex-direction:column; justify-content:space-between;">
                     <div>
-                        <h2 class="text-[10px] font-bold uppercase text-zinc-500 tracking-[0.2em]">Donations</h2>
-                        <p class="text-[9px] text-zinc-500 mt-1 max-w-xl">if you for some reason want to support me, i accept anything listed below. huge thanks in advance.</p>
+                        <div class="music-eyebrow" style="margin-bottom:12px;">Europe / Moscow</div>
+                        <div id="local-time" class="time-value">00:00:00</div>
+                        <div id="local-date" class="time-date">Загрузка даты…</div>
+                    </div>
+                    <div class="mini-grid">
+                        <div><span>День рождения</span><strong id="birthday-date">13 января</strong></div>
+                        <div><span>Осталось</span><strong id="birthday-countdown" class="mono">--d --h --m --s</strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2-eq" style="margin-top:20px;">
+                <div class="glass pad-card reveal" id="twitch-card" style="--d:.16s;">
+                    <div class="stack">
+                        <div class="shimmer inner-box" style="height:82px;"></div>
+                        <div class="shimmer inner-box" style="height:36px;"></div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div class="rounded-xl border border-white/5 bg-white/[0.01] p-3.5 flex flex-col justify-between">
-                        <div>
-                            <div class="text-[9px] uppercase tracking-widest text-zinc-500 mb-2.5">Cryptocurrency</div>
-                            <div class="flex flex-col gap-1.5 mb-4">
-                                <div class="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-2.5 py-1.5 text-[11px] border border-white/5 w-full overflow-hidden">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="font-bold text-zinc-500 text-[10px] flex-shrink-0 w-7">TON</span>
-                                        <span class="text-zinc-200 truncate font-semibold">angelkrafen.ton</span>
-                                    </div>
-                                    <button type="button" data-copy="angelkrafen.ton" class="text-zinc-400 hover:text-white px-1 text-xs" title="Copy TON address">&#128203;</button>
-                                </div>
-                                <div class="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-2.5 py-1.5 text-[11px] border border-white/5 w-full overflow-hidden">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="font-bold text-zinc-500 text-[10px] flex-shrink-0 w-7">BTC</span>
-                                        <span class="text-zinc-200 truncate font-semibold">12nCyTz9i6FaTyGnBUpLmrpTTodQCKEbiu</span>
-                                    </div>
-                                    <button type="button" data-copy="12nCyTz9i6FaTyGnBUpLmrpTTodQCKEbiu" class="text-zinc-400 hover:text-white px-1 text-xs" title="Copy BTC address">&#128203;</button>
-                                </div>
-                                <div class="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-2.5 py-1.5 text-[11px] border border-white/5 w-full overflow-hidden">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="font-bold text-zinc-500 text-[10px] flex-shrink-0 w-7">ETH</span>
-                                        <span class="text-zinc-200 truncate font-semibold">0xc99b815e2b8988e4479298bbdc4235a685aa6445</span>
-                                    </div>
-                                    <button type="button" data-copy="0xc99b815e2b8988e4479298bbdc4235a685aa6445" class="text-zinc-400 hover:text-white px-1 text-xs" title="Copy ETH address">&#128203;</button>
-                                </div>
-                                <div class="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-2.5 py-1.5 text-[11px] border border-white/5 w-full overflow-hidden">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="font-bold text-zinc-500 text-[10px] flex-shrink-0 w-7">TRX</span>
-                                        <span class="text-zinc-200 truncate font-semibold">T9z2B5sfyWqnXeVfEg3gJt3Fi9suVLaFxH</span>
-                                    </div>
-                                    <button type="button" data-copy="T9z2B5sfyWqnXeVfEg3gJt3Fi9suVLaFxH" class="text-zinc-400 hover:text-white px-1 text-xs" title="Copy TRX address">&#128203;</button>
-                                </div>
+                <div class="glass pad-card reveal" id="discord-server-card" style="--d:.22s;">
+                    <div class="stack">
+                        <div class="shimmer inner-box" style="height:82px;"></div>
+                        <div class="shimmer inner-box" style="height:36px;"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 03 / COLLECTIONS -->
+        <section class="section" id="collections">
+            <div class="ghost">03</div>
+            <div class="reveal">
+                <div class="sec-eyebrow">02 / личные списки</div>
+                <h2>Коллекции и разделы</h2>
+                <p class="sub">Собственные списки просмотренного, пройденных игр, конфигурации ПК, покупок и задач.</p>
+            </div>
+            <div class="social-grid reveal" id="collections-grid" style="margin-top:36px;">
+                <a href="/watchlist" class="social-card">
+                    <span class="num" id="count-watchlist">01</span>
+                    <svg class="ico-stroke" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4"/></svg>
+                    <div class="name">Watchlist</div>
+                    <div class="desc">Аниме, фильмы и сериалы — просмотренное и планы</div>
+                    <span class="chev">›</span>
+                </a>
+                <a href="/gamelist" class="social-card">
+                    <span class="num" id="count-gamelist">02</span>
+                    <svg class="ico-stroke" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></svg>
+                    <div class="name">Gamelist</div>
+                    <div class="desc">Пройденные игры с личными оценками и отзывами</div>
+                    <span class="chev">›</span>
+                </a>
+                <a href="/setup" class="social-card">
+                    <span class="num" id="count-setup">03</span>
+                    <svg class="ico-stroke" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/><rect x="10" y="10" width="4" height="4" rx="0.6"/><path d="M9.5 3.2v3.8M14.5 3.2v3.8M9.5 17v3.8M14.5 17v3.8M3.2 9.5H7M3.2 14.5H7M17 9.5h3.8M17 14.5h3.8"/></svg>
+                    <div class="name">Setup</div>
+                    <div class="desc">Комплектующие системного блока и вся периферия</div>
+                    <span class="chev">›</span>
+                </a>
+                <a href="/wishlist" class="social-card">
+                    <span class="num" id="count-wishlist">04</span>
+                    <svg class="ico-stroke" viewBox="0 0 24 24"><path d="M12 21s-6.7-4.35-9.33-8.18C.8 10.1 1.4 6.3 4.4 4.6a5.3 5.3 0 0 1 7.6 1.7 5.3 5.3 0 0 1 7.6-1.7c3 1.7 3.6 5.5 1.73 8.22C18.7 16.65 12 21 12 21z"/></svg>
+                    <div class="name">Wishlist</div>
+                    <div class="desc">Желаемые покупки, приоритеты и ориентиры по ценам</div>
+                    <span class="chev">›</span>
+                </a>
+                <a href="/tasks" class="social-card">
+                    <span class="num">05</span>
+                    <svg class="ico-stroke" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <div class="name">Tasks</div>
+                    <div class="desc">Калькулятор заданий BP и таймеры клубных квестов</div>
+                    <span class="chev">›</span>
+                </a>
+                <a href="/danonsha" class="social-card">
+                    <span class="num">06</span>
+                    <svg class="ico-stroke" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <div class="name">danonsha</div>
+                    <div class="desc">Моя подруга — прямые эфиры, записи стримов и ссылки</div>
+                    <span class="chev">›</span>
+                </a>
+            </div>
+        </section>
+
+        <!-- 04 / SOCIALS -->
+        <section class="section" id="socials">
+            <div class="ghost">04</div>
+            <div class="reveal">
+                <div class="sec-eyebrow">03 / на связи</div>
+                <h2>Соцсети и контакты</h2>
+                <p class="sub">Личные сообщения, основной Telegram-канал и профили на площадках.</p>
+            </div>
+            <div class="social-grid-4 reveal" id="social-links-card" style="margin-top:36px;"></div>
+        </section>
+
+        <!-- 05 / SUPPORT -->
+        <section class="section" id="support">
+            <div class="ghost">05</div>
+            <div class="reveal">
+                <div class="sec-eyebrow">04 / поддержка</div>
+                <h2>Поддержать</h2>
+                <p class="sub">Если хочешь поддержать — ниже все актуальные реквизиты и сервисы. Большое спасибо заранее.</p>
+            </div>
+
+            <div class="grid-2-eq" style="margin-top:36px;">
+                <div class="glass pad-card reveal" style="--d:.08s; display:flex; flex-direction:column; justify-content:space-between;">
+                    <div>
+                        <div class="sec-eyebrow" style="margin-bottom:8px;">криптовалюта</div>
+                        <h3 style="font-family:var(--font-heading);font-weight:400;font-size:24px;color:#fff;">Кошельки</h3>
+                        <div class="crypto-list">
+                            <div class="crypto-row">
+                                <span class="crypto-tag">TON</span>
+                                <span class="crypto-addr">angelkrafen.ton</span>
+                                <button type="button" class="copy-btn" data-copy="angelkrafen.ton">Копировать</button>
+                            </div>
+                            <div class="crypto-row">
+                                <span class="crypto-tag">BTC</span>
+                                <span class="crypto-addr">12nCyTz9i6FaTyGnBUpLmrpTTodQCKEbiu</span>
+                                <button type="button" class="copy-btn" data-copy="12nCyTz9i6FaTyGnBUpLmrpTTodQCKEbiu">Копировать</button>
+                            </div>
+                            <div class="crypto-row">
+                                <span class="crypto-tag">ETH</span>
+                                <span class="crypto-addr">0xc99b815e2b8988e4479298bbdc4235a685aa6445</span>
+                                <button type="button" class="copy-btn" data-copy="0xc99b815e2b8988e4479298bbdc4235a685aa6445">Копировать</button>
+                            </div>
+                            <div class="crypto-row">
+                                <span class="crypto-tag">TRX</span>
+                                <span class="crypto-addr">T9z2B5sfyWqnXeVfEg3gJt3Fi9suVLaFxH</span>
+                                <button type="button" class="copy-btn" data-copy="T9z2B5sfyWqnXeVfEg3gJt3Fi9suVLaFxH">Копировать</button>
                             </div>
                         </div>
-                        <a href="https://t.me/send?start=IV5PoNgziNQ3" class="inline-flex w-full items-center justify-center rounded-md btn-action py-1.5 text-[9px] uppercase tracking-wider">
-                            CryptoBot Open &nearr;
+                    </div>
+                    <div style="margin-top:20px;">
+                        <a href="https://t.me/send?start=IV5PoNgziNQ3" target="_blank" rel="noopener noreferrer" class="btn-primary sm" style="width:100%;">
+                            CryptoBot ↗
                         </a>
                     </div>
+                </div>
 
-                    <div class="rounded-xl border border-white/5 bg-white/[0.01] p-3.5 flex flex-col justify-between">
-                        <div>
-                            <div class="text-[9px] uppercase tracking-widest text-zinc-500 mb-2.5">Fiat / Cards</div>
-                            <div class="flex flex-wrap gap-1.5 mb-4">
-                                <a href="https://t.tb.ru/pm_short/1C6qKt9bv9j" class="rounded-md px-2.5 py-1 text-[10px] btn-action inline-flex items-center gap-1">
-                                    tinkoff &nearr;
-                                </a>
-                                <a href="https://t.me/krafen" class="hint-link rounded-md px-2.5 py-1 text-[10px] btn-action inline-flex items-center gap-1">
-                                    card2card &nearr;
-                                    <span class="hint-tooltip">reach me on telegram - i'll send details</span>
-                                </a>
-                                <a href="https://t.me/krafen" class="hint-link rounded-md px-2.5 py-1 text-[10px] btn-action inline-flex items-center gap-1">
-                                    bank transfer &nearr;
-                                    <span class="hint-tooltip">reach me on telegram - i'll send details</span>
-                                </a>
-                                <a href="https://donatex.gg/donate/krafen" target="_blank" rel="noopener noreferrer" class="rounded-md px-2.5 py-1 text-[10px] btn-action inline-flex items-center gap-1">
-                                    donatex &nearr;
-                                </a>
-                                <a href="https://www.donationalerts.com/r/krafenx" target="_blank" rel="noopener noreferrer" class="rounded-md px-2.5 py-1 text-[10px] btn-action inline-flex items-center gap-1">
-                                    donationalerts &nearr;
-                                </a>
-                            </div>
+                <div class="glass pad-card reveal" style="--d:.16s; display:flex; flex-direction:column; justify-content:space-between;">
+                    <div>
+                        <div class="sec-eyebrow" style="margin-bottom:8px;">карты и сервисы</div>
+                        <h3 style="font-family:var(--font-heading);font-weight:400;font-size:24px;color:#fff;">Быстрый перевод</h3>
+                        <p style="margin-top:10px;font-size:13px;color:var(--silver);line-height:1.7;">
+                            Для прямого перевода по карте или реквизитам напиши мне в Telegram — сразу скину актуальные данные.
+                        </p>
+                        <div class="donate-pills">
+                            <a href="https://t.tb.ru/pm_short/1C6qKt9bv9j" target="_blank" rel="noopener noreferrer" class="btn-action">Tinkoff ↗</a>
+                            <a href="https://donatex.gg/donate/krafen" target="_blank" rel="noopener noreferrer" class="btn-action">DonateX ↗</a>
+                            <a href="https://www.donationalerts.com/r/krafenx" target="_blank" rel="noopener noreferrer" class="btn-action">DonationAlerts ↗</a>
+                            <a href="https://t.me/krafen" target="_blank" rel="noopener noreferrer" class="btn-action hint-link">
+                                Card2Card ↗
+                                <span class="hint-tooltip">Напиши в Telegram @krafen — пришлю реквизиты</span>
+                            </a>
+                            <a href="https://t.me/krafen" target="_blank" rel="noopener noreferrer" class="btn-action hint-link">
+                                Банковский перевод ↗
+                                <span class="hint-tooltip">Напиши в Telegram @krafen — пришлю реквизиты</span>
+                            </a>
                         </div>
-                        <p class="text-[9px] leading-relaxed text-zinc-500">when donating crypto please use stablecoins/native coin (e.g. tron for trx).</p>
                     </div>
+                    <p style="margin-top:24px;font-size:11px;color:var(--silver-dim);line-height:1.65;">
+                        При отправке криптовалюты используй нативную сеть монеты или стейблкоины (например, сеть Tron для TRX).
+                    </p>
                 </div>
             </div>
+        </section>
+    </main>
+
+    <footer class="site">
+        <div class="foot-name">krafen</div>
+        <div>личный сайт и коллекции</div>
+    </footer>
+
+    <div class="dock">
+        <a class="dock-box" href="#hero">↑ <span class="hide-m">Наверх</span></a>
+        <div class="dock-right">
+            <button class="heart-btn" id="heart" type="button" title="♥">♥</button>
+            <button class="dock-box" id="atmo" type="button">★ <span class="hide-m">Атмосфера</span></button>
         </div>
     </div>
 
     <script nonce="__CSP_NONCE__">
-        const CONFIG = {
-            twitch_user: 'krafen',
-            discord_invite_code: 'kGdxDzxtmK',
-            telegram_channel: 'krafenx',
-            telegram_username: 'krafen',
-            steam_id: '76561199067685266',
-            birthday_month: 1,
-            birthday_day: 13,
-            socials: [
-                { id: 'discord', name: 'Discord', href: 'https://discord.com/users/krafen', label: 'Personal chat', subtext: 'OPEN DM' },
-                { id: 'youtube', name: 'YouTube', href: 'https://youtube.com/@krafen.', label: 'Videos', subtext: 'OPEN' },
-                { id: 'watchlist', name: 'Instagram', href: 'https://instagram.com/krafenx', label: 'Photos', subtext: 'OPEN' },
-                { id: 'tiktok', name: 'TikTok', href: 'https://www.tiktok.com/@.krafen', label: 'Short videos', subtext: 'OPEN' },
-                { id: 'boosty', name: 'Boosty', href: 'https://boosty.to/krafen', label: 'Support', subtext: 'OPEN' },
-                { id: 'x', name: 'X', href: 'https://x.com/krafen_', label: 'News', subtext: 'OPEN' },
-                { id: 'steam', name: 'Steam', href: 'https://steamcommunity.com/id/Krafen_', label: 'Game profile', subtext: 'OPEN' }
-            ]
-        };
+        document.addEventListener('DOMContentLoaded', () => {
+            const { escapeHTML, toast } = window.KrafenUI;
 
-        let musicFetchInProgress = false;
-        let spotifyTimeline = null;
+            const CONFIG = {
+                twitch_user: 'krafen',
+                discord_invite_code: 'kGdxDzxtmK',
+                telegram_channel: 'krafenx',
+                telegram_username: 'krafen',
+                steam_id: '76561199067685266',
+                birthday_month: 1,
+                birthday_day: 13,
+                socials: [
+                    {
+                        id: 'telegram',
+                        name: 'Telegram',
+                        href: 'https://t.me/krafen',
+                        label: 'Личные сообщения — @krafen',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M21.9 4.6 18.8 19c-.2 1-.8 1.2-1.7.8l-4.6-3.4-2.2 2.1c-.3.3-.5.5-.9.5l.3-4.6 8.5-7.7c.4-.3-.1-.5-.6-.2L7.6 13.1l-4.4-1.4c-1-.3-1-1 .2-1.4l17.2-6.6c.8-.3 1.5.2 1.3.9z"/></svg>'
+                    },
+                    {
+                        id: 'tg-channel',
+                        name: 'Канал',
+                        href: 'https://t.me/krafenx',
+                        label: 'Telegram-канал @krafenx',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M21.9 4.6 18.8 19c-.2 1-.8 1.2-1.7.8l-4.6-3.4-2.2 2.1c-.3.3-.5.5-.9.5l.3-4.6 8.5-7.7c.4-.3-.1-.5-.6-.2L7.6 13.1l-4.4-1.4c-1-.3-1-1 .2-1.4l17.2-6.6c.8-.3 1.5.2 1.3.9z"/></svg>'
+                    },
+                    {
+                        id: 'discord',
+                        name: 'Discord',
+                        href: 'https://discord.com/users/krafen',
+                        label: 'Личный профиль и чат',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M20.3 4.4A19.6 19.6 0 0 0 15.4 3c-.2.4-.5.9-.6 1.3a18.2 18.2 0 0 0-5.6 0C9 3.9 8.8 3.4 8.6 3a19.6 19.6 0 0 0-4.9 1.5C.6 9.1-.2 13.6.2 18.1a19.9 19.9 0 0 0 6 3c.5-.6.9-1.3 1.3-2-.7-.3-1.4-.6-2-1 .2-.1.3-.3.5-.4a14.2 14.2 0 0 0 12 0c.2.1.3.3.5.4-.6.4-1.3.7-2 1 .4.7.8 1.4 1.3 2a19.8 19.8 0 0 0 6-3c.5-5.2-.8-9.7-3.5-13.7zM8.5 15.4c-1.2 0-2.1-1.1-2.1-2.4s.9-2.4 2.1-2.4c1.2 0 2.2 1.1 2.1 2.4 0 1.3-.9 2.4-2.1 2.4zm7 0c-1.2 0-2.1-1.1-2.1-2.4s.9-2.4 2.1-2.4c1.2 0 2.2 1.1 2.1 2.4 0 1.3-.9 2.4-2.1 2.4z"/></svg>'
+                    },
+                    {
+                        id: 'youtube',
+                        name: 'YouTube',
+                        href: 'https://youtube.com/@krafen.',
+                        label: 'Видео и записи',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M23 7.2s-.2-1.6-.9-2.3c-.9-.9-1.9-.9-2.3-1C16.6 3.5 12 3.5 12 3.5s-4.6 0-7.8.4c-.4.1-1.4.1-2.3 1-.7.7-.9 2.3-.9 2.3S.8 9.1.8 11v1.8c0 1.9.2 3.8.2 3.8s.2 1.6.9 2.3c.9.9 2 .9 2.5 1 1.8.2 7.6.4 7.6.4s4.6 0 7.8-.4c.4-.1 1.4-.1 2.3-1 .7-.7.9-2.3.9-2.3s.2-1.9.2-3.8V11c0-1.9-.2-3.8-.2-3.8zM9.7 15V8.4l6.3 3.3L9.7 15z"/></svg>'
+                    },
+                    {
+                        id: 'instagram',
+                        name: 'Instagram',
+                        href: 'https://instagram.com/krafenx',
+                        label: 'Фотографии и истории',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 2.2c3.2 0 3.6 0 4.9.1 1.2.1 1.8.2 2.2.4.6.2 1 .5 1.4.9.4.4.7.8.9 1.4.2.4.4 1 .4 2.2.1 1.3.1 1.7.1 4.9s0 3.6-.1 4.9c-.1 1.2-.2 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.8.7-1.4.9-.4.2-1 .4-2.2.4-1.3.1-1.7.1-4.9.1s-3.6 0-4.9-.1c-1.2-.1-1.8-.2-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.8-.9-1.4-.2-.4-.4-1-.4-2.2C2.2 15.6 2.2 15.2 2.2 12s0-3.6.1-4.9c.1-1.2.2-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.8-.7 1.4-.9.4-.2 1-.4 2.2-.4C8.4 2.2 8.8 2.2 12 2.2zM12 0C8.7 0 8.3 0 7 .1 5.8.2 4.9.4 4.1.7c-.8.3-1.4.7-2.1 1.4C1.4 2.7 1 3.4.7 4.1.4 4.9.2 5.8.1 7 0 8.3 0 8.7 0 12s0 3.7.1 5c.1 1.2.3 2.1.6 2.9.3.8.7 1.4 1.4 2.1.6.6 1.3 1 2.1 1.4.8.3 1.7.5 2.9.6 1.3.1 1.7.1 5 .1s3.7 0 5-.1c1.2-.1 2.1-.3 2.9-.6.8-.3 1.4-.7 2.1-1.4.6-.6 1-1.3 1.4-2.1.3-.8.5-1.7.6-2.9.1-1.3.1-1.7.1-5s0-3.7-.1-5c-.1-1.2-.3-2.1-.6-2.9-.3-.8-.7-1.4-1.4-2.1C21.3 1.4 20.6 1 19.9.7c-.8-.3-1.7-.5-2.9-.6C15.7 0 15.3 0 12 0zm0 5.8a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm7.8-10.4a1.4 1.4 0 1 1-2.9 0 1.4 1.4 0 0 1 2.9 0z"/></svg>'
+                    },
+                    {
+                        id: 'tiktok',
+                        name: 'TikTok',
+                        href: 'https://www.tiktok.com/@.krafen',
+                        label: 'Короткие видео',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M19.6 5.8a5 5 0 0 1-3.5-4.1V1h-3.4v13.6a2.9 2.9 0 1 1-2-2.7V8.4a6.3 6.3 0 1 0 5.4 6.2V8.3a8.3 8.3 0 0 0 4.6 1.4V6.3c-.4 0-.8-.2-1.1-.5z"/></svg>'
+                    },
+                    {
+                        id: 'x',
+                        name: 'X',
+                        href: 'https://x.com/krafen_',
+                        label: 'Заметки и новости',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>'
+                    },
+                    {
+                        id: 'steam',
+                        name: 'Steam',
+                        href: 'https://steamcommunity.com/id/Krafen_',
+                        label: 'Игровой профиль',
+                        icon: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-9.97 9.24l5.35 2.21a2.8 2.8 0 0 1 1.6-.49l2.38-3.46v-.05a3.77 3.77 0 1 1 3.77 3.77h-.09l-3.4 2.43c0 .06.01.12.01.18a2.83 2.83 0 0 1-5.62.44l-3.83-1.58A10 10 0 1 0 12 2zm-4.7 15.14 1.23.51a2.13 2.13 0 1 0 1.47-4l1.28.53a1.57 1.57 0 1 1-2.06 1.97l-1.24-.51a2.13 2.13 0 1 1-.68-.5zm10.34-6.52a2.51 2.51 0 1 0-5.02 0 2.51 2.51 0 0 0 5.02 0zm-4.4 0a1.89 1.89 0 1 1 3.78 0 1.89 1.89 0 0 1-3.78 0z"/></svg>'
+                    }
+                ]
+            };
 
-        function formatTrackTime(milliseconds) {
-            const seconds = Math.max(0, Math.floor((Number(milliseconds) || 0) / 1000));
-            return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-        }
+            let musicFetchInProgress = false;
+            let spotifyTimeline = null;
 
-        function updateSpotifyTimeline() {
-            const timeline = document.getElementById('track-timeline');
-            const progress = document.getElementById('track-progress');
-            const current = document.getElementById('track-time-current');
-            const total = document.getElementById('track-time-total');
-            if (!timeline || !progress || !current || !total || !spotifyTimeline) return;
-            const elapsed = Math.min(spotifyTimeline.durationMs, spotifyTimeline.progressMs +
-                (spotifyTimeline.isPlaying ? Date.now() - spotifyTimeline.updatedAt : 0));
-            progress.style.width = `${spotifyTimeline.durationMs ? (elapsed / spotifyTimeline.durationMs) * 100 : 0}%`;
-            current.textContent = formatTrackTime(elapsed);
-            total.textContent = formatTrackTime(spotifyTimeline.durationMs);
-        }
-
-        function escapeHTML(value) {
-            return String(value ?? '').replace(/[&<>"']/g, char => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[char]));
-        }
-
-        function setCard(id, html) {
-            const node = document.getElementById(id);
-            if (!node) return;
-            node.innerHTML = html;
-        }
-
-        async function copyText(value) {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(value);
-                return;
+            function formatMetric(value) {
+                const num = Number(value);
+                return Number.isFinite(num) ? num.toLocaleString('ru-RU') : '--';
             }
 
-            const textarea = document.createElement('textarea');
-            textarea.value = value;
-            textarea.setAttribute('readonly', '');
-            textarea.style.position = 'fixed';
-            textarea.style.left = '-9999px';
-            document.body.appendChild(textarea);
-            textarea.select();
-
-            try {
-                if (!document.execCommand('copy')) {
-                    throw new Error('execCommand copy failed');
-                }
-            } finally {
-                document.body.removeChild(textarea);
+            function formatTrackTime(ms) {
+                const seconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+                return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
             }
-        }
 
-        function statusBox(message) {
-            return `<div class="rounded-xl border border-white/5 bg-white/[0.01] p-3 text-[10px] uppercase tracking-wider text-zinc-500">${escapeHTML(message)}</div>`;
-        }
-
-        function formatMetric(value) {
-            const num = Number(value);
-            return Number.isFinite(num) ? num.toLocaleString('en-US') : '--';
-        }
-
-        function formatAbsoluteTime(uts) {
-            const date = new Date(Number(uts) * 1000);
-            if (!Number.isFinite(date.getTime())) return 'Unknown';
-            return new Intl.DateTimeFormat('en-GB', {
-                day: '2-digit',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit'
-            }).format(date);
-        }
-
-        function formatRelativeTime(uts) {
-            const timestamp = Number(uts) * 1000;
-            if (!Number.isFinite(timestamp)) return 'Unknown';
-
-            const diffSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-            if (diffSeconds < 60) return 'just now';
-            if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
-            if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
-            if (diffSeconds < 604800) return `${Math.floor(diffSeconds / 86400)}d ago`;
-            return formatAbsoluteTime(uts);
-        }
-
-        function twitchLiveDuration(startedAt) {
-            const started = new Date(startedAt).getTime();
-            if (!Number.isFinite(started)) return '';
-            const minutes = Math.max(0, Math.floor((Date.now() - started) / 60000));
-            const hours = Math.floor(minutes / 60);
-            const mins = minutes % 60;
-            return hours ? `${hours}h ${mins}m` : `${mins}m`;
-        }
-
-        function renderSocialLinks() {
-            const socialCard = document.getElementById('social-links-card');
-            if (!socialCard) return;
-
-            const linkItems = CONFIG.socials
-                .filter(({ id }) => id !== 'discord')
-                .map(({ name, label, href, subtext }) => `
-                    <a href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer" class="rounded-lg border border-white/5 bg-white/[0.01] px-4 py-4 min-h-[88px] flex items-center justify-between gap-4 transition hover:border-zinc-700">
-                        <div class="min-w-0">
-                            <div class="text-white font-medium text-[12px] truncate">${escapeHTML(name)}</div>
-                            <div class="text-[8px] text-zinc-500 uppercase tracking-[0.18em] mt-1 truncate">${escapeHTML(label)}</div>
-                        </div>
-                        <span class="text-[8px] text-zinc-500 uppercase tracking-wider flex-shrink-0">${escapeHTML(subtext)}</span>
-                    </a>
-                `)
-                .join('');
-
-            socialCard.innerHTML = `
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    ${linkItems}
-                </div>`;
-        }
-
-        function renderContacts() {
-            setCard('contact-card', `
-                <div class="flex justify-between items-center mb-3">
-                    <h2 class="text-[10px] font-bold uppercase text-zinc-600 tracking-[0.2em]">Contacts</h2>
-                    <span class="text-[9px] text-zinc-500">Direct</span>
-                </div>
-                <div class="grid gap-3">
-                    <div class="w-full bg-white/[0.01] border border-white/5 p-3 rounded-xl flex flex-col gap-3">
-                        <div class="min-w-0">
-                            <div class="text-xs font-medium text-white truncate">Discord</div>
-                            <div class="text-[9px] text-zinc-500 mt-1 uppercase tracking-wider">Personal chat</div>
-                        </div>
-                        <a href="https://discord.com/users/krafen" target="_blank" rel="noopener noreferrer" class="rounded px-3 py-2 text-[9px] uppercase tracking-wider btn-action text-center">Open DM</a>
-                    </div>
-                    <div class="w-full bg-white/[0.01] border border-white/5 p-3 rounded-xl flex flex-col gap-3">
-                        <div class="min-w-0">
-                            <div class="text-xs font-medium text-white truncate">@${escapeHTML(CONFIG.telegram_username)}</div>
-                            <div class="text-[9px] text-zinc-500 mt-1 uppercase tracking-wider">Telegram personal / channel</div>
-                        </div>
-                        <div class="grid gap-2 text-[11px]">
-                            <a href="https://t.me/${escapeHTML(CONFIG.telegram_username)}" target="_blank" rel="noopener noreferrer" class="rounded px-3 py-2 text-[9px] uppercase tracking-wider btn-action text-center">Open chat</a>
-                            <a href="https://t.me/${escapeHTML(CONFIG.telegram_channel)}" target="_blank" rel="noopener noreferrer" class="rounded px-3 py-2 text-[9px] uppercase tracking-wider btn-action text-center">Open channel</a>
-                        </div>
-                    </div>
-                </div>`);
-        }
-
-        function updateBirthdayWidget() {
-            const timeEl = document.getElementById('local-time');
-            const dateEl = document.getElementById('local-date');
-            const countdownEl = document.getElementById('birthday-countdown');
-            const birthdayDateEl = document.getElementById('birthday-date');
-            if (!timeEl || !dateEl || !countdownEl || !birthdayDateEl) return;
-
-            const now = new Date();
-            const timeZone = 'Europe/Moscow';
-
-            timeEl.textContent = new Intl.DateTimeFormat('en-GB', {
-                timeZone,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hourCycle: 'h23'
-            }).format(now);
-
-            dateEl.textContent = new Intl.DateTimeFormat('en-GB', {
-                timeZone,
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric'
-            }).format(now);
-
-            birthdayDateEl.textContent = new Intl.DateTimeFormat('en-GB', {
-                timeZone,
-                day: '2-digit',
-                month: 'long'
-            }).format(new Date(Date.UTC(2000, CONFIG.birthday_month - 1, CONFIG.birthday_day)));
-
-            const moscowParts = Object.fromEntries(
-                new Intl.DateTimeFormat('en-CA', {
-                    timeZone,
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hourCycle: 'h23'
-                }).formatToParts(now)
-                    .filter(part => part.type !== 'literal')
-                    .map(part => [part.type, part.value])
-            );
-
-            const currentMoscowTime = Date.UTC(
-                Number(moscowParts.year),
-                Number(moscowParts.month) - 1,
-                Number(moscowParts.day),
-                Number(moscowParts.hour),
-                Number(moscowParts.minute),
-                Number(moscowParts.second)
-            );
-            let nextBirthday = Date.UTC(
-                Number(moscowParts.year),
-                CONFIG.birthday_month - 1,
-                CONFIG.birthday_day,
-                0,
-                0,
-                0
-            );
-            if (nextBirthday <= currentMoscowTime) {
-                nextBirthday = Date.UTC(
-                    Number(moscowParts.year) + 1,
-                    CONFIG.birthday_month - 1,
-                    CONFIG.birthday_day,
-                    0,
-                    0,
-                    0
+            function updateSpotifyTimeline() {
+                const timeline = document.getElementById('track-timeline');
+                const progress = document.getElementById('track-progress');
+                const current = document.getElementById('track-time-current');
+                const total = document.getElementById('track-time-total');
+                if (!timeline || !progress || !current || !total || !spotifyTimeline) return;
+                const elapsed = Math.min(
+                    spotifyTimeline.durationMs,
+                    spotifyTimeline.progressMs + (spotifyTimeline.isPlaying ? Date.now() - spotifyTimeline.updatedAt : 0)
                 );
+                progress.style.width = `${spotifyTimeline.durationMs ? (elapsed / spotifyTimeline.durationMs) * 100 : 0}%`;
+                current.textContent = formatTrackTime(elapsed);
+                total.textContent = formatTrackTime(spotifyTimeline.durationMs);
             }
 
-            const diff = nextBirthday - currentMoscowTime;
-            const totalSecs = Math.floor(diff / 1000);
-            const d = Math.floor(totalSecs / 86400);
-            const h = Math.floor((totalSecs % 86400) / 3600);
-            const m = Math.floor((totalSecs % 3600) / 60);
-            const s = totalSecs % 60;
+            function setHeroStatus(live, label) {
+                const el = document.getElementById('hero-status');
+                if (!el) return;
+                el.classList.toggle('live', Boolean(live));
+                el.innerHTML = `<span class="dot"></span>${escapeHTML(label)}`;
+            }
 
-            countdownEl.textContent = `${d}d ${h}h ${m}m ${s}s`;
-        }
+            function renderSocialLinks() {
+                const container = document.getElementById('social-links-card');
+                if (!container) return;
+                container.innerHTML = CONFIG.socials.map((s, i) => `
+                    <a href="${escapeHTML(s.href)}" target="_blank" rel="noopener noreferrer" class="social-card">
+                        <span class="num">${String(i + 1).padStart(2, '0')}</span>
+                        ${s.icon}
+                        <div class="name">${escapeHTML(s.name)}</div>
+                        <div class="desc">${escapeHTML(s.label)}</div>
+                        <span class="chev">›</span>
+                    </a>
+                `).join('');
+            }
 
-        async function fetchMusic() {
-            const artContainer = document.getElementById('music-art-container');
-            const trackName = document.getElementById('track-name');
-            const trackArtist = document.getElementById('track-artist');
-            const blurBg = document.getElementById('music-blur');
-            const playbackStatus = document.getElementById('track-playback-status');
-            if (!artContainer || !trackName || !trackArtist || !blurBg || !playbackStatus) return;
-            if (musicFetchInProgress) return;
-            musicFetchInProgress = true;
+            function updateBirthdayWidget() {
+                const timeEl = document.getElementById('local-time');
+                const dateEl = document.getElementById('local-date');
+                const countdownEl = document.getElementById('birthday-countdown');
+                const birthdayDateEl = document.getElementById('birthday-date');
+                if (!timeEl || !dateEl || !countdownEl || !birthdayDateEl) return;
 
-            try {
-                let source = 'Spotify';
-                let res = await fetch('/api/spotify', { headers: { Accept: 'application/json' }, cache: 'no-store' });
-                let data = res.ok ? await res.json() : null;
-                if (!data?.track) {
-                    source = 'Last.fm';
-                    res = await fetch('/api/lastfm', { headers: { Accept: 'application/json' }, cache: 'no-store' });
-                    if (!res.ok) throw new Error(`music_${res.status}`);
-                    data = await res.json();
+                const now = new Date();
+                const timeZone = 'Europe/Moscow';
+
+                timeEl.textContent = new Intl.DateTimeFormat('en-GB', {
+                    timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+                }).format(now);
+
+                dateEl.textContent = new Intl.DateTimeFormat('ru-RU', {
+                    timeZone, day: '2-digit', month: 'long', year: 'numeric'
+                }).format(now);
+
+                birthdayDateEl.textContent = new Intl.DateTimeFormat('ru-RU', {
+                    timeZone, day: '2-digit', month: 'long'
+                }).format(new Date(Date.UTC(2000, CONFIG.birthday_month - 1, CONFIG.birthday_day)));
+
+                const parts = Object.fromEntries(
+                    new Intl.DateTimeFormat('en-CA', {
+                        timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+                    }).formatToParts(now).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value])
+                );
+
+                const currentMoscow = Date.UTC(
+                    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+                    Number(parts.hour), Number(parts.minute), Number(parts.second)
+                );
+                let nextBirthday = Date.UTC(Number(parts.year), CONFIG.birthday_month - 1, CONFIG.birthday_day);
+                if (nextBirthday <= currentMoscow) {
+                    nextBirthday = Date.UTC(Number(parts.year) + 1, CONFIG.birthday_month - 1, CONFIG.birthday_day);
                 }
-                const track = data.track;
 
-                if (!track) {
-                    trackName.textContent = 'Nothing playing';
-                    trackArtist.innerHTML = '<span class="text-zinc-500">no recent tracks</span>';
-                    playbackStatus.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span><span>No recent tracks</span>';
-                    document.getElementById('track-timeline').hidden = true;
-                    spotifyTimeline = null;
-                    blurBg.style.backgroundImage = 'none';
-                    artContainer.innerHTML = '<div class="w-14 h-14 sm:w-16 sm:h-16 rounded bg-zinc-800 flex items-center justify-center text-[8px] text-zinc-500 uppercase">No Art</div>';
-                    return;
-                }
-
-                const isLive = Boolean(track.nowPlaying);
-                const imgSrc = track.image || '';
-                const artist = track.artist || 'Unknown artist';
-                const album = track.album || 'No album info';
-
-                if (imgSrc) {
-                    artContainer.innerHTML = `<img src="${escapeHTML(imgSrc)}" class="w-14 h-14 sm:w-16 sm:h-16 rounded object-cover border border-white/10 shadow-xl" alt="Cover">`;
-                    blurBg.style.backgroundImage = `url(${JSON.stringify(imgSrc)})`;
-                } else {
-                    artContainer.innerHTML = '<div class="w-14 h-14 sm:w-16 sm:h-16 rounded bg-zinc-800 flex items-center justify-center text-[8px] text-zinc-500 uppercase">No Art</div>';
-                    blurBg.style.backgroundImage = 'none';
-                }
-
-                trackName.textContent = track.name || 'Unknown track';
-                trackArtist.innerHTML = `<span class="text-zinc-500">by</span> <span class="underline decoration-zinc-600 font-medium text-zinc-300">${escapeHTML(artist)}</span>`;
-
-                const hasTimeline = Boolean(source === 'Spotify' && track.currentPlayback && Number.isFinite(track.progressMs) && Number.isFinite(track.durationMs));
-                document.getElementById('track-timeline').hidden = !hasTimeline;
-                spotifyTimeline = hasTimeline ? {
-                    progressMs: track.progressMs,
-                    durationMs: track.durationMs,
-                    isPlaying: Boolean(track.nowPlaying),
-                    updatedAt: Date.now(),
-                } : null;
-                if (spotifyTimeline) updateSpotifyTimeline();
-
-                playbackStatus.innerHTML = isLive
-                    ? `<span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span><span>${source === 'Spotify' ? 'Now playing' : 'Now playing'}</span>`
-                    : track.currentPlayback
-                        ? '<span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span><span>Paused</span>'
-                        : `<span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span><span>${source === 'Spotify' ? 'Last played' : 'Last played'}</span>`;
-            } catch (error) {
-                trackName.textContent = 'Music status is unavailable';
-                trackArtist.innerHTML = '<span class="text-zinc-500">Spotify and Last.fm could not be reached</span>';
-                playbackStatus.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span><span>Unavailable</span>';
-                document.getElementById('track-timeline').hidden = true;
-                spotifyTimeline = null;
-            } finally {
-                musicFetchInProgress = false;
-            }
-        }
-
-        async function fetchDiscordServer() {
-            const card = document.getElementById('discord-server-card');
-            if (!card) return;
-
-            if (!CONFIG.discord_invite_code) {
-                card.innerHTML = statusBox('discord invite not configured');
-                return;
+                const totalSecs = Math.floor((nextBirthday - currentMoscow) / 1000);
+                countdownEl.textContent =
+                    `${Math.floor(totalSecs / 86400)}д ${Math.floor((totalSecs % 86400) / 3600)}ч ` +
+                    `${Math.floor((totalSecs % 3600) / 60)}м ${totalSecs % 60}с`;
             }
 
-            try {
-                const res = await fetch(`https://discord.com/api/invites/${encodeURIComponent(CONFIG.discord_invite_code)}?with_counts=true`);
-                if (!res.ok) throw new Error(`discord_${res.status}`);
+            async function fetchMusic() {
+                const artContainer = document.getElementById('music-art-container');
+                const trackName = document.getElementById('track-name');
+                const trackArtist = document.getElementById('track-artist');
+                const blurBg = document.getElementById('music-blur');
+                const playbackStatus = document.getElementById('track-playback-status');
+                const sourceEl = document.getElementById('music-source');
+                const timelineEl = document.getElementById('track-timeline');
+                if (!artContainer || !trackName || !trackArtist || !blurBg || !playbackStatus || musicFetchInProgress) return;
+                musicFetchInProgress = true;
 
-                const data = await res.json();
-                const memberCount = Number(data.approximate_member_count || 0);
-                const onlineCount = Number(data.approximate_presence_count || 0);
+                try {
+                    let source = 'Spotify';
+                    let res = await fetch('/api/spotify', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+                    let data = res.ok ? await res.json() : null;
+                    if (!data?.track) {
+                        source = 'Last.fm';
+                        res = await fetch('/api/lastfm', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+                        if (!res.ok) throw new Error('music_unavailable');
+                        data = await res.json();
+                    }
 
-                card.innerHTML = `
-                    <div class="w-full min-h-20 bg-white/[0.01] border border-white/5 p-2 rounded-xl flex flex-col gap-2">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="min-w-0">
-                                <div class="text-xs font-medium text-white truncate">${escapeHTML(data.guild?.name || 'Discord Server')}</div>
-                                <div class="text-[8px] text-zinc-500 mt-0.5 uppercase tracking-wider truncate">Invite: ${escapeHTML(CONFIG.discord_invite_code)}</div>
-                            </div>
-                            <a href="https://discord.gg/${escapeHTML(CONFIG.discord_invite_code)}" target="_blank" rel="noopener noreferrer" class="rounded px-3 py-1 text-[9px] uppercase tracking-wider btn-action flex-shrink-0">Join</a>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div class="rounded-lg border border-white/5 bg-black/15 px-3 py-1">
-                                <div class="text-[8px] uppercase tracking-[0.18em] text-zinc-500">Members</div>
-                                <div class="text-xs font-semibold text-white mt-0.5">${formatMetric(memberCount)}</div>
-                            </div>
-                            <div class="rounded-lg border border-white/5 bg-black/15 px-3 py-1">
-                                <div class="text-[8px] uppercase tracking-[0.18em] text-zinc-500">Online</div>
-                                <div class="text-xs font-semibold text-white mt-0.5">${formatMetric(onlineCount)}</div>
-                            </div>
-                        </div>
-                    </div>`;
-            } catch (error) {
-                card.innerHTML = statusBox('discord api unavailable');
-            }
-        }
+                    const track = data?.track;
+                    if (sourceEl) sourceEl.textContent = source;
 
-        function renderTwitchFallback(message) {
-            setCard('twitch-card', `
-                <div class="flex items-center justify-between gap-3 w-full bg-white/[0.01] border border-white/5 p-3 rounded-xl">
-                    <div class="min-w-0">
-                        <div class="text-xs font-medium text-white truncate">twitch.tv/${escapeHTML(CONFIG.twitch_user)}</div>
-                        <div class="text-[9px] text-zinc-500 mt-1 uppercase tracking-wider">${escapeHTML(message)}</div>
-                    </div>
-                    <a href="https://twitch.tv/${escapeHTML(CONFIG.twitch_user)}" target="_blank" rel="noopener noreferrer" class="rounded px-3 py-1 text-[9px] uppercase tracking-wider btn-action flex-shrink-0">Open</a>
-                </div>`);
-        }
-
-        async function fetchTwitch() {
-            const card = document.getElementById('twitch-card');
-            if (!card) return;
-
-            if (!CONFIG.twitch_user) {
-                card.innerHTML = statusBox('twitch user not configured');
-                return;
-            }
-
-            try {
-                const res = await fetch(`/api/twitch?login=${encodeURIComponent(CONFIG.twitch_user)}`, {
-                    headers: { Accept: 'application/json' }
-                });
-                const data = await res.json().catch(() => ({}));
-
-                if (!res.ok) {
-                    if (data.error === 'twitch_key_missing') {
-                        renderTwitchFallback('setup api');
+                    if (!track) {
+                        trackName.textContent = 'Сейчас тишина';
+                        trackArtist.textContent = 'Нет недавних треков';
+                        playbackStatus.className = 'status-badge muted';
+                        playbackStatus.innerHTML = '<span class="dot"></span>тишина';
+                        timelineEl.hidden = true;
+                        spotifyTimeline = null;
+                        blurBg.style.backgroundImage = 'none';
+                        artContainer.textContent = '—';
                         return;
                     }
-                    throw new Error(data.error || 'twitch_failed');
+
+                    if (track.image) {
+                        artContainer.innerHTML = `<img src="${escapeHTML(track.image)}" alt="Обложка">`;
+                        blurBg.style.backgroundImage = `url(${JSON.stringify(track.image)})`;
+                    } else {
+                        artContainer.textContent = '♪';
+                        blurBg.style.backgroundImage = 'none';
+                    }
+
+                    trackName.textContent = track.name || 'Неизвестный трек';
+                    trackArtist.textContent = track.artist || 'Неизвестный исполнитель';
+
+                    const hasTimeline = Boolean(
+                        source === 'Spotify' &&
+                        track.currentPlayback &&
+                        Number.isFinite(track.progressMs) &&
+                        Number.isFinite(track.durationMs)
+                    );
+                    timelineEl.hidden = !hasTimeline;
+                    spotifyTimeline = hasTimeline
+                        ? {
+                            progressMs: track.progressMs,
+                            durationMs: track.durationMs,
+                            isPlaying: Boolean(track.nowPlaying),
+                            updatedAt: Date.now()
+                        }
+                        : null;
+                    if (spotifyTimeline) updateSpotifyTimeline();
+
+                    if (track.nowPlaying) {
+                        playbackStatus.className = 'status-badge live';
+                        playbackStatus.innerHTML = '<span class="dot"></span>играет сейчас';
+                    } else if (track.currentPlayback) {
+                        playbackStatus.className = 'status-badge amber';
+                        playbackStatus.innerHTML = '<span class="dot"></span>на паузе';
+                    } else {
+                        playbackStatus.className = 'status-badge muted';
+                        playbackStatus.innerHTML = '<span class="dot"></span>недавно играло';
+                    }
+                } catch {
+                    trackName.textContent = 'Музыкальный статус скрыт';
+                    trackArtist.textContent = 'Spotify / Last.fm не подключены';
+                    playbackStatus.className = 'status-badge muted';
+                    playbackStatus.innerHTML = '<span class="dot"></span>офлайн';
+                    timelineEl.hidden = true;
+                    spotifyTimeline = null;
+                    blurBg.style.backgroundImage = 'none';
+                    artContainer.textContent = '♪';
+                } finally {
+                    musicFetchInProgress = false;
                 }
+            }
 
-                const live = Boolean(data.live);
-                const stream = data.stream || {};
-                const avatar = data.profileImage
-                    ? `<img src="${escapeHTML(data.profileImage)}" class="w-11 h-11 rounded-lg object-cover border border-white/10 flex-shrink-0" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
-                    : '<div class="w-11 h-11 rounded-lg border border-white/10 bg-white/5 flex-shrink-0"></div>';
-                const statusClass = live ? 'live' : 'idle';
-                const statusText = live ? 'Live now' : 'Offline';
-                const title = live ? (stream.title || 'Live stream') : (data.description || 'Channel is currently offline.');
-                const meta = live
-                    ? `${formatMetric(stream.viewerCount)} viewers${stream.gameName ? ` / ${stream.gameName}` : ''}${stream.startedAt ? ` / ${twitchLiveDuration(stream.startedAt)}` : ''}`
-                    : `${formatMetric(data.viewCount)} total views`;
+            function twitchLiveDuration(startedAt) {
+                const started = new Date(startedAt).getTime();
+                if (!Number.isFinite(started)) return '';
+                const minutes = Math.max(0, Math.floor((Date.now() - started) / 60000));
+                const hours = Math.floor(minutes / 60);
+                const mins = minutes % 60;
+                return hours ? `${hours}ч ${mins}м` : `${mins}м`;
+            }
 
+            function renderTwitchFallback(note) {
+                const card = document.getElementById('twitch-card');
+                if (!card) return;
                 card.innerHTML = `
-                    <div class="w-full bg-white/[0.01] border border-white/5 p-3 rounded-xl flex flex-col gap-3">
-                        <div class="flex items-start gap-3 min-w-0">
-                            ${avatar}
-                            <div class="min-w-0 flex-1">
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span class="status-badge ${statusClass}">
-                                        <span class="status-dot"></span>
-                                        ${escapeHTML(statusText)}
-                                    </span>
+                    <div class="stack" style="height:100%;justify-content:space-between;">
+                        <div>
+                            <div class="music-eyebrow" style="margin-bottom:14px;">Twitch</div>
+                            <div class="row">
+                                <div class="avatar" style="display:flex;align-items:center;justify-content:center;color:var(--silver);">▶</div>
+                                <div class="col">
+                                    <span class="status-badge idle"><span class="dot"></span>офлайн</span>
+                                    <div style="margin-top:8px;font-size:15px;font-weight:500;color:#fff;" class="truncate">twitch.tv/${escapeHTML(CONFIG.twitch_user)}</div>
+                                    <div class="twitch-meta" style="margin-top:4px;">${escapeHTML(note)}</div>
                                 </div>
-                                <div class="text-xs font-medium text-white truncate">${escapeHTML(data.displayName || CONFIG.twitch_user)}</div>
-                                <div class="text-[9px] text-zinc-500 mt-1 truncate">@${escapeHTML(data.login || CONFIG.twitch_user)}</div>
                             </div>
                         </div>
-                        <div class="text-[10px] text-zinc-300 leading-relaxed line-clamp-2">${escapeHTML(title)}</div>
-                        <div class="text-[9px] text-zinc-500">${escapeHTML(meta)}</div>
-                        <a href="${escapeHTML(data.url || `https://twitch.tv/${CONFIG.twitch_user}`)}" target="_blank" rel="noopener noreferrer" class="rounded px-3 py-2 text-[9px] uppercase tracking-wider btn-action text-center">
-                            ${live ? 'Watch stream' : 'Open channel'}
+                        <a href="https://twitch.tv/${escapeHTML(CONFIG.twitch_user)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                            Открыть канал ↗
                         </a>
                     </div>`;
-            } catch (error) {
-                renderTwitchFallback('channel link');
             }
-        }
 
-        function initDonationCopy() {
-            document.querySelectorAll('[data-copy]').forEach(button => {
-                button.addEventListener('click', async () => {
-                    const value = button.dataset.copy;
-                    if (!value) return;
-
-                    try {
-                        await copyText(value);
-                        const original = button.innerHTML;
-                        button.textContent = 'OK';
-                        setTimeout(() => {
-                            button.innerHTML = original;
-                        }, 1200);
-                    } catch (error) {
-                        console.warn('Copy failed:', error);
+            async function fetchTwitch() {
+                const card = document.getElementById('twitch-card');
+                if (!card) return;
+                try {
+                    const res = await fetch(`/api/twitch?login=${encodeURIComponent(CONFIG.twitch_user)}`, {
+                        headers: { Accept: 'application/json' }
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        setHeroStatus(false, 'krafen · online');
+                        renderTwitchFallback(data.error === 'twitch_key_missing' ? 'Прямая ссылка на канал' : 'Канал Twitch');
+                        return;
                     }
+                    const live = Boolean(data.live);
+                    setHeroStatus(live, live ? 'в эфире на twitch' : 'офлайн · на связи');
+                    const stream = data.stream || {};
+                    const avatar = data.profileImage
+                        ? `<img src="${escapeHTML(data.profileImage)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
+                        : '<div class="avatar"></div>';
+                    const title = live ? (stream.title || 'Прямой эфир') : (data.description || 'Канал сейчас не в эфире.');
+                    const meta = live
+                        ? `${formatMetric(stream.viewerCount)} зрителей${stream.gameName ? ` · ${stream.gameName}` : ''}${stream.startedAt ? ` · ${twitchLiveDuration(stream.startedAt)}` : ''}`
+                        : `${formatMetric(data.viewCount)} просмотров канала`;
+
+                    card.innerHTML = `
+                        <div class="stack" style="height:100%;justify-content:space-between;">
+                            <div class="stack">
+                                <div class="row">
+                                    ${avatar}
+                                    <div class="col">
+                                        <span class="status-badge ${live ? 'live' : 'idle'}"><span class="dot"></span>${live ? 'в эфире' : 'офлайн'}</span>
+                                        <div style="margin-top:8px;font-size:15px;font-weight:500;color:#fff;" class="truncate">${escapeHTML(data.displayName || CONFIG.twitch_user)}</div>
+                                        <div class="twitch-meta truncate">@${escapeHTML(data.login || CONFIG.twitch_user)}</div>
+                                    </div>
+                                </div>
+                                <div class="twitch-title">${escapeHTML(title)}</div>
+                                <div class="twitch-meta">${escapeHTML(meta)}</div>
+                            </div>
+                            <a href="${escapeHTML(data.url || `https://twitch.tv/${CONFIG.twitch_user}`)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                                ${live ? 'Смотреть стрим ↗' : 'Открыть канал ↗'}
+                            </a>
+                        </div>`;
+                } catch {
+                    setHeroStatus(false, 'krafen · online');
+                    renderTwitchFallback('Канал Twitch');
+                }
+            }
+
+            async function fetchDiscordServer() {
+                const card = document.getElementById('discord-server-card');
+                if (!card) return;
+                const code = CONFIG.discord_invite_code;
+                try {
+                    let info = null;
+                    const apiRes = await fetch(`/api/discord?code=${encodeURIComponent(code)}`, { headers: { Accept: 'application/json' } });
+                    if (apiRes.ok) {
+                        info = await apiRes.json();
+                    } else {
+                        const direct = await fetch(`https://discord.com/api/invites/${encodeURIComponent(code)}?with_counts=true`);
+                        if (!direct.ok) throw new Error('discord_unavailable');
+                        const raw = await direct.json();
+                        info = {
+                            name: raw.guild?.name || 'Discord Server',
+                            memberCount: Number(raw.approximate_member_count || 0),
+                            onlineCount: Number(raw.approximate_presence_count || 0),
+                            url: `https://discord.gg/${code}`,
+                        };
+                    }
+
+                    card.innerHTML = `
+                        <div class="stack" style="height:100%;justify-content:space-between;">
+                            <div class="stack">
+                                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+                                    <div class="col">
+                                        <div class="music-eyebrow">Discord сообщество</div>
+                                        <div style="margin-top:8px;font-family:var(--font-heading);font-size:24px;color:#fff;" class="truncate">${escapeHTML(info.name)}</div>
+                                        <div class="twitch-meta" style="margin-top:4px;">discord.gg/${escapeHTML(code)}</div>
+                                    </div>
+                                    <span class="status-badge live"><span class="dot"></span>online</span>
+                                </div>
+                                <div class="stat-pair">
+                                    <div class="stat-cell">
+                                        <span>Участников</span>
+                                        <strong>${formatMetric(info.memberCount)}</strong>
+                                    </div>
+                                    <div class="stat-cell">
+                                        <span>В сети</span>
+                                        <strong>${formatMetric(info.onlineCount)}</strong>
+                                    </div>
+                                </div>
+                            </div>
+                            <a href="${escapeHTML(info.url || `https://discord.gg/${code}`)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                                Вступить на сервер ↗
+                            </a>
+                        </div>`;
+                } catch {
+                    card.innerHTML = `
+                        <div class="stack" style="height:100%;justify-content:space-between;">
+                            <div>
+                                <div class="music-eyebrow">Discord сообщество</div>
+                                <div style="margin-top:10px;font-family:var(--font-heading);font-size:24px;color:#fff;">Сервер krafen</div>
+                                <div class="twitch-meta" style="margin-top:6px;">discord.gg/${escapeHTML(code)}</div>
+                            </div>
+                            <a href="https://discord.gg/${escapeHTML(code)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                                Вступить на сервер ↗
+                            </a>
+                        </div>`;
+                }
+            }
+
+            async function fetchCollectionCounts() {
+                const endpoints = [
+                    ['count-watchlist', '/api/watchlist', '01'],
+                    ['count-gamelist', '/api/gamelist', '02'],
+                    ['count-setup', '/api/setup', '03'],
+                    ['count-wishlist', '/api/wishlist', '04'],
+                ];
+                await Promise.all(endpoints.map(async ([elId, url, prefix]) => {
+                    try {
+                        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        const count = Array.isArray(data.items) ? data.items.length : 0;
+                        const el = document.getElementById(elId);
+                        if (el && count > 0) el.textContent = `${prefix} · ${count}`;
+                    } catch {}
+                }));
+            }
+
+            async function copyText(value) {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(value);
+                    return;
+                }
+                const ta = document.createElement('textarea');
+                ta.value = value;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                try {
+                    document.execCommand('copy');
+                } finally {
+                    document.body.removeChild(ta);
+                }
+            }
+
+            function initDonationCopy() {
+                document.querySelectorAll('[data-copy]').forEach((btn) => {
+                    btn.addEventListener('click', async () => {
+                        const val = btn.dataset.copy;
+                        if (!val) return;
+                        try {
+                            await copyText(val);
+                            const prev = btn.textContent;
+                            btn.textContent = 'Скопировано';
+                            toast(`Скопировано: ${val}`);
+                            setTimeout(() => { btn.textContent = prev; }, 1400);
+                        } catch {
+                            toast('Не удалось скопировать', '#fca5a5');
+                        }
+                    });
                 });
-            });
-        }
+            }
 
-        function init() {
-            const currentUrl = new URL(window.location.href);
-            if (currentUrl.searchParams.get('spotify') === 'connected') {
-                currentUrl.searchParams.delete('spotify');
-                window.history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
-
-                const notice = document.createElement('div');
-                notice.className = 'site-notice';
-                notice.setAttribute('role', 'status');
-                notice.setAttribute('aria-live', 'polite');
-                notice.textContent = 'Spotify connected';
-                document.body.appendChild(notice);
-                window.setTimeout(() => notice.remove(), 5000);
+            const url = new URL(window.location.href);
+            const spotifyParam = url.searchParams.get('spotify');
+            if (spotifyParam) {
+                url.searchParams.delete('spotify');
+                window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+                if (spotifyParam === 'connected') toast('Spotify успешно подключён', '#86efac');
+                else toast('Не удалось авторизовать Spotify', '#fca5a5');
             }
 
             renderSocialLinks();
-            renderContacts();
             initDonationCopy();
             updateBirthdayWidget();
+            fetchMusic();
+            fetchTwitch();
+            fetchDiscordServer();
+            fetchCollectionCounts();
 
-            Promise.all([
-                fetchMusic(),
-                fetchDiscordServer(),
-                fetchTwitch()
-            ]);
-        }
-
-        init();
-
-        setInterval(fetchMusic, 5000);
-        setInterval(updateSpotifyTimeline, 1000);
-        setInterval(fetchDiscordServer, 5 * 60 * 1000);
-        setInterval(fetchTwitch, 60 * 1000);
-        setInterval(updateBirthdayWidget, 10);
+            setInterval(fetchMusic, 5000);
+            setInterval(updateSpotifyTimeline, 1000);
+            setInterval(fetchTwitch, 60000);
+            setInterval(fetchDiscordServer, 5 * 60 * 1000);
+            setInterval(updateBirthdayWidget, 1000);
+        });
     </script>
 </body>
 </html>
-
