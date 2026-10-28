@@ -2210,11 +2210,32 @@
             }
         });
 
+        function renderAllVodGrids(vods) {
+            allVods = vods;
+            if (!allVods.length) {
+                emptyVods.style.display = 'block';
+                vodGrid.innerHTML = '';
+                if (scrollVodGrid) scrollVodGrid.innerHTML = '';
+                return;
+            }
+            emptyVods.style.display = 'none';
+            vodGrid.innerHTML = allVods.slice(0, 3).map((v, i) => renderVodCard(v, i, false)).join('');
+            bindVodContainer(vodGrid);
+            if (scrollVodGrid) {
+                scrollVodGrid.innerHTML = allVods.map((v, i) => renderVodCard(v, i, true)).join('');
+                bindVodContainer(scrollVodGrid);
+            }
+        }
+
+        function vodListSignature(list) {
+            return (list || []).map(v => `${v.id}:${v.title}:${v.has_chat ? 1 : 0}:${v.size_label || ''}`).join('|');
+        }
+
         async function loadVods() {
             if (!vodGrid) return;
             let vods = [];
             try {
-                const res = await fetch('/api/vods');
+                const res = await fetch('/api/vods', { cache: 'no-store' });
                 if (res.ok) {
                     const data = await res.json();
                     if (Array.isArray(data.vods) && data.vods.length) vods = data.vods;
@@ -2222,23 +2243,28 @@
                 }
             } catch (e) {}
             if (!vods.length) vods = FALLBACK_VODS;
-            allVods = vods;
-            if (!allVods.length) { emptyVods.style.display = 'block'; return; }
-            emptyVods.style.display = 'none';
-
-            vodGrid.innerHTML = allVods.slice(0, 3).map((v, i) => renderVodCard(v, i, false)).join('');
-            bindVodContainer(vodGrid);
-
-            if (scrollVodGrid) {
-                scrollVodGrid.innerHTML = allVods.map((v, i) => renderVodCard(v, i, true)).join('');
-                bindVodContainer(scrollVodGrid);
-            }
+            renderAllVodGrids(vods);
 
             const initialVodId = new URLSearchParams(location.search).get('vod');
             if (initialVodId) {
                 const idx = allVods.findIndex(x => x.id === initialVodId);
                 if (idx >= 0) openVod(allVods[idx], idx, false);
             }
+
+            // Фоновая проверка Google Drive, чтобы только что загруженная папка появилась сразу без повторного F5
+            fetch('/api/vods?refresh=1', { cache: 'no-store' })
+                .then(r => (r.ok ? r.json() : null))
+                .then(data => {
+                    if (!data || !Array.isArray(data.vods) || !data.vods.length) return;
+                    if (vodListSignature(data.vods) !== vodListSignature(allVods)) {
+                        renderAllVodGrids(data.vods);
+                        if (initialVodId && (!vodWatch || !vodWatch.classList.contains('open'))) {
+                            const idx = allVods.findIndex(x => x.id === initialVodId);
+                            if (idx >= 0) openVod(allVods[idx], idx, false);
+                        }
+                    }
+                })
+                .catch(() => {});
         }
 
         function init() {

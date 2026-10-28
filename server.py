@@ -49,6 +49,7 @@ from fastapi.responses import (
 )
 
 ROOT = Path(__file__).resolve().parent
+_DOTENV_VALUES: dict[str, str] = {}
 
 
 def load_dotenv(env_file: Path) -> None:
@@ -74,6 +75,7 @@ def load_dotenv(env_file: Path) -> None:
             continue
         if len(val) >= 2 and val[0] == val[-1] and val[0] in {'"', "'"}:
             val = val[1:-1]
+        _DOTENV_VALUES[key] = val
         os.environ.setdefault(key, val)
 
 
@@ -142,13 +144,40 @@ _UPDATE_SKIP_TOP_DIRS = {".git", ".github", ".venv", "venv", "__pycache__", "vod
 _MAX_UPDATE_ZIP_BYTES = 64 * 1024 * 1024
 
 
+def _is_pterodactyl_env() -> bool:
+    return bool(
+        os.environ.get("P_SERVER_UUID")
+        or os.environ.get("P_SERVER_LOCATION")
+        or str(ROOT).startswith("/home/container")
+    )
+
+
 def is_auto_update_enabled() -> bool:
+    # 1. Приоритет у собственной переменной KRAFEN_AUTO_UPDATE (из .env или окружения),
+    #    которая не конфликтует с системной AUTO_UPDATE=0 панели Pterodactyl.
+    explicit_kf = (_DOTENV_VALUES.get("KRAFEN_AUTO_UPDATE") or os.environ.get("KRAFEN_AUTO_UPDATE") or "").strip().lower()
+    if explicit_kf in {"0", "false", "no", "off"}:
+        return False
+    if explicit_kf in {"1", "true", "yes", "on"}:
+        return True
+
+    # 2. Если пользователь явно прописал AUTO_UPDATE именно в своём локальном .env — учитываем его.
+    dotenv_au = (_DOTENV_VALUES.get("AUTO_UPDATE") or "").strip().lower()
+    if dotenv_au in {"0", "false", "no", "off"}:
+        return False
+    if dotenv_au in {"1", "true", "yes", "on"}:
+        return True
+
+    # 3. В контейнере Pterodactyl (H1Cloud и др.) сама панель выставляет системный AUTO_UPDATE=0 —
+    #    игнорируем его и включаем встроенное автообновление по умолчанию (даже если остался .git).
+    if _is_pterodactyl_env():
+        return True
+
+    # 4. Вне Pterodactyl: уважаем системную AUTO_UPDATE, а в режиме auto включаем, если нет .git.
     if AUTO_UPDATE_MODE in {"0", "false", "no", "off"}:
         return False
     if AUTO_UPDATE_MODE in {"1", "true", "yes", "on"}:
         return True
-    # Режим "auto": включён автоматически на серверах без .git (например, Pterodactyl / H1Cloud),
-    # и выключен внутри локального git-репозитория, чтобы не перезатирать рабочие ветки.
     return not (ROOT / ".git").exists()
 
 
@@ -350,19 +379,32 @@ def _configure_stdio_utf8() -> None:
                 _stream.reconfigure(encoding="utf-8", errors="replace")
 
 
+_startup_auto_update_done = False
+
+
+def _maybe_run_startup_auto_update() -> None:
+    global _startup_auto_update_done
+    if _startup_auto_update_done:
+        return
+    _startup_auto_update_done = True
+    if not is_auto_update_enabled():
+        return
+    if os.environ.get("_KRAFEN_REEXEC") == "1":
+        os.environ.pop("_KRAFEN_REEXEC", None)
+        return
+    upd = perform_github_update(force=False, allow_zip_fallback_on_api_error=True)
+    if upd.get("ok") and upd.get("server_changed"):
+        _reexec_current_process()
+
+
 if __name__ == "__main__":
     _configure_stdio_utf8()
-    if is_auto_update_enabled():
-        if os.environ.get("_KRAFEN_REEXEC") == "1":
-            os.environ.pop("_KRAFEN_REEXEC", None)
-        else:
-            _startup_upd = perform_github_update(force=False, allow_zip_fallback_on_api_error=True)
-            if _startup_upd.get("ok") and _startup_upd.get("server_changed"):
-                _reexec_current_process()
+    _maybe_run_startup_auto_update()
 
 
 @contextlib.asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
+    _maybe_run_startup_auto_update()
     if sys.platform == "win32":
         loop = asyncio.get_running_loop()
         prev_handler = loop.get_exception_handler()
@@ -379,6 +421,7 @@ async def _app_lifespan(_app: FastAPI):
                 lp.default_exception_handler(ctx)
 
         loop.set_exception_handler(_win32_loop_exception_handler)
+    _start_drive_vods_poller()
     yield
 
 
@@ -2156,6 +2199,43 @@ def _list_gdrive_folder(folder_id: str) -> tuple[bool, list[dict[str, Any]]]:
         return False, []
 
 
+def _probe_gdrive_file_size(drive_id: str) -> int:
+    """Определяет точный размер файла на Google Drive по 1-байтовому Range-запросу."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", drive_id):
+        return 0
+    base_url = "https://drive.usercontent.google.com/download"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+        "Range": "bytes=0-0",
+    }
+    params: dict[str, str] = {"id": drive_id, "export": "download", "confirm": "t"}
+    session = requests.Session()
+    try:
+        resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(3, 8))
+        ctype = (resp.headers.get("content-type") or "").lower()
+        if "text/html" in ctype:
+            sample = resp.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+            resp.close()
+            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
+            if not uuid_m:
+                return 0
+            params["uuid"] = uuid_m.group(1)
+            resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(3, 8))
+        cr = resp.headers.get("Content-Range") or ""
+        cl = resp.headers.get("Content-Length") or ""
+        resp.close()
+        m = re.search(r"/(\d+)\s*$", cr)
+        if m:
+            return int(m.group(1))
+        if resp.status_code == 200 and cl.isdigit():
+            return int(cl)
+    except Exception:
+        return 0
+    finally:
+        session.close()
+    return 0
+
+
 def _download_gdrive_small_bytes(drive_id: str, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
     """Скачивает небольшой публичный файл с Google Drive (meta.json, chat.jsonl, thumb.jpg)."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", drive_id):
@@ -2344,9 +2424,12 @@ def _inspect_drive_vod_subfolder(
     if not size_label:
         size_bytes = video_entry.get("size") or meta_obj.get("size_bytes") or 0
         try:
-            size_label = _format_size_bytes(int(size_bytes))
+            size_bytes = int(size_bytes)
         except (TypeError, ValueError):
-            size_label = ""
+            size_bytes = 0
+        if size_bytes <= 0:
+            size_bytes = _probe_gdrive_file_size(video_entry["id"])
+        size_label = _format_size_bytes(size_bytes)
 
     return {
         "id": parsed_folder["id"],
@@ -2443,12 +2526,30 @@ def _sync_drive_vods_worker(folder_id: str, force: bool = False) -> None:
         _drive_sync_worker_lock.release()
 
 
+_drive_poller_started = False
+
+
+def _start_drive_vods_poller() -> None:
+    global _drive_poller_started
+    if _drive_poller_started or not GDRIVE_FOLDER_ID:
+        return
+    _drive_poller_started = True
+
+    def _poller() -> None:
+        maybe_sync_drive_vods(force=False)
+        while True:
+            time.sleep(90)
+            maybe_sync_drive_vods(force=False)
+
+    threading.Thread(target=_poller, name="gdrive-vods-poller", daemon=True).start()
+
+
 def maybe_sync_drive_vods(force: bool = False) -> None:
     global _drive_sync_ts
     if not GDRIVE_FOLDER_ID:
         return
     now = time.time()
-    min_interval = 15.0 if force else 90.0
+    min_interval = 12.0 if force else 60.0
     with _drive_sync_lock:
         if now - _drive_sync_ts < min_interval:
             return
@@ -2560,7 +2661,10 @@ def api_vods(request: Request, refresh: str = "") -> JSONResponse:
     if force:
         rate_limit(request, "vods_refresh", 6, 60)
     folder_url = f"https://drive.google.com/drive/folders/{GDRIVE_FOLDER_ID}" if GDRIVE_FOLDER_ID else ""
-    return j({"vods": list_vods(force_sync=force), "folder_url": folder_url})
+    return j(
+        {"vods": list_vods(force_sync=force), "folder_url": folder_url},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/vods/{vod_id}/chat")
