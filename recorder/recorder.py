@@ -381,6 +381,65 @@ def upload_to_telegram(folder: Path, meta: dict) -> bool:
         return False
 
 
+def remux_mpegts_to_mp4(video: Path) -> bool:
+    """Перепаковывает сырой MPEG-TS поток от streamlink в настоящий MP4 (+faststart) без перекодирования."""
+    if not video.is_file() or video.stat().st_size < 1024:
+        return False
+    try:
+        with video.open("rb") as fh:
+            head = fh.read(12)
+    except OSError:
+        return False
+    # Если уже ISO BMFF MP4 (байты 4..8 == b'ftyp') — ничего делать не нужно
+    if len(head) >= 8 and head[4:8] == b"ftyp":
+        return False
+    ffmpeg_exe = shutil.which("ffmpeg")
+    if not ffmpeg_exe:
+        log("remux: ffmpeg не найден — video.mp4 остаётся в исходном MPEG-TS контейнере")
+        return False
+
+    orig_size = video.stat().st_size
+    tmp = video.with_suffix(".remux.mp4")
+    cmds = [
+        [
+            ffmpeg_exe, "-y",
+            "-i", str(video),
+            "-c", "copy",
+            "-bsf:a", "aac_adtstoasc",
+            "-movflags", "+faststart",
+            str(tmp),
+        ],
+        [
+            ffmpeg_exe, "-y",
+            "-i", str(video),
+            "-c", "copy",
+            "-movflags", "+faststart",
+            str(tmp),
+        ],
+    ]
+    try:
+        for cmd in cmds:
+            tmp.unlink(missing_ok=True)
+            res = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=None,
+                check=False,
+            )
+            if res.returncode == 0 and tmp.is_file() and tmp.stat().st_size > max(1024, int(orig_size * 0.5)):
+                tmp.replace(video)
+                log(f"remux: MPEG-TS → MP4 (+faststart) готово ({_format_size(video.stat().st_size)})")
+                return True
+    except Exception as exc:  # noqa: BLE001
+        log(f"remux: ошибка ffmpeg: {exc}")
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    return False
+
+
 def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
     """Извлекает кадр из записанного VOD с помощью ffmpeg."""
     if not video.is_file() or not shutil.which("ffmpeg"):
@@ -470,6 +529,7 @@ def record_session(stream: dict) -> None:
         started = datetime.fromisoformat(meta["record_started_at"].replace("Z", "+00:00"))
         meta["duration_s"] = round((datetime.now(timezone.utc) - started).total_seconds())
         if video.is_file():
+            remux_mpegts_to_mp4(video)
             v_bytes = video.stat().st_size
             meta["size_bytes"] = v_bytes
             meta["size_label"] = _format_size(v_bytes)
