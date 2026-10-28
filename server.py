@@ -206,6 +206,14 @@ def _is_protected_update_path(rel_posix: str, target: Path) -> bool:
     return False
 
 
+def _resolve_github_token() -> str:
+    for key in ("GITHUB_TOKEN", "GH_TOKEN", "ACCESS_TOKEN", "GIT_ACCESS_TOKEN"):
+        val = (_DOTENV_VALUES.get(key) or os.environ.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
 def _fetch_remote_branch_sha() -> tuple[str, str]:
     """Возвращает (sha, error_code). При успехе error_code == ''."""
     if not AUTO_UPDATE_REPO or "/" not in AUTO_UPDATE_REPO:
@@ -214,7 +222,7 @@ def _fetch_remote_branch_sha() -> tuple[str, str]:
         "Accept": "application/vnd.github+json",
         "User-Agent": "krafen-auto-updater/1.0",
     }
-    gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    gh_token = _resolve_github_token()
     if gh_token:
         headers["Authorization"] = f"Bearer {gh_token}"
     api_url = f"https://api.github.com/repos/{AUTO_UPDATE_REPO}/commits/{AUTO_UPDATE_BRANCH}"
@@ -231,18 +239,36 @@ def _fetch_remote_branch_sha() -> tuple[str, str]:
 
 
 def _download_github_zip() -> bytes:
-    headers = {"User-Agent": "krafen-auto-updater/1.0"}
-    gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    gh_token = _resolve_github_token()
+    candidates: list[tuple[str, dict[str, str]]] = []
+    api_headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "krafen-auto-updater/1.0",
+    }
     if gh_token:
-        headers["Authorization"] = f"Bearer {gh_token}"
-    urls = [
-        f"https://codeload.github.com/{AUTO_UPDATE_REPO}/zip/refs/heads/{AUTO_UPDATE_BRANCH}",
-        f"https://github.com/{AUTO_UPDATE_REPO}/archive/refs/heads/{AUTO_UPDATE_BRANCH}.zip",
-    ]
+        api_headers["Authorization"] = f"Bearer {gh_token}"
+    # Для приватных репозиториев GitHub отдаёт архив именно через REST API /zipball/{ref}
+    candidates.append(
+        (f"https://api.github.com/repos/{AUTO_UPDATE_REPO}/zipball/{AUTO_UPDATE_BRANCH}", api_headers)
+    )
+
+    pub_headers = {"User-Agent": "krafen-auto-updater/1.0"}
+    if gh_token:
+        pub_headers["Authorization"] = f"Bearer {gh_token}"
+    candidates.append(
+        (f"https://codeload.github.com/{AUTO_UPDATE_REPO}/zip/refs/heads/{AUTO_UPDATE_BRANCH}", pub_headers)
+    )
+    candidates.append(
+        (f"https://github.com/{AUTO_UPDATE_REPO}/archive/refs/heads/{AUTO_UPDATE_BRANCH}.zip", pub_headers)
+    )
+
     last_err: Exception | None = None
-    for url in urls:
+    saw_404 = False
+    for url, req_headers in candidates:
         try:
-            with requests.get(url, headers=headers, stream=True, timeout=25) as resp:
+            with requests.get(url, headers=req_headers, stream=True, timeout=25) as resp:
+                if resp.status_code == 404:
+                    saw_404 = True
                 resp.raise_for_status()
                 buf = io.BytesIO()
                 total = 0
@@ -256,6 +282,10 @@ def _download_github_zip() -> bytes:
                 return buf.getvalue()
         except Exception as exc:
             last_err = exc
+    if saw_404 and not gh_token:
+        raise RuntimeError(
+            f"репозиторий {AUTO_UPDATE_REPO} приватный (404) — задайте GITHUB_TOKEN в .env (Contents: Read-only) или сделайте репозиторий публичным"
+        )
     raise RuntimeError(f"не удалось скачать архив с GitHub ({last_err})")
 
 
