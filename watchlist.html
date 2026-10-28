@@ -15,8 +15,7 @@
         .stat-chip {
             display: inline-flex; align-items: center; gap: 8px;
             padding: 7px 15px; border-radius: 999px;
-            background: var(--glass); border: 1px solid var(--glass-border);
-            backdrop-filter: blur(12px);
+            background: rgba(12, 12, 16, .76); border: 1px solid var(--glass-border);
             font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--silver);
         }
         .stat-chip strong { font-family: var(--font-mono); color: #fff; font-size: 12px; }
@@ -38,16 +37,17 @@
         }
         .media-card {
             position: relative;
-            background: var(--glass);
+            background: rgba(12, 12, 16, .78);
             border: 1px solid var(--glass-border);
             border-radius: 18px;
             overflow: hidden;
-            backdrop-filter: blur(14px);
-            transition: border-color .4s var(--ease), transform .4s var(--ease), box-shadow .4s var(--ease);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+            backface-visibility: hidden;
+            transition: border-color .38s var(--ease), transform .38s var(--ease), box-shadow .38s var(--ease);
         }
         .media-card:hover {
             border-color: rgba(163, 19, 19, .45);
-            transform: translateY(-4px);
+            transform: translate3d(0, -4px, 0);
             box-shadow: 0 24px 56px rgba(0, 0, 0, .75);
         }
         .poster-wrap {
@@ -324,7 +324,7 @@
 
     <script nonce="__CSP_NONCE__">
         document.addEventListener('DOMContentLoaded', () => {
-            const { escapeHTML, toast, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
+            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
 
             const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
             const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };
@@ -440,17 +440,17 @@
                 `;
             }
 
-            function cardHTML(item) {
+            function cardHTML(item, idx) {
                 const title = escapeHTML(item.titleRu || item.title);
                 const id = escapeHTML(item.id);
                 const typeL = escapeHTML(TYPE_LABEL[item.type] || item.type);
                 const statL = escapeHTML(STATUS_LABEL[item.status] || item.status);
                 const badgeCls = STATUS_BADGE[item.status] || 'muted';
                 return `
-                    <article class="media-card">
+                    <article class="media-card kf-stagger-item" style="--i:${Math.min(idx || 0, 12)}">
                         <div class="poster-wrap">
                             ${item.poster
-                                ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" data-fallback-text="${typeL}">`
+                                ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" decoding="async" data-fallback-text="${typeL}">`
                                 : `<div class="no-poster">${typeL}</div>`}
                             <div class="card-overlay">
                                 <button class="ov-btn watched" type="button" data-card-action="status" data-id="${id}" data-status="watched">Просмотрено</button>
@@ -587,19 +587,21 @@
 
             document.querySelectorAll('#type-filters .filter-pill').forEach((btn) => {
                 btn.addEventListener('click', () => {
+                    if (typeFilter === btn.dataset.type) return;
                     typeFilter = btn.dataset.type;
                     document.querySelectorAll('#type-filters .filter-pill').forEach((b) => b.classList.remove('active'));
                     btn.classList.add('active');
-                    render();
+                    smoothSwap(render);
                 });
             });
 
             document.querySelectorAll('#status-filters .filter-pill').forEach((btn) => {
                 btn.addEventListener('click', () => {
+                    if (statusFilter === btn.dataset.status) return;
                     statusFilter = btn.dataset.status;
                     document.querySelectorAll('#status-filters .filter-pill').forEach((b) => b.classList.remove('active'));
                     btn.classList.add('active');
-                    render();
+                    smoothSwap(render);
                 });
             });
 

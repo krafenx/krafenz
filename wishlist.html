@@ -28,14 +28,16 @@
             display: grid; grid-template-columns: 88px minmax(0, 1fr) auto;
             gap: 20px; align-items: center;
             padding: 18px 22px 18px 18px;
-            background: var(--glass); border: 1px solid var(--glass-border);
-            border-radius: 18px; backdrop-filter: blur(14px);
+            background: rgba(12, 12, 16, .78); border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+            backface-visibility: hidden;
             cursor: pointer;
-            transition: border-color .4s var(--ease), transform .4s var(--ease), box-shadow .4s var(--ease);
+            transition: border-color .38s var(--ease), transform .38s var(--ease), box-shadow .38s var(--ease);
         }
         .wish-row:hover {
             border-color: rgba(163, 19, 19, .45);
-            transform: translateY(-3px);
+            transform: translate3d(0, -3px, 0);
             box-shadow: 0 24px 54px rgba(0, 0, 0, .72);
         }
         .wish-row.bought { opacity: .62; }
@@ -319,7 +321,7 @@
 
     <script nonce="__CSP_NONCE__">
         document.addEventListener('DOMContentLoaded', () => {
-            const { escapeHTML, toast, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
+            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
 
             const CATEGORIES = {
                 all: { label: 'Все', short: 'WL' },
@@ -400,7 +402,7 @@
                 const img = safeUrl(item.image);
                 const short = CATEGORIES[item.category]?.short || 'WL';
                 return img
-                    ? `<img class="wish-photo" src="${escapeHTML(img)}" alt="${escapeHTML(item.title)}" loading="lazy" data-fallback-short="${escapeHTML(short)}">`
+                    ? `<img class="wish-photo" src="${escapeHTML(img)}" alt="${escapeHTML(item.title)}" loading="lazy" decoding="async" data-fallback-short="${escapeHTML(short)}">`
                     : `<div class="wish-photo-empty">${escapeHTML(short)}</div>`;
             }
 
@@ -524,13 +526,13 @@
                 const items = getVisibleItems();
                 const el = document.getElementById('wish-list');
                 document.getElementById('empty-state').classList.toggle('hidden', items.length > 0);
-                el.innerHTML = items.map((item) => {
+                el.innerHTML = items.map((item, idx) => {
                     const pr = PRIORITY[item.priority] || PRIORITY[2];
                     const cat = CATEGORIES[item.category]?.label || CATEGORIES.other.label;
                     const st = STATUS[item.status] || STATUS.want;
                     const link = safeUrl(item.link);
                     return `
-                        <article class="wish-row ${item.status === 'bought' ? 'bought' : ''}" data-id="${escapeHTML(item.id)}">
+                        <article class="wish-row kf-stagger-item ${item.status === 'bought' ? 'bought' : ''}" style="--i:${Math.min(idx, 12)}" data-id="${escapeHTML(item.id)}">
                             ${photoHTML(item)}
                             <div class="col">
                                 <div class="wish-tags">
@@ -679,15 +681,15 @@
             bindModalDismiss();
             document.getElementById('category-tabs').addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-category]');
-                if (!btn) return;
+                if (!btn || categoryFilter === btn.dataset.category) return;
                 categoryFilter = btn.dataset.category;
-                render();
+                smoothSwap(render);
             });
             document.getElementById('status-tabs').addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-status-filter]');
-                if (!btn) return;
+                if (!btn || statusFilter === btn.dataset.statusFilter) return;
                 statusFilter = btn.dataset.statusFilter;
-                render();
+                smoothSwap(render);
             });
             document.getElementById('list-search').addEventListener('input', (e) => {
                 searchQuery = e.target.value.trim();
@@ -695,7 +697,7 @@
             });
             document.getElementById('sort-select').addEventListener('change', (e) => {
                 sortMode = e.target.value;
-                render();
+                smoothSwap(render);
             });
             document.getElementById('add-btn').addEventListener('click', openAddModal);
             document.getElementById('category-choices').addEventListener('click', (e) => {
