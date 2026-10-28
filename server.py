@@ -1363,6 +1363,7 @@ def security_headers(nonce: str | None = None) -> dict[str, str]:
                 "font-src 'self' https://fonts.gstatic.com data:",
                 "img-src 'self' data: https:",
                 "media-src 'self' blob: https:",
+                "worker-src 'self' blob:",
                 "frame-src 'self' https://drive.google.com https://*.google.com https://*.googleusercontent.com",
                 "connect-src 'self' https://discord.com",
             ]

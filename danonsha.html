@@ -1505,7 +1505,9 @@
         const watchChatBody = document.getElementById('watch-chat-body');
 
         let chatLines = [], chatShown = -1, allVods = [], activeVod = null, activeVodId = null;
-        let streamUnavailable = false, idleTimer = null, toastTimer = null;
+        let streamUnavailable = false, streamPreparing = false, pendingPlay = false, usingMpegts = false;
+        let mpegtsPlayer = null, mpegtsScriptPromise = null, vodLoadSeq = 0, vodProbeAbort = null;
+        let idleTimer = null, toastTimer = null;
         const frameDataUrlCache = new Map();
         const frameInFlight = new Map();
         let frameCaptureActive = 0;
@@ -1810,11 +1812,165 @@
                 : '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
         }
 
+        function maxBufferedTime() {
+            if (!watchVideo || !watchVideo.buffered || !watchVideo.buffered.length) return 0;
+            try {
+                return watchVideo.buffered.end(watchVideo.buffered.length - 1) || 0;
+            } catch {
+                return 0;
+            }
+        }
+
+        function effectiveWatchDuration() {
+            if (watchVideo && Number.isFinite(watchVideo.duration) && watchVideo.duration > 0) {
+                return watchVideo.duration;
+            }
+            const vodDur = activeVod && activeVod.duration_s ? Number(activeVod.duration_s) : 0;
+            const bufEnd = maxBufferedTime();
+            return Math.max(vodDur, bufEnd, 0);
+        }
+
+        function seekWatchVideoTo(targetSec) {
+            if (!watchVideo || !Number.isFinite(targetSec)) return;
+            let t = Math.max(0, targetSec);
+            if (usingMpegts && !Number.isFinite(watchVideo.duration)) {
+                const maxBuf = maxBufferedTime();
+                if (maxBuf > 0.25) t = Math.min(t, Math.max(0, maxBuf - 0.1));
+            } else if (Number.isFinite(watchVideo.duration) && watchVideo.duration > 0) {
+                t = Math.min(t, watchVideo.duration);
+            }
+            try {
+                watchVideo.currentTime = t;
+            } catch {}
+            updateTimelineUI();
+        }
+
+        function ensureMpegtsLibrary() {
+            if (window.mpegts) return Promise.resolve(window.mpegts);
+            if (mpegtsScriptPromise) return mpegtsScriptPromise;
+            mpegtsScriptPromise = new Promise((resolve) => {
+                const s = document.createElement('script');
+                s.src = '/mpegts.min.js';
+                const nonceEl = document.querySelector('script[nonce]');
+                if (nonceEl && nonceEl.nonce) s.nonce = nonceEl.nonce;
+                s.onload = () => resolve(window.mpegts || null);
+                s.onerror = () => {
+                    mpegtsScriptPromise = null;
+                    resolve(null);
+                };
+                document.head.appendChild(s);
+            });
+            return mpegtsScriptPromise;
+        }
+
+        function destroyMpegtsPlayer() {
+            usingMpegts = false;
+            if (!mpegtsPlayer) return;
+            const inst = mpegtsPlayer;
+            mpegtsPlayer = null;
+            try { inst.pause(); } catch {}
+            try { inst.unload(); } catch {}
+            try { inst.detachMediaElement(); } catch {}
+            try { inst.destroy(); } catch {}
+        }
+
+        async function probeStreamContainer(streamUrl, signal) {
+            try {
+                const res = await fetch(streamUrl, {
+                    headers: { Range: 'bytes=0-191' },
+                    signal
+                });
+                if (!res.ok) return res.status >= 500 || res.status === 404 ? 'unavailable' : 'unknown';
+                const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+                let bytes;
+                if (reader) {
+                    const chunks = [];
+                    let total = 0;
+                    while (total < 192) {
+                        const { done, value } = await reader.read();
+                        if (done || !value) break;
+                        chunks.push(value);
+                        total += value.byteLength;
+                    }
+                    try { reader.cancel(); } catch {}
+                    bytes = new Uint8Array(total);
+                    let off = 0;
+                    for (const c of chunks) {
+                        bytes.set(c, off);
+                        off += c.byteLength;
+                    }
+                } else {
+                    bytes = new Uint8Array(await res.arrayBuffer());
+                }
+                if (bytes.length >= 1 && bytes[0] === 0x47 && (bytes.length < 189 || bytes[188] === 0x47)) {
+                    return 'mpegts';
+                }
+                if (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+                    return 'mp4';
+                }
+                return 'unknown';
+            } catch (err) {
+                if (err && err.name === 'AbortError') return 'aborted';
+                return 'unknown';
+            }
+        }
+
+        async function attachMpegtsStream(streamSrc, seq) {
+            const mpegtsLib = await ensureMpegtsLibrary();
+            if (seq !== vodLoadSeq) return false;
+            if (!mpegtsLib || !mpegtsLib.isSupported()) return false;
+            destroyMpegtsPlayer();
+            const absUrl = new URL(streamSrc, location.origin).href;
+            try {
+                const player = mpegtsLib.createPlayer(
+                    {
+                        type: 'mpegts',
+                        isLive: false,
+                        cors: true,
+                        url: absUrl
+                    },
+                    {
+                        enableWorker: true,
+                        lazyLoad: true,
+                        lazyLoadMaxDuration: 600,
+                        lazyLoadRecoverDuration: 60,
+                        autoCleanupSourceBuffer: true,
+                        autoCleanupMaxBackwardDuration: 1800,
+                        autoCleanupMinBackwardDuration: 900,
+                        fixAudioTimestampGap: true
+                    }
+                );
+                mpegtsPlayer = player;
+                usingMpegts = true;
+                player.on(mpegtsLib.Events.ERROR, (errType) => {
+                    if (seq !== vodLoadSeq || mpegtsPlayer !== player) return;
+                    if (errType === mpegtsLib.ErrorTypes.MEDIA_ERROR || errType === mpegtsLib.ErrorTypes.NETWORK_ERROR) {
+                        if ((watchVideo.readyState || 0) < 2) {
+                            destroyMpegtsPlayer();
+                            streamUnavailable = true;
+                            updatePlayIcon();
+                            if (pendingPlay && activeVod && activeVod.embed_url) {
+                                pendingPlay = false;
+                                showDriveFallback();
+                            }
+                        }
+                    }
+                });
+                player.on(mpegtsLib.Events.LOADING_COMPLETE, () => {
+                    if (seq === vodLoadSeq) updateTimelineUI();
+                });
+                player.attachMediaElement(watchVideo);
+                player.load();
+                return true;
+            } catch {
+                destroyMpegtsPlayer();
+                return false;
+            }
+        }
+
         function updateTimelineUI() {
             const cur = watchVideo.currentTime || 0;
-            const dur = Number.isFinite(watchVideo.duration) && watchVideo.duration > 0
-                ? watchVideo.duration
-                : (activeVod && activeVod.duration_s ? activeVod.duration_s : 0);
+            const dur = effectiveWatchDuration();
             const pct = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
             if (watchProgressFill) watchProgressFill.style.width = `${pct}%`;
             if (watchTimeEl) {
@@ -1835,9 +1991,14 @@
 
         function hideDriveFallback() {
             if (!watchDriveIframe) return;
+            const wasVisible = watchDriveIframe.style.display === 'block';
             watchDriveIframe.src = 'about:blank';
             watchDriveIframe.style.display = 'none';
             if (watchDriveClose) watchDriveClose.style.display = 'none';
+            if (wasVisible && chatLines.length) {
+                chatShown = -1;
+                renderChatAtTime(watchVideo.currentTime || 0);
+            }
         }
 
         function showDriveFallback() {
@@ -1845,19 +2006,35 @@
             watchDriveIframe.src = activeVod.embed_url;
             watchDriveIframe.style.display = 'block';
             if (watchDriveClose) watchDriveClose.style.display = 'block';
+            if (chatLines.length) {
+                chatShown = -1;
+                renderChatAtTime(Infinity);
+            }
         }
 
         function toggleWatchPlay() {
             if (!activeVod) return;
+            if (streamPreparing) {
+                pendingPlay = !pendingPlay;
+                return;
+            }
             if (streamUnavailable && activeVod.embed_url) {
                 showDriveFallback();
                 return;
             }
             if (watchVideo.paused || watchVideo.ended) {
-                watchVideo.play().catch(() => {
-                    if (activeVod && activeVod.embed_url) showDriveFallback();
+                watchVideo.play().catch((err) => {
+                    if (err && err.name === 'AbortError') return;
+                    if (streamPreparing) {
+                        pendingPlay = true;
+                        return;
+                    }
+                    if (streamUnavailable && activeVod && activeVod.embed_url) {
+                        showDriveFallback();
+                    }
                 });
             } else {
+                pendingPlay = false;
                 watchVideo.pause();
             }
         }
@@ -1929,22 +2106,29 @@
                 if (!btn) return;
                 const sec = parseFloat(btn.getAttribute('data-seek'));
                 if (Number.isFinite(sec)) {
-                    watchVideo.currentTime = Math.max(0, sec);
-                    updateTimelineUI();
+                    seekWatchVideoTo(sec);
                 }
             });
         }
 
         async function openVod(vod, idxHint, pushHistory) {
+            const seq = ++vodLoadSeq;
+            if (vodProbeAbort) {
+                try { vodProbeAbort.abort(); } catch {}
+                vodProbeAbort = null;
+            }
             const idx = Number.isInteger(idxHint) && idxHint >= 0
                 ? idxHint
                 : Math.max(0, allVods.findIndex(x => x.id === vod.id));
             activeVod = vod;
             activeVodId = vod.id;
             streamUnavailable = false;
+            streamPreparing = true;
+            pendingPlay = false;
             syncActiveVodCards();
 
             hideDriveFallback();
+            destroyMpegtsPlayer();
             watchStageInner.classList.remove('has-frames', 'idle');
             watchPoster.style.display = 'none';
             attachVodFrameImage(watchPoster, vod);
@@ -1966,40 +2150,94 @@
             }
 
             try { watchVideo.pause(); } catch {}
-            const streamSrc = vod.source === 'local'
-                ? `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`
-                : (vod.stream_url || `/api/vods/${encodeURIComponent(vod.id)}/stream`);
-            watchVideo.src = streamSrc;
+            watchVideo.removeAttribute('src');
             watchVideo.load();
             updatePlayIcon();
             updateTimelineUI();
 
+            const streamSrc = vod.source === 'local'
+                ? `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`
+                : (vod.stream_url || `/api/vods/${encodeURIComponent(vod.id)}/stream`);
+
+            // Параллельно подгружаем чат и проверяем контейнер видео (MP4 или сырой MPEG-TS от streamlink)
             chatLines = [];
             chatShown = -1;
-            if (vod.has_chat) {
+            const chatPromise = (async () => {
+                if (!vod.has_chat) {
+                    if (seq === vodLoadSeq) renderEmptyChatState(vod);
+                    return;
+                }
                 watchChatCount.textContent = 'загрузка…';
                 watchChatBody.innerHTML = '';
                 try {
-                    const res = await fetch(`/api/vods/${encodeURIComponent(vod.id)}/chat`);
+                    const res = await fetch(`/api/vods/${encodeURIComponent(vod.id)}/chat`, { cache: 'no-store' });
                     if (res.ok) {
-                        chatLines = (await res.text()).trim().split('\n')
+                        const parsed = (await res.text()).trim().split('\n')
                             .map(l => { try { return JSON.parse(l); } catch { return null; } })
                             .filter(Boolean).sort((a, b) => a.t - b.t);
+                        if (seq !== vodLoadSeq) return;
+                        chatLines = parsed;
                     }
                 } catch {}
+                if (seq !== vodLoadSeq) return;
                 if (chatLines.length) {
-                    renderChatAtTime(0);
+                    const driveShown = watchDriveIframe && watchDriveIframe.style.display === 'block';
+                    renderChatAtTime(driveShown ? Infinity : (watchVideo.currentTime || 0));
                 } else {
                     renderEmptyChatState(vod);
                 }
+            })();
+
+            const probeCtrl = new AbortController();
+            vodProbeAbort = probeCtrl;
+            const probeTimeout = setTimeout(() => { try { probeCtrl.abort(); } catch {} }, 6000);
+            const kind = await probeStreamContainer(streamSrc, probeCtrl.signal);
+            clearTimeout(probeTimeout);
+            if (seq !== vodLoadSeq) return;
+
+            if (kind === 'mpegts') {
+                const ok = await attachMpegtsStream(streamSrc, seq);
+                if (seq !== vodLoadSeq) return;
+                if (!ok) {
+                    streamUnavailable = true;
+                }
+            } else if (kind === 'unavailable') {
+                streamUnavailable = true;
             } else {
-                renderEmptyChatState(vod);
+                watchVideo.src = streamSrc;
+                watchVideo.load();
             }
+
+            streamPreparing = false;
+            updatePlayIcon();
+            updateTimelineUI();
+
+            if (pendingPlay) {
+                pendingPlay = false;
+                if (streamUnavailable && activeVod && activeVod.embed_url) {
+                    showDriveFallback();
+                } else {
+                    watchVideo.play().catch((err) => {
+                        if (err && err.name === 'AbortError') return;
+                        if (streamUnavailable && activeVod && activeVod.embed_url) showDriveFallback();
+                    });
+                }
+            }
+
+            await chatPromise;
         }
 
         function closeVodWatch(updateHistory) {
             if (!vodWatch || !vodWatch.classList.contains('open')) return;
+            vodLoadSeq++;
+            if (vodProbeAbort) {
+                try { vodProbeAbort.abort(); } catch {}
+                vodProbeAbort = null;
+            }
+            streamPreparing = false;
+            pendingPlay = false;
             try { watchVideo.pause(); } catch {}
+            destroyMpegtsPlayer();
             watchVideo.removeAttribute('src');
             watchVideo.load();
             hideDriveFallback();
@@ -2074,9 +2312,30 @@
                 if (watchVol) watchVol.value = watchVideo.muted ? 0 : watchVideo.volume;
                 updateVolIcon();
             });
-            watchVideo.addEventListener('error', () => {
+            watchVideo.addEventListener('error', async () => {
+                // Игнорируем сброс пустого src
+                if (!watchVideo.getAttribute('src') && !usingMpegts) return;
+                if (!usingMpegts && activeVod) {
+                    const seq = vodLoadSeq;
+                    const streamSrc = vodStreamUrl(activeVod);
+                    streamPreparing = true;
+                    const ok = await attachMpegtsStream(streamSrc, seq);
+                    if (seq !== vodLoadSeq) return;
+                    streamPreparing = false;
+                    if (ok) {
+                        if (pendingPlay) {
+                            pendingPlay = false;
+                            watchVideo.play().catch(() => {});
+                        }
+                        return;
+                    }
+                }
                 streamUnavailable = true;
                 updatePlayIcon();
+                if (pendingPlay && activeVod && activeVod.embed_url) {
+                    pendingPlay = false;
+                    showDriveFallback();
+                }
             });
         }
 
@@ -2089,15 +2348,12 @@
         }
         if (watchPrev10) {
             watchPrev10.addEventListener('click', () => {
-                watchVideo.currentTime = Math.max(0, (watchVideo.currentTime || 0) - 10);
-                updateTimelineUI();
+                seekWatchVideoTo((watchVideo.currentTime || 0) - 10);
             });
         }
         if (watchNext10) {
             watchNext10.addEventListener('click', () => {
-                const dur = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 1e9;
-                watchVideo.currentTime = Math.min(dur, (watchVideo.currentTime || 0) + 10);
-                updateTimelineUI();
+                seekWatchVideoTo((watchVideo.currentTime || 0) + 10);
             });
         }
         if (watchMuteBtn) {
@@ -2118,12 +2374,11 @@
         if (watchProgress) {
             let scrubbing = false;
             const seekFromEvent = (e) => {
-                const dur = watchVideo.duration;
+                const dur = effectiveWatchDuration();
                 if (!Number.isFinite(dur) || dur <= 0) return;
                 const rect = watchProgress.getBoundingClientRect();
                 const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                watchVideo.currentTime = ratio * dur;
-                updateTimelineUI();
+                seekWatchVideoTo(ratio * dur);
             };
             watchProgress.addEventListener('pointerdown', (e) => {
                 scrubbing = true;
@@ -2186,11 +2441,10 @@
                 toggleWatchPlay();
             } else if (e.key === 'ArrowLeft') {
                 e.preventDefault();
-                watchVideo.currentTime = Math.max(0, (watchVideo.currentTime || 0) - 10);
+                seekWatchVideoTo((watchVideo.currentTime || 0) - 10);
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
-                const dur = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 1e9;
-                watchVideo.currentTime = Math.min(dur, (watchVideo.currentTime || 0) + 10);
+                seekWatchVideoTo((watchVideo.currentTime || 0) + 10);
             } else if (e.key === 'f' || e.key === 'F') {
                 e.preventDefault();
                 toggleWatchFullscreen();
