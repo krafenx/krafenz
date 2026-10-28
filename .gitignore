@@ -16,6 +16,7 @@ data/auth.db*
 data/*.db-wal
 data/*.db-shm
 data/tokens.json
+data/vod_thumbs/
 vods/
 recorder/.tg_session*
 

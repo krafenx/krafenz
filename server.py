@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import hashlib
@@ -23,6 +24,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -79,6 +81,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "data"))
 DB_PATH = DATA_DIR / "krafen.db"
 AUTH_DB_PATH = DATA_DIR / "auth.db"
 SEED_SQL_PATH = DATA_DIR / "seed.sql"
+THUMB_CACHE_DIR = DATA_DIR / "vod_thumbs"
 RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT / "vods"))
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
@@ -121,7 +124,29 @@ DISCORD_INVITE_BASE = "https://discord.com/api/invites"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+@contextlib.asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    if sys.platform == "win32":
+        loop = asyncio.get_running_loop()
+        prev_handler = loop.get_exception_handler()
+
+        def _win32_loop_exception_handler(lp: asyncio.AbstractEventLoop, ctx: dict[str, Any]) -> None:
+            exc = ctx.get("exception")
+            if isinstance(exc, ConnectionResetError) or (
+                isinstance(exc, OSError) and getattr(exc, "winerror", None) in (10053, 10054)
+            ):
+                return
+            if prev_handler is not None:
+                prev_handler(lp, ctx)
+            else:
+                lp.default_exception_handler(ctx)
+
+        loop.set_exception_handler(_win32_loop_exception_handler)
+    yield
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=_app_lifespan)
 
 VALID_TYPES = {"anime", "movie", "series"}
 VALID_STATUSES = {"watched", "planned", "dropped"}
@@ -1777,10 +1802,14 @@ def list_vods() -> list[dict[str, Any]]:
             except Exception:
                 continue
             video_file = text(meta.get("video_file"), 120) or "video.mp4"
+            thumb_file = text(meta.get("thumb_file"), 120) or "thumb.jpg"
             meta["id"] = folder.name
             meta["source"] = "local"
             meta["has_chat"] = (folder / "chat.jsonl").is_file()
             meta["has_video"] = (folder / video_file).is_file() or (folder / "video.mp4").is_file()
+            meta["has_thumb"] = (folder / thumb_file).is_file() or (folder / "thumb.jpg").is_file()
+            meta["thumb_url"] = f"/api/vods/{folder.name}/thumb"
+            meta["thumb_fallbacks"] = []
             meta["sort_key"] = folder.name
             vods_by_id[folder.name] = meta
 
@@ -1802,7 +1831,11 @@ def list_vods() -> list[dict[str, Any]]:
                 "download_url": f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t",
                 "embed_url": f"https://drive.google.com/file/d/{drive_id}/preview",
                 "view_url": f"https://drive.google.com/file/d/{drive_id}/view",
-                "thumb_url": f"https://drive.google.com/thumbnail?id={drive_id}&sz=w640",
+                "thumb_url": f"/api/vods/{vid}/thumb",
+                "thumb_fallbacks": [
+                    f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960",
+                    f"https://lh3.googleusercontent.com/d/{drive_id}=w960",
+                ],
                 "has_chat": False,
                 "has_video": True,
                 "sort_key": r["sort_key"],
@@ -1893,6 +1926,212 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
 
 _gdrive_uuid_cache: dict[str, tuple[float, str]] = {}
 _gdrive_uuid_lock = threading.Lock()
+_gdrive_unreachable_until: float = 0.0
+_thumb_locks_guard = threading.Lock()
+_thumb_locks: dict[str, threading.Lock] = {}
+_thumb_sem = threading.BoundedSemaphore(2)
+
+
+def _get_thumb_lock(vod_id: str) -> threading.Lock:
+    with _thumb_locks_guard:
+        lk = _thumb_locks.get(vod_id)
+        if lk is None:
+            lk = threading.Lock()
+            _thumb_locks[vod_id] = lk
+        return lk
+
+
+def _atomic_write_bytes(dest: Path, payload: bytes) -> bool:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.stem}.{secrets.token_hex(4)}.jpg")
+    try:
+        tmp.write_bytes(payload)
+        tmp.replace(dest)
+        return True
+    except OSError:
+        return dest.is_file() and dest.stat().st_size > 1024
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+def _extract_ffmpeg_frame(input_target: str, dest: Path, seek_seconds: list[int]) -> bool:
+    if not shutil.which("ffmpeg"):
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.stem}.{secrets.token_hex(4)}.jpg")
+    for ss in seek_seconds:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-ss", str(ss),
+                    "-i", input_target,
+                    "-frames:v", "1",
+                    "-vf", "scale=960:-2",
+                    "-q:v", "3",
+                    str(tmp),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=22,
+                check=False,
+            )
+            if tmp.is_file() and tmp.stat().st_size > 1024:
+                try:
+                    tmp.replace(dest)
+                except OSError:
+                    pass
+                return dest.is_file() and dest.stat().st_size > 1024
+        except Exception:
+            pass
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+    return False
+
+
+def _resolve_gdrive_direct_url(drive_id: str) -> str | None:
+    global _gdrive_unreachable_until
+    now = time.time()
+    if now < _gdrive_unreachable_until:
+        return None
+    with _gdrive_uuid_lock:
+        entry = _gdrive_uuid_cache.get(drive_id)
+        if entry and entry[0] > now:
+            return f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t&uuid={entry[1]}"
+
+    base_url = "https://drive.usercontent.google.com/download"
+    params = {"id": drive_id, "export": "download", "confirm": "t"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Range": "bytes=0-1023",
+    }
+    try:
+        with requests.get(base_url, params=params, headers=headers, stream=True, timeout=(3, 10)) as r:
+            ctype = (r.headers.get("content-type") or "").lower()
+            if "text/html" in ctype:
+                sample = r.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+                uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
+                if uuid_m:
+                    found_uuid = uuid_m.group(1)
+                    with _gdrive_uuid_lock:
+                        _gdrive_uuid_cache[drive_id] = (time.time() + 1200, found_uuid)
+                    return f"{base_url}?id={drive_id}&export=download&confirm=t&uuid={found_uuid}"
+                return None
+            if r.status_code in (200, 206):
+                return f"{base_url}?id={drive_id}&export=download&confirm=t"
+    except requests.RequestException:
+        _gdrive_unreachable_until = time.time() + 120
+    return None
+
+
+@app.get("/api/vods/{vod_id}/thumb")
+def vod_thumb(vod_id: str) -> Response:
+    global _gdrive_unreachable_until
+    if not safe_name(vod_id):
+        return j({"error": "not found"}, 404)
+
+    cache_headers = {"Cache-Control": "public, max-age=86400"}
+    folder = find_vod(vod_id)
+    if folder:
+        thumb_path = folder / "thumb.jpg"
+        if thumb_path.is_file() and thumb_path.stat().st_size > 512:
+            return FileResponse(thumb_path, media_type="image/jpeg", headers=cache_headers)
+        meta_file = folder / "meta.json"
+        video_name = "video.mp4"
+        duration_s = 0
+        if meta_file.is_file():
+            try:
+                m = json.loads(meta_file.read_text(encoding="utf-8"))
+                video_name = text(m.get("video_file"), 120) or "video.mp4"
+                duration_s = int(m.get("duration_s") or 0)
+            except Exception:
+                pass
+        video = video_file_for(folder, video_name)
+        if video:
+            with _get_thumb_lock(vod_id):
+                if not (thumb_path.is_file() and thumb_path.stat().st_size > 512):
+                    with _thumb_sem:
+                        seeks = [min(180, max(5, duration_s // 5)) if duration_s > 10 else 5, 1]
+                        _extract_ffmpeg_frame(str(video), thumb_path, seeks)
+            if thumb_path.is_file() and thumb_path.stat().st_size > 512:
+                return FileResponse(thumb_path, media_type="image/jpeg", headers=cache_headers)
+        return j({"error": "no thumb"}, 404)
+
+    drive_id = _resolve_drive_id(vod_id)
+    if not drive_id:
+        return j({"error": "not found"}, 404)
+
+    cached_path = THUMB_CACHE_DIR / f"{vod_id}.jpg"
+    if cached_path.is_file() and cached_path.stat().st_size > 1024:
+        return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
+
+    if time.time() < _gdrive_unreachable_until:
+        return j({"error": "thumb_unavailable"}, 404)
+
+    with _get_thumb_lock(vod_id):
+        if cached_path.is_file() and cached_path.stat().st_size > 1024:
+            return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
+        if time.time() < _gdrive_unreachable_until:
+            return j({"error": "thumb_unavailable"}, 404)
+
+        with _thumb_sem:
+            if shutil.which("ffmpeg"):
+                direct_url = _resolve_gdrive_direct_url(drive_id)
+                if direct_url and _extract_ffmpeg_frame(direct_url, cached_path, [180, 30, 3]):
+                    return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
+
+            if time.time() >= _gdrive_unreachable_until:
+                ua = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"}
+                for candidate_url in (
+                    f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960",
+                    f"https://lh3.googleusercontent.com/d/{drive_id}=w960",
+                ):
+                    try:
+                        r = requests.get(candidate_url, headers=ua, timeout=(3, 10))
+                        ctype = (r.headers.get("content-type") or "").lower()
+                        if r.status_code == 200 and ctype.startswith("image/") and len(r.content) > 1024:
+                            if _atomic_write_bytes(cached_path, r.content):
+                                return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
+                    except requests.RequestException:
+                        _gdrive_unreachable_until = time.time() + 120
+                        break
+
+    return j({"error": "thumb_unavailable"}, 404)
+
+
+@app.post("/api/vods/{vod_id}/thumb")
+async def cache_client_vod_thumb(vod_id: str, request: Request) -> JSONResponse:
+    if not safe_name(vod_id):
+        return j({"error": "not found"}, 404)
+    sec_site = (request.headers.get("sec-fetch-site") or "").lower()
+    if sec_site and sec_site not in ("same-origin", "none"):
+        return j({"error": "forbidden"}, 403)
+    rate_limit(request, "vod_thumb_cache", 24, 60)
+
+    folder = find_vod(vod_id)
+    if folder:
+        dest = folder / "thumb.jpg"
+    elif _resolve_drive_id(vod_id):
+        dest = THUMB_CACHE_DIR / f"{vod_id}.jpg"
+    else:
+        return j({"error": "not found"}, 404)
+
+    if dest.is_file() and dest.stat().st_size > 1024:
+        return j({"cached": True, "already": True})
+
+    raw = await request.body()
+    if len(raw) < 1024 or len(raw) > 524288:
+        return j({"error": "invalid_size"}, 400)
+    if raw[:3] != b"\xff\xd8\xff" or raw[-2:] != b"\xff\xd9":
+        return j({"error": "invalid_jpeg"}, 400)
+
+    with _get_thumb_lock(vod_id):
+        if not (dest.is_file() and dest.stat().st_size > 1024):
+            _atomic_write_bytes(dest, raw)
+    return j({"cached": True})
 
 
 def _resolve_drive_id(vod_id: str) -> str | None:
@@ -1996,6 +2235,8 @@ def vod_stream(vod_id: str, request: Request) -> Response:
             for chunk in upstream.iter_content(chunk_size=64 * 1024):
                 if chunk:
                     yield chunk
+        except (requests.RequestException, OSError):
+            return
         finally:
             upstream.close()
             session.close()
@@ -2064,11 +2305,20 @@ def start_recorder() -> subprocess.Popen | None:
     if not script.is_file():
         print("recorder/recorder.py не найден — автозапись выключена", flush=True)
         return None
+    env = os.environ.copy()
+    env.setdefault("RECORD_DIR", str(RECORD_DIR))
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     print("автозапись: запускаю recorder/recorder.py", flush=True)
-    return subprocess.Popen([sys.executable, str(script)])
+    return subprocess.Popen([sys.executable, str(script)], env=env)
 
 
 def main() -> None:
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
     if not ADMIN_PASSWORD:
         print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, вход в админ-режим отключён", flush=True)
     rec_proc = start_recorder() if os.environ.get("RECORDER") == "1" else None
@@ -2079,8 +2329,12 @@ def main() -> None:
     try:
         uvicorn.run(app, host=HOST, port=PORT, log_level="info")
     finally:
-        if rec_proc:
+        if rec_proc and rec_proc.poll() is None:
             rec_proc.terminate()
+            try:
+                rec_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                rec_proc.kill()
             print("рекордер остановлен", flush=True)
 
 
