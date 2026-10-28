@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>krafen / gamelist</title>
+    <meta name="description" content="Список игр krafen с оценками и отзывами">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style nonce="__CSP_NONCE__">
+        :root {
+            --bg: #050505;
+            --card: rgba(20, 20, 20, 0.62);
+            --accent: #5b2333;
+            --accent-light: #f7f4f3;
+            --accent-soft: linear-gradient(135deg, rgba(247,244,243,0.12), rgba(91,35,51,0.28));
+            --border: rgba(255,255,255,0.06);
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html { width: 100%; overflow-x: hidden; }
+        body {
+            background: var(--bg);
+            color: #efefef;
+            font-family: 'JetBrains Mono', monospace;
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        body > .wrap { width: calc(100vw - 2rem); max-width: 90rem; margin: 0 auto; }
+        @media (min-width: 768px) { body > .wrap { width: calc(100vw - 4rem); } }
+        .glass {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 1.35rem;
+            backdrop-filter: blur(12px);
+        }
+        .profile {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 1rem;
+            align-items: center;
+            padding: 1rem;
+        }
+        .avatar {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.05);
+        }
+        .stats {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+            margin-top: 0.8rem;
+        }
+        .stat-tab {
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: rgba(255,255,255,0.42);
+            padding: 0.45rem 0.65rem;
+            font: inherit;
+            font-size: 10px;
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .stat-tab strong { display: block; color: #fff; font-size: 13px; margin-top: 2px; }
+        .stat-tab.active { color: var(--accent-light); border-color: var(--accent-light); }
+        .toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 0.75rem;
+            align-items: center;
+            margin: 1rem 0;
+        }
+        .kf-input, .kf-select, .kf-area {
+            width: 100%;
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 9999px;
+            background: rgba(255,255,255,0.035);
+            color: #efefef;
+            font: inherit;
+            font-size: 12px;
+            outline: none;
+        }
+        .kf-input, .kf-select { padding: 0.75rem 1rem; }
+        .kf-area {
+            min-height: 150px;
+            resize: vertical;
+            border-radius: 1rem;
+            line-height: 1.55;
+            padding: 0.9rem 1rem;
+        }
+        .kf-input::placeholder, .kf-area::placeholder { color: rgba(255,255,255,0.25); }
+        .icon-btn, .pill-btn {
+            border: 1px solid rgba(255,255,255,0.09);
+            background: rgba(255,255,255,0.05);
+            color: #efefef;
+            font: inherit;
+            cursor: pointer;
+            transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+        }
+        .icon-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .pill-btn {
+            border-radius: 9999px;
+            padding: 0.75rem 1rem;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            white-space: nowrap;
+        }
+        .icon-btn:hover, .pill-btn:hover { border-color: rgba(91,35,51,0.75); background: rgba(91,35,51,0.18); }
+        .admin-only { display: none !important; }
+        body.is-admin .admin-only { display: inline-flex !important; }
+        .game-list { display: grid; gap: 0.55rem; }
+        .game-row {
+            display: grid;
+            grid-template-columns: 86px minmax(0, 1fr) auto;
+            gap: 1rem;
+            align-items: center;
+            min-height: 128px;
+            padding: 0.75rem 1rem 0.75rem 0.75rem;
+            overflow: hidden;
+            background:
+                linear-gradient(90deg, rgba(247,244,243,0.10), transparent 34%),
+                rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.055);
+            border-radius: 1rem;
+            cursor: pointer;
+            transition: border-color 0.15s ease, transform 0.15s ease;
+        }
+        .game-row:hover { border-color: rgba(91,35,51,0.65); transform: translateY(-1px); }
+        .cover {
+            width: 82px;
+            height: 110px;
+            border-radius: 0.7rem;
+            object-fit: cover;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .cover-empty {
+            width: 82px;
+            height: 110px;
+            border-radius: 0.7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.25);
+            font-size: 10px;
+        }
+        .row-title {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            min-width: 0;
+            margin-bottom: 0.65rem;
+        }
+        .rank {
+            min-width: 1.45rem;
+            height: 1.45rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.55rem;
+            background: rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.65);
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .game-name {
+            min-width: 0;
+            color: #fff;
+            font-weight: 700;
+            font-size: 15px;
+            line-height: 1.25;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .meta, .date, .review-line {
+            color: rgba(255,255,255,0.42);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+        .review-line {
+            margin-top: 0.55rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .score {
+            min-width: 92px;
+            text-align: right;
+            display: grid;
+            gap: 0.45rem;
+            justify-items: end;
+        }
+        .score-value {
+            color: #78f7a1;
+            font-size: 1.8rem;
+            line-height: 1;
+            font-weight: 700;
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9999px;
+            padding: 0.28rem 0.55rem;
+            font-size: 10px;
+            font-weight: 700;
+            color: #050505;
+            background: #efefef;
+        }
+        .status-completed { background: #86efac; }
+        .status-playing { background: #f04bea; }
+        .status-dropped { background: #ff875e; }
+        .status-wishlist { background: #d8b4fe; }
+        .status-paused { background: #93c5fd; }
+        .modal {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            background: rgba(5,5,5,0.78);
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+        }
+        .modal.open { opacity: 1; pointer-events: all; }
+        .modal-box {
+            width: min(760px, 100%);
+            max-height: 88vh;
+            overflow: auto;
+            border-radius: 1.35rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(18,18,18,0.98);
+            padding: 1.25rem;
+        }
+        .admin-modal-box { max-width: 420px; }
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+        .search-result {
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr) auto;
+            gap: 0.75rem;
+            align-items: center;
+            padding: 0.55rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .search-cover {
+            width: 44px;
+            height: 58px;
+            border-radius: 0.45rem;
+            object-fit: cover;
+            background: rgba(255,255,255,0.05);
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 0.45rem;
+        }
+        .status-choice {
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 9999px;
+            background: transparent;
+            color: rgba(255,255,255,0.62);
+            font: inherit;
+            font-size: 10px;
+            padding: 0.65rem 0.45rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .status-choice.active { background: #f04bea; border-color: #f04bea; color: #050505; font-weight: 700; }
+        .range-wrap {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 1rem;
+            align-items: center;
+        }
+        input[type="range"] { width: 100%; accent-color: #f04bea; }
+        .warn-box, .empty {
+            border: 1px solid rgba(239,68,68,0.18);
+            background: rgba(239,68,68,0.06);
+            color: rgba(239,68,68,0.75);
+            border-radius: 0.9rem;
+            padding: 0.7rem 1rem;
+            font-size: 11px;
+        }
+        .empty {
+            border-color: rgba(255,255,255,0.06);
+            background: rgba(255,255,255,0.035);
+            color: rgba(255,255,255,0.38);
+            text-align: center;
+            padding: 3rem 1rem;
+        }
+        #lock-btn {
+            position: fixed;
+            right: 1.25rem;
+            bottom: 1.25rem;
+            z-index: 50;
+            opacity: 0.45;
+        }
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 1.25rem;
+            z-index: 200;
+            transform: translateX(-50%) translateY(12px);
+            opacity: 0;
+            pointer-events: none;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 9999px;
+            background: rgba(12,12,12,0.97);
+            padding: 0.65rem 1rem;
+            font-size: 11px;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        @media (max-width: 720px) {
+            body { padding: 1rem 0; }
+            .profile { grid-template-columns: auto minmax(0, 1fr); }
+            .profile-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+            .toolbar { grid-template-columns: minmax(0, 1fr); }
+            .game-row { grid-template-columns: 68px minmax(0, 1fr); padding: 0.65rem; }
+            .cover, .cover-empty { width: 64px; height: 88px; }
+            .score { grid-column: 2; grid-row: 2; justify-items: start; text-align: left; min-width: 0; display: flex; align-items: center; gap: 0.6rem; }
+            .score-value { font-size: 1.35rem; }
+            .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .game-name { white-space: normal; }
+        }
+    </style>
+    <link rel="stylesheet" href="/styles/themes.css?v=20261009-5">
+    <script nonce="__CSP_NONCE__" src="/styles/themes.js?v=20261009-3" defer></script>
+    <link rel="stylesheet" href="/styles/krafen-unified.css?v=20261028-1">
+    <script src="/styles/krafen-unified.js?v=20261028-1" defer></script>
+</head>
+<body class="py-6 md:py-10">
+    <main class="wrap">
+        <a href="index.html" class="text-[10px] uppercase tracking-[0.22em] opacity-25 hover:opacity-60 transition-opacity">&larr; home</a>
+
+        <section class="glass profile mt-4">
+            <img class="" src="" alt="">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                </div>
+                <div id="stats-tabs" class="stats"></div>
+            </div>
+            <div class="profile-actions flex items-center gap-2">
+                <button id="add-btn" class="pill-btn admin-only" type="button">+ игра</button>
+            </div>
+        </section>
+
+        <div id="setup-warn" class="warn-box hidden mt-4">Cloudflare KV или IGDB secrets пока не настроены.</div>
+
+        <div class="toolbar">
+            <input id="list-search" class="kf-input" type="search" placeholder="Поиск по списку" autocomplete="off">
+            <select id="sort-select" class="kf-select" aria-label="sort">
+                <option value="rating">рейтинг</option>
+                <option value="updated">обновлено</option>
+                <option value="title">название</option>
+                <option value="year">год</option>
+            </select>
+        </div>
+
+        <section id="game-list" class="game-list"></section>
+        <div id="empty-state" class="empty hidden">ничего не найдено</div>
+    </main>
+
+    <button id="lock-btn" class="icon-btn" type="button" title="Войти в режим администратора" aria-label="Войти в режим администратора">
+        <svg class="admin-lock__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.75a4.5 4.5 0 0 1 9 0V10"/><rect x="5.25" y="10" width="13.5" height="10" rx="2.25"/><path d="M12 14.25v2.25"/></svg>
+    </button>
+    <div id="toast" class="toast"></div>
+
+    <div id="modal-game" class="modal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="text-[10px] uppercase tracking-[0.22em] opacity-35">game entry</div>
+                    <h2 id="game-modal-title" class="text-2xl font-bold tracking-tighter mt-1">добавить игру</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-game">x</button>
+            </div>
+
+            <div id="igdb-search-block">
+                <input id="igdb-search-input" class="kf-input" type="search" placeholder="Поиск игры в IGDB" autocomplete="off">
+                <div id="igdb-results" class="mt-3"></div>
+            </div>
+
+            <div id="editor-block" class="hidden mt-5">
+                <div class="flex gap-4 items-start mb-5">
+                    <div id="editor-cover"></div>
+                    <div class="min-w-0">
+                        <div id="editor-title" class="text-xl font-bold text-white leading-tight"></div>
+                        <div id="editor-meta" class="meta mt-2"></div>
+                    </div>
+                </div>
+
+                <div class="range-wrap mb-5">
+                    <input id="rating-input" type="range" min="0" max="10" step="0.1" value="0">
+                    <div id="rating-value" class="score-value">0.0</div>
+                </div>
+
+                <div id="status-choices" class="status-grid mb-5"></div>
+                <textarea id="review-input" class="kf-area" maxlength="5000" placeholder="Отзыв"></textarea>
+                <div class="flex justify-between items-center mt-3 gap-3">
+                    <span id="review-count" class="text-[10px] opacity-35">0 / 5000</span>
+                    <div class="flex gap-2">
+                        <button id="delete-game-btn" class="pill-btn hidden" type="button">удалить</button>
+                        <button id="save-game-btn" class="pill-btn" type="button">сохранить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-view" class="modal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div class="flex gap-4 min-w-0">
+                    <div id="view-cover"></div>
+                    <div class="min-w-0">
+                        <div id="view-rating" class="score-value">0.0</div>
+                        <h2 id="view-title" class="text-2xl font-bold tracking-tighter leading-tight"></h2>
+                        <div id="view-meta" class="meta mt-2"></div>
+                    </div>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-view">x</button>
+            </div>
+            <div id="view-review" class="text-sm leading-7 text-white/72 whitespace-pre-wrap"></div>
+        </div>
+    </div>
+
+    <div id="modal-admin" class="modal">
+        <div class="modal-box admin-modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="text-[10px] uppercase tracking-[0.22em] opacity-35">admin</div>
+                    <h2 class="text-2xl font-bold tracking-tighter mt-1">вход</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-admin">x</button>
+            </div>
+            <input id="admin-password-input" class="kf-input" type="password" placeholder="password">
+            <div id="admin-login-error" class="warn-box hidden mt-3">пароль не подошел или API недоступен</div>
+            <button id="login-btn" class="pill-btn w-full mt-4" type="button">войти</button>
+        </div>
+    </div>
+
+    <script nonce="__CSP_NONCE__">
+        const API = {
+            list: '/api/gamelist',
+            search: '/api/game-search',
+            admin: '/api/admin',
+        };
+        const STATUS = {
+            all: { label: 'Все', color: '#efefef' },
+            completed: { label: 'Пройдено', color: '#86efac' },
+            playing: { label: 'Играю', color: '#f04bea' },
+            dropped: { label: 'Брошено', color: '#ff875e' },
+            wishlist: { label: 'Хочу', color: '#d8b4fe' },
+            paused: { label: 'На паузе', color: '#93c5fd' },
+        };
+        const STATUS_ORDER = ['all', 'completed', 'playing', 'dropped', 'wishlist', 'paused'];
+
+        let list = [];
+        let adminSessionActive = false;
+        let filter = 'all';
+        let sortMode = 'rating';
+        let searchQuery = '';
+        let searchTimer = null;
+        let selectedGame = null;
+        let editingId = null;
+        let currentStatus = 'playing';
+        let toastTimer = null;
+        let listRevision = 0;
+        let saveInFlight = false;
+        let saveQueued = false;
+
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[char]));
+        }
+
+        function isAdmin() { return adminSessionActive; }
+
+        function safeRevision(value) {
+            const revision = Number(value);
+            return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+        }
+
+        function cloneList() {
+            return JSON.parse(JSON.stringify(list));
+        }
+
+        function formatDate(value) {
+            const date = new Date(Number(value) || Date.now());
+            return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+
+        function coverHTML(item, cls = 'cover') {
+            const title = escapeHTML(item.title);
+            return item.cover
+                ? `<img class="${cls}" src="${escapeHTML(item.cover)}" alt="${title}" loading="lazy">`
+                : `<div class="${cls === 'cover' ? 'cover-empty' : 'search-cover'}">-</div>`;
+        }
+
+        function metaText(item) {
+            const parts = [];
+            if (item.genres?.length) parts.push(item.genres.join(', '));
+            if (item.year && item.year !== '-') parts.push(item.year);
+            if (item.platforms?.length) parts.push(item.platforms.slice(0, 3).join(', '));
+            return parts.join(' | ') || 'игра';
+        }
+
+        async function checkAdminSession() {
+            try {
+                const res = await fetch(API.admin, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                const data = await res.json().catch(() => ({}));
+                adminSessionActive = Boolean(res.ok && data.ok);
+            } catch {
+                adminSessionActive = false;
+            }
+            setAdminMode(adminSessionActive);
+        }
+
+        async function fetchList() {
+            try {
+                const res = await fetch(API.list, { headers: { 'Accept': 'application/json' } });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'fetch_failed');
+                list = Array.isArray(data.items) ? data.items : [];
+                listRevision = safeRevision(data.revision);
+            } catch {
+                list = [];
+                listRevision = 0;
+                document.getElementById('setup-warn').classList.remove('hidden');
+            }
+            render();
+        }
+
+        async function saveToCloud() {
+            if (!isAdmin()) return;
+            saveQueued = true;
+            if (saveInFlight) return;
+
+            saveInFlight = true;
+            try {
+                while (saveQueued && isAdmin()) {
+                    saveQueued = false;
+                    const snapshot = cloneList();
+                    const revision = listRevision;
+
+                    const res = await fetch(API.list, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ items: snapshot, revision }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok) {
+                        if (res.status === 401) {
+                            adminSessionActive = false;
+                            setAdminMode(false);
+                            saveQueued = false;
+                            return;
+                        }
+
+                        if (res.status === 409 && Array.isArray(data.items)) {
+                            list = data.items;
+                            listRevision = safeRevision(data.revision);
+                            saveQueued = false;
+                            render();
+                            showToast('список обновлён в другой вкладке');
+                            return;
+                        }
+
+                        throw new Error(data.error || 'save_failed');
+                    }
+
+                    listRevision = safeRevision(data.revision);
+                    showToast('сохранено');
+                }
+            } catch {
+                showToast('ошибка сохранения');
+            } finally {
+                saveInFlight = false;
+            }
+        }
+
+        function renderStats() {
+            document.getElementById('stats-tabs').innerHTML = STATUS_ORDER.map(key => {
+                const count = key === 'all' ? list.length : list.filter(item => item.status === key).length;
+                return `<button class="stat-tab ${filter === key ? 'active' : ''}" data-filter="${key}">
+                    ${STATUS[key].label}<strong>${count}</strong>
+                </button>`;
+            }).join('');
+        }
+
+        function getVisibleItems() {
+            const q = searchQuery.toLowerCase();
+            return list
+                .filter(item => filter === 'all' || item.status === filter)
+                .filter(item => !q || `${item.title} ${item.review} ${metaText(item)}`.toLowerCase().includes(q))
+                .sort((a, b) => {
+                    if (sortMode === 'title') return a.title.localeCompare(b.title, 'ru');
+                    if (sortMode === 'year') return Number(b.year || 0) - Number(a.year || 0);
+                    if (sortMode === 'updated') return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+                    return Number(b.rating || 0) - Number(a.rating || 0);
+                });
+        }
+
+        function render() {
+            renderStats();
+            const items = getVisibleItems();
+            const grid = document.getElementById('game-list');
+            document.getElementById('empty-state').classList.toggle('hidden', items.length > 0);
+            grid.innerHTML = items.map((item, idx) => rowHTML(item, idx)).join('');
+        }
+
+        function rowHTML(item, idx) {
+            const status = STATUS[item.status] || STATUS.playing;
+            return `
+                <article class="game-row" data-id="${escapeHTML(item.id)}">
+                    ${coverHTML(item)}
+                    <div class="min-w-0">
+                        <div class="row-title">
+                            <span class="rank">${idx + 1}</span>
+                            <h2 class="game-name">${escapeHTML(item.title)}</h2>
+                        </div>
+                        <div class="meta">${escapeHTML(metaText(item))}</div>
+                        <div class="date">${formatDate(item.updatedAt)}</div>
+                        ${item.review ? `<div class="review-line">${escapeHTML(item.review)}</div>` : ''}
+                    </div>
+                    <div class="score">
+                        <div class="score-value">${Number(item.rating || 0).toFixed(1)}</div>
+                        <span class="status-badge status-${escapeHTML(item.status)}">${escapeHTML(status.label)}</span>
+                    </div>
+                </article>`;
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        function openAdminModal() {
+            if (isAdmin()) {
+                adminLogout();
+                return;
+            }
+            openModal('modal-admin');
+            setTimeout(() => document.getElementById('admin-password-input').focus(), 100);
+        }
+
+        async function submitAdminLogin() {
+            const password = document.getElementById('admin-password-input').value.trim();
+            if (!password) return;
+            try {
+                const res = await fetch(API.admin, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ password }),
+                });
+                if (!res.ok) throw new Error('invalid_password');
+                adminSessionActive = true;
+                setAdminMode(true);
+                closeModal('modal-admin');
+                document.getElementById('admin-password-input').value = '';
+                document.getElementById('admin-login-error').classList.add('hidden');
+            } catch {
+                document.getElementById('admin-login-error').classList.remove('hidden');
+            }
+        }
+
+        async function adminLogout() {
+            await fetch(API.admin, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+            adminSessionActive = false;
+            setAdminMode(false);
+        }
+
+        function setAdminMode(on) {
+            document.body.classList.toggle('is-admin', on);
+            const lockButton = document.getElementById('lock-btn');
+            lockButton.classList.toggle('is-admin-active', on);
+            lockButton.title = on ? 'Выйти из режима администратора' : 'Войти в режим администратора';
+            lockButton.setAttribute('aria-label', lockButton.title);
+        }
+
+        function resetEditor() {
+            selectedGame = null;
+            editingId = null;
+            currentStatus = 'playing';
+            document.getElementById('igdb-search-block').classList.remove('hidden');
+            document.getElementById('igdb-search-input').value = '';
+            document.getElementById('igdb-results').innerHTML = '';
+            document.getElementById('editor-block').classList.add('hidden');
+            document.getElementById('delete-game-btn').classList.add('hidden');
+            document.getElementById('game-modal-title').textContent = 'добавить игру';
+        }
+
+        function openAddModal() {
+            resetEditor();
+            openModal('modal-game');
+            setTimeout(() => document.getElementById('igdb-search-input').focus(), 100);
+        }
+
+        function openEditModal(item) {
+            resetEditor();
+            selectedGame = { ...item };
+            editingId = item.id;
+            currentStatus = item.status;
+            document.getElementById('igdb-search-block').classList.add('hidden');
+            document.getElementById('delete-game-btn').classList.remove('hidden');
+            document.getElementById('game-modal-title').textContent = 'редактировать';
+            populateEditor(item);
+            openModal('modal-game');
+        }
+
+        function openViewModal(item) {
+            document.getElementById('view-cover').innerHTML = coverHTML(item);
+            document.getElementById('view-rating').textContent = Number(item.rating || 0).toFixed(1);
+            document.getElementById('view-title').textContent = item.title;
+            document.getElementById('view-meta').textContent = metaText(item);
+            document.getElementById('view-review').textContent = item.review || 'отзыва пока нет';
+            openModal('modal-view');
+        }
+
+        function populateEditor(item) {
+            document.getElementById('editor-block').classList.remove('hidden');
+            document.getElementById('editor-cover').innerHTML = coverHTML(item);
+            document.getElementById('editor-title').textContent = item.title;
+            document.getElementById('editor-meta').textContent = metaText(item);
+            document.getElementById('rating-input').value = Number(item.rating || 0);
+            document.getElementById('rating-value').textContent = Number(item.rating || 0).toFixed(1);
+            document.getElementById('review-input').value = item.review || '';
+            updateReviewCount();
+            renderStatusChoices();
+        }
+
+        function renderStatusChoices() {
+            document.getElementById('status-choices').innerHTML = STATUS_ORDER.filter(key => key !== 'all').map(key => (
+                `<button class="status-choice ${currentStatus === key ? 'active' : ''}" data-status="${key}" type="button">${STATUS[key].label}</button>`
+            )).join('');
+        }
+
+        async function performIgdbSearch(query) {
+            const el = document.getElementById('igdb-results');
+            el.innerHTML = '<div class="empty">поиск...</div>';
+            try {
+                const res = await fetch(`${API.search}?q=${encodeURIComponent(query)}`, { headers: { 'Accept': 'application/json' } });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (data.error === 'igdb_key_missing') {
+                        el.innerHTML = '<div class="warn-box">IGDB не настроен: добавь TWITCH_CLIENT_ID и TWITCH_CLIENT_SECRET в Cloudflare.</div>';
+                        return;
+                    }
+                    throw new Error(data.error || 'search_failed');
+                }
+                if (!data.results?.length) {
+                    el.innerHTML = '<div class="empty">ничего не найдено</div>';
+                    return;
+                }
+                el.innerHTML = data.results.map((item, idx) => searchResultHTML(item, idx)).join('');
+                window.__igdbResults = data.results;
+            } catch {
+                el.innerHTML = '<div class="warn-box">ошибка поиска IGDB</div>';
+            }
+        }
+
+        function searchResultHTML(item, idx) {
+            return `
+                <div class="search-result">
+                    ${item.cover ? `<img class="search-cover" src="${escapeHTML(item.cover)}" alt="${escapeHTML(item.title)}" loading="lazy">` : '<div class="search-cover"></div>'}
+                    <div class="min-w-0">
+                        <div class="font-bold text-sm text-white truncate">${escapeHTML(item.title)}</div>
+                        <div class="meta">${escapeHTML(metaText(item))}</div>
+                    </div>
+                    <button class="pill-btn" type="button" data-result="${idx}">выбрать</button>
+                </div>`;
+        }
+
+        function selectSearchResult(idx) {
+            const item = window.__igdbResults?.[idx];
+            if (!item) return;
+            const existing = list.find(game => game.id === item.id);
+            selectedGame = {
+                ...(existing || item),
+                status: existing?.status || currentStatus,
+                rating: existing?.rating || 0,
+                review: existing?.review || '',
+                addedAt: existing?.addedAt || Date.now(),
+                updatedAt: Date.now(),
+            };
+            editingId = existing?.id || null;
+            currentStatus = selectedGame.status;
+            document.getElementById('delete-game-btn').classList.toggle('hidden', !editingId);
+            populateEditor(selectedGame);
+        }
+
+        function saveEditor() {
+            if (!selectedGame) return;
+            const now = Date.now();
+            const item = {
+                ...selectedGame,
+                status: currentStatus,
+                rating: Number(document.getElementById('rating-input').value) || 0,
+                review: document.getElementById('review-input').value.trim(),
+                updatedAt: now,
+                addedAt: selectedGame.addedAt || now,
+            };
+            const index = list.findIndex(game => game.id === item.id);
+            if (index >= 0) list[index] = item;
+            else list.unshift(item);
+            render();
+            saveToCloud();
+            closeModal('modal-game');
+        }
+
+        function deleteCurrentGame() {
+            if (!selectedGame || !editingId) return;
+            list = list.filter(item => item.id !== selectedGame.id);
+            render();
+            saveToCloud();
+            closeModal('modal-game');
+        }
+
+        function updateReviewCount() {
+            const len = document.getElementById('review-input').value.length;
+            document.getElementById('review-count').textContent = `${len} / 5000`;
+        }
+
+        function showToast(message) {
+            const el = document.getElementById('toast');
+            el.textContent = message;
+            clearTimeout(toastTimer);
+            el.classList.add('show');
+            toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+        }
+
+        document.getElementById('stats-tabs').addEventListener('click', e => {
+            const btn = e.target.closest('[data-filter]');
+            if (!btn) return;
+            filter = btn.dataset.filter;
+            render();
+        });
+        document.getElementById('list-search').addEventListener('input', e => {
+            searchQuery = e.target.value.trim();
+            render();
+        });
+        document.getElementById('sort-select').addEventListener('change', e => {
+            sortMode = e.target.value;
+            render();
+        });
+        document.getElementById('add-btn').addEventListener('click', openAddModal);
+        document.getElementById('lock-btn').addEventListener('click', openAdminModal);
+        document.getElementById('login-btn').addEventListener('click', submitAdminLogin);
+        document.getElementById('admin-password-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') submitAdminLogin();
+        });
+        document.getElementById('igdb-search-input').addEventListener('input', e => {
+            const q = e.target.value.trim();
+            clearTimeout(searchTimer);
+            if (q.length < 2) {
+                document.getElementById('igdb-results').innerHTML = '';
+                return;
+            }
+            searchTimer = setTimeout(() => performIgdbSearch(q), 420);
+        });
+        document.getElementById('igdb-results').addEventListener('click', e => {
+            const btn = e.target.closest('[data-result]');
+            if (btn) selectSearchResult(Number(btn.dataset.result));
+        });
+        document.getElementById('status-choices').addEventListener('click', e => {
+            const btn = e.target.closest('[data-status]');
+            if (!btn) return;
+            currentStatus = btn.dataset.status;
+            renderStatusChoices();
+        });
+        document.getElementById('rating-input').addEventListener('input', e => {
+            document.getElementById('rating-value').textContent = Number(e.target.value).toFixed(1);
+        });
+        document.getElementById('review-input').addEventListener('input', updateReviewCount);
+        document.getElementById('save-game-btn').addEventListener('click', saveEditor);
+        document.getElementById('delete-game-btn').addEventListener('click', deleteCurrentGame);
+        document.getElementById('game-list').addEventListener('click', e => {
+            const row = e.target.closest('[data-id]');
+            if (!row) return;
+            const item = list.find(game => game.id === row.dataset.id);
+            if (!item) return;
+            if (isAdmin()) openEditModal(item);
+            else openViewModal(item);
+        });
+        document.querySelectorAll('[data-close]').forEach(btn => {
+            btn.addEventListener('click', () => closeModal(btn.dataset.close));
+        });
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', e => {
+                if (e.target === modal) closeModal(modal.id);
+            });
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                closeModal('modal-game');
+                closeModal('modal-view');
+                closeModal('modal-admin');
+            }
+        });
+
+        checkAdminSession();
+        fetchList();
+    </script>
+</body>
+</html>
+

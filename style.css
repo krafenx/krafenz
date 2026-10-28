@@ -1,0 +1,89 @@
+/* style.css */
+@import url('https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+    --void: #050505;
+    --abyss: #0a0a0c;
+    --silver: #a0a0a0;
+    --silver-dim: #666666;
+    --silver-bright: #e0e0e0;
+    --crimson: #7c0a0a;
+    --crimson-bright: #a31313;
+    --glass: rgba(12, 12, 15, 0.66);
+    --glass-border: rgba(160, 160, 160, 0.13);
+    --line: rgba(160, 160, 160, 0.16);
+    
+    --font-display: "Medula One", "Arial Narrow", sans-serif;
+    --font-heading: "Alice", "Cormorant Infant", serif;
+    --font-serif: "Cormorant Infant", Georgia, serif;
+    --font-sans: "Manrope", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
+    --ease: cubic-bezier(.22, .8, .24, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--void); scroll-behavior: smooth; }
+body {
+    background: transparent;
+    color: var(--silver-bright);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Атмосфера */
+#glow {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(46% 34% at 20% 18%, rgba(124, 10, 10, .17), transparent 65%),
+                radial-gradient(120% 90% at 50% -10%, #101018 0%, var(--abyss) 45%, var(--void) 100%);
+}
+.vignette { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(95% 90% at 50% 45%, transparent 58%, rgba(0,0,0,.72) 100%); }
+.grain { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .045; mix-blend-mode: overlay; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+/* Навигация */
+.topnav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 70;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 22px 40px; background: linear-gradient(180deg, rgba(5,5,5,.72), transparent);
+    backdrop-filter: blur(8px);
+}
+.topnav .brand { font-family: var(--font-display); font-size: 26px; letter-spacing: .08em; color: var(--silver-bright); text-decoration: none; }
+.topnav .links { display: flex; gap: 30px; }
+.topnav .links a { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--silver); text-decoration: none; transition: color .3s var(--ease); }
+.topnav .links a:hover, .topnav .links a.active { color: #fff; }
+
+/* Сетка контента */
+main { max-width: 1120px; margin: 0 auto; padding: 130px 48px 100px; min-height: 100vh; }
+.section-head { margin-bottom: 40px; }
+.section-head h1 { font-family: var(--font-display); font-size: clamp(60px, 8vw, 120px); line-height: .9; color: var(--silver-bright); }
+.section-head p { font-size: 10px; letter-spacing: .32em; text-transform: uppercase; color: var(--silver-dim); margin-top: 15px; }
+
+/* Карточки (Glassmorphism) */
+.glass {
+    background: var(--glass); border: 1px solid var(--glass-border);
+    border-radius: 18px; backdrop-filter: blur(16px);
+    transition: border-color .4s var(--ease), box-shadow .4s var(--ease);
+}
+.glass:hover { border-color: rgba(160,160,160,.3); box-shadow: 0 30px 70px rgba(0,0,0,.6); }
+
+/* Кнопки */
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 24px; border-radius: 999px; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: all .3s var(--ease); border: 1px solid var(--glass-border); background: transparent; color: var(--silver-bright); }
+.btn:hover { background: rgba(255,255,255,.05); border-color: var(--silver); }
+.btn-primary { background: linear-gradient(135deg, #8e0f0f, #5c0505); border: none; color: #fff; box-shadow: 0 10px 30px rgba(124,10,10,.3); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 15px 40px rgba(124,10,10,.5); }
+
+/* Формы */
+.input, .select, .textarea { width: 100%; background: rgba(255,255,255,.03); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px 16px; color: #fff; font-family: var(--font-sans); font-size: 13px; outline: none; transition: border-color .3s; }
+.input:focus, .select:focus, .textarea:focus { border-color: var(--crimson-bright); }
+
+/* Списки (для watchlist, gamelist) */
+.list-row { display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); transition: background .3s; }
+.list-row:hover { background: rgba(255,255,255,.02); }
+.list-row img { width: 60px; height: 85px; object-fit: cover; border-radius: 8px; }
+.list-title { font-family: var(--font-heading); font-size: 20px; color: #fff; }
+.list-meta { font-size: 11px; color: var(--silver-dim); margin-top: 4px; }
+
+/* Утилиты */
+.text-crimson { color: var(--crimson-bright); }
+.text-mono { font-family: var(--font-mono); }
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }

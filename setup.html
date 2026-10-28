@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>krafen / setup</title>
+    <meta name="description" content="Мой ПК и другое оборудование krafen: процессор, видеокарта, память, мониторы, клавиатура, мышь, звук.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style nonce="__CSP_NONCE__">
+        *, *::before, *::after { box-sizing: border-box; }
+        html { width: 100%; overflow-x: hidden; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        /* Shared ambient glow; themes.css repaints it per palette. */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: var(--ambient);
+            pointer-events: none;
+            z-index: -1;
+        }
+        body > .wrap { width: calc(100vw - 2rem); max-width: 90rem; margin: 0 auto; }
+        @media (min-width: 768px) { body > .wrap { width: calc(100vw - 4rem); } }
+
+        .glass {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 1.35rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .page-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+        .top-nav-link {
+            color: var(--subtle);
+            font-size: 10px;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            text-decoration: none;
+            transition: color 0.2s ease, text-shadow 0.2s ease;
+        }
+        .top-nav-link:hover { color: var(--text-strong); text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+        .page-head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin: 1.1rem 0 0.9rem;
+        }
+        .eyebrow {
+            margin: 0;
+            color: var(--subtle);
+            font-size: 10px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+        }
+        .page-title {
+            margin: 0.35rem 0 0;
+            color: var(--text-strong);
+            font-size: 2.25rem;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -0.04em;
+        }
+        .page-sub {
+            margin: 0.45rem 0 0;
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        .head-actions { display: flex; align-items: center; gap: 0.75rem; }
+
+        #save-indicator {
+            font-size: 9px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #save-indicator.saving, #save-indicator.saved, #save-indicator.error { opacity: 0.85; }
+        #save-indicator.saving { color: var(--accent-light); }
+        #save-indicator.saved { color: #22c55e; }
+        #save-indicator.error { color: #ef4444; }
+
+        #admin-bar {
+            display: none;
+            align-items: center;
+            justify-content: flex-start;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+            width: fit-content;
+            max-width: 100%;
+            margin: 0 auto 1rem;
+            padding: 0.4rem 0.7rem;
+            border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+            border-radius: 0.85rem;
+            background: var(--accent-soft);
+            color: var(--accent-light);
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        body.is-admin #admin-bar { display: flex; }
+        .admin-only { display: none !important; }
+        body.is-admin .admin-only { display: inline-flex !important; }
+
+        .summary {
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+            padding: 0.9rem 1rem;
+            margin-bottom: 1.4rem;
+        }
+        .chip {
+            padding: 0.4rem 0.75rem;
+            border: 1px solid var(--line);
+            border-radius: 9999px;
+            background: var(--surface);
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .chip strong { color: var(--text-strong); font-weight: 700; }
+        .chip-accent {
+            border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+            background: var(--accent-soft);
+            color: var(--accent-light);
+        }
+
+        .block { margin-bottom: 1.75rem; }
+        .block-head {
+            display: flex;
+            align-items: baseline;
+            gap: 0.7rem;
+            margin-bottom: 0.75rem;
+            padding-left: 0.15rem;
+        }
+        .block-title {
+            margin: 0;
+            color: var(--text-strong);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .block-count { color: var(--subtle); font-size: 10px; letter-spacing: 0.12em; }
+        .block-rule { flex: 1; height: 1px; background: var(--line); }
+
+        .spec-list {
+            display: grid;
+            gap: 0.6rem;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
+        }
+        .spec-row {
+            position: relative;
+            display: grid;
+            grid-template-columns: 2.6rem minmax(0, 1fr) auto;
+            gap: 0.85rem;
+            align-items: center;
+            padding: 0.9rem 1rem;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 1rem;
+            background: var(--surface);
+            transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+        }
+        .spec-row::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--accent-gradient);
+            opacity: 0;
+            transition: opacity 0.18s ease;
+        }
+        .spec-row:hover {
+            border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+            box-shadow: 0 10px 26px var(--shadow);
+            transform: translateY(-1px);
+        }
+        .spec-row:hover::before { opacity: 1; }
+        body.is-admin .spec-row { cursor: pointer; }
+
+        .spec-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.6rem;
+            height: 2.6rem;
+            border: 1px solid var(--line);
+            border-radius: 0.8rem;
+            background: var(--surface-inset);
+            color: var(--accent-light);
+        }
+        .spec-icon svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+        .spec-slot {
+            color: var(--subtle);
+            font-size: 9px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            margin-bottom: 0.3rem;
+        }
+        .spec-title {
+            color: var(--text-strong);
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+        .spec-note {
+            display: flex;
+            align-items: baseline;
+            gap: 0.4rem;
+            margin-top: 0.4rem;
+            color: var(--muted);
+            font-size: 10.5px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+        .spec-note::before {
+            content: "";
+            flex-shrink: 0;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: var(--accent);
+            transform: translateY(-2px);
+        }
+        .spec-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            border: 1px solid var(--line);
+            border-radius: 50%;
+            background: var(--surface);
+            color: var(--muted);
+            font-size: 12px;
+            text-decoration: none;
+            transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+        .spec-link:hover {
+            color: var(--text-strong);
+            border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+            background: var(--accent-soft);
+        }
+        .row-main { min-width: 0; }
+        .row-side { display: flex; align-items: center; gap: 0.5rem; }
+        .spec-edit-hint {
+            display: none;
+            color: var(--subtle);
+            font-size: 9px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+        body.is-admin .spec-edit-hint { display: inline; }
+        body.is-admin .spec-link { display: none; }
+
+        .skeleton {
+            border: 1px solid var(--line);
+            border-radius: 1rem;
+            background: var(--surface);
+            padding: 0.9rem 1rem;
+            min-height: 4.6rem;
+        }
+        .skeleton-line {
+            height: 9px;
+            border-radius: 5px;
+            background: linear-gradient(90deg, var(--surface), var(--surface-strong), var(--surface));
+            background-size: 200% 100%;
+            animation: shimmer 1.8s infinite;
+        }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+        .warn-box {
+            border: 1px solid rgba(239, 68, 68, 0.22);
+            background: rgba(239, 68, 68, 0.07);
+            color: rgba(239, 68, 68, 0.85);
+            border-radius: 0.9rem;
+            padding: 0.7rem 1rem;
+            font-size: 11px;
+            line-height: 1.5;
+            margin-bottom: 1rem;
+        }
+        .empty {
+            border: 1px solid var(--line);
+            background: var(--surface);
+            color: var(--subtle);
+            border-radius: 0.9rem;
+            padding: 2.5rem 1rem;
+            text-align: center;
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+
+        /* Editor */
+        .modal {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            background: color-mix(in srgb, var(--bg) 78%, transparent);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+        }
+        .modal.open { opacity: 1; pointer-events: all; }
+        .modal-box {
+            width: min(620px, 100%);
+            max-height: 88vh;
+            overflow: auto;
+            border-radius: 1.35rem;
+            border: 1px solid var(--line);
+            background: color-mix(in srgb, var(--card) 96%, var(--bg));
+            color: var(--text);
+            padding: 1.25rem;
+            box-shadow: 0 22px 60px var(--shadow);
+        }
+        .admin-modal-box { max-width: 420px; }
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1.1rem;
+        }
+        .modal-title { margin: 0.3rem 0 0; color: var(--text-strong); font-size: 1.45rem; font-weight: 700; letter-spacing: -0.03em; }
+
+        .field { margin-bottom: 0.95rem; }
+        .field-label {
+            display: block;
+            margin-bottom: 0.4rem;
+            color: var(--subtle);
+            font-size: 9px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+        .kf-input, .kf-select, .kf-area {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 9999px;
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
+            font-size: 12px;
+            outline: none;
+            transition: border-color 0.18s ease;
+        }
+        .kf-input, .kf-select { padding: 0.72rem 1rem; }
+        .kf-area { min-height: 84px; resize: vertical; border-radius: 1rem; line-height: 1.55; padding: 0.85rem 1rem; }
+        .kf-input::placeholder, .kf-area::placeholder { color: var(--subtle); }
+        .kf-input:focus, .kf-select:focus, .kf-area:focus { border-color: color-mix(in srgb, var(--accent) 70%, var(--line)); }
+        .field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.85rem; }
+        @media (max-width: 560px) { .field-row { grid-template-columns: minmax(0, 1fr); } }
+
+        .pill-btn, .icon-btn {
+            border: 1px solid var(--line);
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
+            cursor: pointer;
+            transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+        .pill-btn {
+            border-radius: 9999px;
+            padding: 0.72rem 1.05rem;
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .icon-btn {
+            width: 2.4rem;
+            height: 2.4rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+        }
+        .pill-btn:hover, .icon-btn:hover {
+            border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+            background: var(--accent-soft);
+            color: var(--text-strong);
+        }
+        .pill-btn:disabled { opacity: 0.45; cursor: default; }
+
+        /* Beat themes.css (!important) so the active/primary states stay visible. */
+        [data-theme] .choice.active,
+        .choice.active {
+            background: var(--accent-soft) !important;
+            border-color: color-mix(in srgb, var(--accent) 75%, var(--line)) !important;
+            color: var(--accent-light) !important;
+        }
+        [data-theme] .pill-btn.primary,
+        .pill-btn.primary {
+            background: var(--accent-gradient) !important;
+            border-color: transparent !important;
+            color: var(--bg) !important;
+            font-weight: 700;
+        }
+        [data-theme] .pill-btn.danger:hover,
+        .pill-btn.danger:hover {
+            background: rgba(239, 68, 68, 0.14) !important;
+            border-color: rgba(239, 68, 68, 0.45) !important;
+            color: #ef4444 !important;
+        }
+
+        .choice {
+            border: 1px solid var(--line);
+            border-radius: 9999px;
+            background: var(--surface);
+            color: var(--muted);
+            font: inherit;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 0.6rem 0.75rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.16s ease;
+        }
+        .choice-grid { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+
+        .modal-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-top: 1.1rem;
+        }
+        .modal-actions { display: flex; gap: 0.5rem; }
+        .hint-line {
+            color: var(--subtle);
+            font-size: 9px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            overflow-wrap: anywhere;
+        }
+        .stack-gap { margin-top: 0.75rem; }
+        .full-btn { width: 100%; margin-top: 1rem; }
+
+        #lock-btn { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 50; }
+
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 1.25rem;
+            z-index: 200;
+            transform: translateX(-50%) translateY(12px);
+            opacity: 0;
+            pointer-events: none;
+            border: 1px solid var(--line);
+            border-radius: 9999px;
+            background: color-mix(in srgb, var(--card) 96%, var(--bg));
+            color: var(--text);
+            padding: 0.65rem 1.1rem;
+            font-size: 11px;
+            white-space: nowrap;
+            box-shadow: 0 12px 32px var(--shadow);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        .page-foot {
+            margin: 3.5rem 0 1.5rem;
+            text-align: center;
+            color: var(--subtle);
+            font-size: 10px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        .hidden { display: none !important; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 2px; }
+    </style>
+    <link rel="stylesheet" href="/styles/themes.css?v=20261009-5">
+    <script nonce="__CSP_NONCE__" src="/styles/themes.js?v=20261009-3" defer></script>
+    <link rel="stylesheet" href="/styles/krafen-unified.css?v=20261028-1">
+    <script src="/styles/krafen-unified.js?v=20261028-1" defer></script>
+</head>
+<body class="py-6 md:py-10">
+    <main class="wrap">
+        <nav class="page-nav" aria-label="site sections">
+            <a class="top-nav-link" href="index.html">&larr; home</a>
+            <a class="top-nav-link" href="/wishlist">wishlist &rarr;</a>
+        </nav>
+
+        <header class="page-head">
+            <div>
+                <p class="eyebrow">hardware inventory</p>
+                <h1 class="page-title">setup</h1>
+                <p class="page-sub">мой пк · другое оборудование</p>
+            </div>
+            <div class="head-actions">
+                <span id="save-indicator"></span>
+                <button id="add-btn" class="pill-btn admin-only" type="button">+ компонент</button>
+            </div>
+        </header>
+
+        <div id="admin-bar">
+            <span>admin mode</span>
+            <a class="pill-btn" href="/api/spotify/auth">подключить Spotify</a>
+            <button id="admin-logout-btn" class="pill-btn" type="button">выйти</button>
+        </div>
+
+        <div id="setup-warn" class="warn-box hidden">
+            Cloudflare KV пока не настроен — показан встроенный конфиг. Правки не сохранятся, пока не будет привязки <b>WATCHLIST</b>.
+        </div>
+
+        <div id="summary" class="summary glass"></div>
+
+        <div id="loading-state" class="spec-list">
+            <div class="skeleton"><div class="skeleton-line" style="width:38%"></div><div class="skeleton-line mt-2" style="width:72%"></div></div>
+            <div class="skeleton"><div class="skeleton-line" style="width:30%"></div><div class="skeleton-line mt-2" style="width:64%"></div></div>
+            <div class="skeleton"><div class="skeleton-line" style="width:44%"></div><div class="skeleton-line mt-2" style="width:58%"></div></div>
+            <div class="skeleton"><div class="skeleton-line" style="width:34%"></div><div class="skeleton-line mt-2" style="width:70%"></div></div>
+        </div>
+
+        <section class="block hidden" data-block="pc">
+            <div class="block-head">
+                <h2 class="block-title">системный блок</h2>
+                <span class="block-count" data-count="pc">0</span>
+                <span class="block-rule"></span>
+            </div>
+            <div class="spec-list" data-list="pc"></div>
+        </section>
+
+        <section class="block hidden" data-block="gear">
+            <div class="block-head">
+                <h2 class="block-title">другое оборудование</h2>
+                <span class="block-count" data-count="gear">0</span>
+                <span class="block-rule"></span>
+            </div>
+            <div class="spec-list" data-list="gear"></div>
+        </section>
+
+        <div id="empty-state" class="empty hidden">список пуст</div>
+
+        <footer class="page-foot">сделано с 🤍 by krafen</footer>
+    </main>
+
+    <button id="lock-btn" class="icon-btn" type="button" title="Войти в режим администратора" aria-label="Войти в режим администратора">
+        <svg class="admin-lock__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.75a4.5 4.5 0 0 1 9 0V10"/><rect x="5.25" y="10" width="13.5" height="10" rx="2.25"/><path d="M12 14.25v2.25"/></svg>
+    </button>
+    <div id="toast" class="toast"></div>
+
+    <div id="modal-part" class="modal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="eyebrow">component</div>
+                    <h2 id="part-modal-title" class="modal-title">добавить компонент</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-part">x</button>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="part-section">раздел</label>
+                <div class="choice-grid" id="section-choices"></div>
+            </div>
+
+            <div class="field-row">
+                <div class="field">
+                    <label class="field-label" for="part-slot">что это</label>
+                    <input id="part-slot" class="kf-input" type="text" maxlength="80" placeholder="Процессор" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label class="field-label" for="part-icon">иконка</label>
+                    <select id="part-icon" class="kf-select"></select>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="part-title">модель</label>
+                <input id="part-title" class="kf-input" type="text" maxlength="180" placeholder="AMD Ryzen 5 8400F" autocomplete="off">
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="part-note">заметка</label>
+                <input id="part-note" class="kf-input" type="text" maxlength="300" placeholder="затычка, коплю на новую" autocomplete="off">
+            </div>
+
+            <div class="field-row">
+                <div class="field">
+                    <label class="field-label" for="part-link">ссылка (https)</label>
+                    <input id="part-link" class="kf-input" type="url" maxlength="600" placeholder="https://" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label class="field-label" for="part-order">порядок</label>
+                    <input id="part-order" class="kf-input" type="number" min="0" max="999" step="1" value="0">
+                </div>
+            </div>
+
+            <div class="modal-foot">
+                <span id="part-hint" class="hint-line">id: новый</span>
+                <div class="modal-actions">
+                    <button id="delete-part-btn" class="pill-btn danger hidden" type="button">удалить</button>
+                    <button id="save-part-btn" class="pill-btn primary" type="button">сохранить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-admin" class="modal">
+        <div class="modal-box admin-modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="eyebrow">admin</div>
+                    <h2 class="modal-title">вход</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-admin">x</button>
+            </div>
+            <input id="admin-password-input" class="kf-input" type="password" placeholder="password" autocomplete="current-password">
+            <div id="admin-login-error" class="warn-box hidden stack-gap">пароль не подошел или API недоступен</div>
+            <button id="login-btn" class="pill-btn primary full-btn" type="button">войти</button>
+        </div>
+    </div>
+
+    <script nonce="__CSP_NONCE__">
+        const API = {
+            list: '/api/setup',
+            admin: '/api/admin',
+        };
+
+        const SECTIONS = [
+            { id: 'pc', label: 'системный блок' },
+            { id: 'gear', label: 'другое оборудование' },
+        ];
+
+        const ICONS = {
+            cpu: 'Процессор',
+            gpu: 'Видеокарта',
+            ram: 'Память',
+            board: 'Материнская плата',
+            ssd: 'SSD',
+            hdd: 'HDD',
+            cooler: 'Охлаждение',
+            psu: 'Блок питания',
+            case: 'Корпус',
+            audio: 'Наушники / IEM',
+            monitor: 'Монитор',
+            keyboard: 'Клавиатура',
+            mouse: 'Мышь',
+            mic: 'Микрофон',
+            other: 'Другое',
+        };
+
+        const ICON_PATHS = {
+            cpu: '<rect x="7" y="7" width="10" height="10" rx="1.5"/><rect x="10" y="10" width="4" height="4" rx="0.6"/><path d="M9.5 3.2v3.8M14.5 3.2v3.8M9.5 17v3.8M14.5 17v3.8M3.2 9.5H7M3.2 14.5H7M17 9.5h3.8M17 14.5h3.8"/>',
+            gpu: '<rect x="2.5" y="6.5" width="19" height="9.5" rx="1.5"/><circle cx="8.2" cy="11.2" r="2.6"/><circle cx="15.8" cy="11.2" r="2.6"/><path d="M6 16v2.2M18 16v2.2"/>',
+            ram: '<rect x="2.5" y="7.5" width="19" height="9" rx="1"/><path d="M6 16.5v2.2M10 16.5v2.2M14 16.5v2.2M18 16.5v2.2"/><path d="M6 10.4h2.6v3.2H6zM10.7 10.4h2.6v3.2h-2.6zM15.4 10.4H18v3.2h-2.6z"/>',
+            board: '<rect x="3.5" y="3.5" width="17" height="17" rx="1.5"/><rect x="7" y="7" width="5" height="5" rx="0.8"/><path d="M15 7.4h3.2M15 10.4h3.2M7 15.2h11.2M7 18h7"/>',
+            ssd: '<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M6.8 10.2h5M6.8 13.4h3.2"/><circle cx="16.8" cy="12" r="1.7"/>',
+            hdd: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><circle cx="10.4" cy="12" r="4"/><circle cx="10.4" cy="12" r="0.9"/><path d="M13.6 15.2l3.6 2"/>',
+            cooler: '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="2"/><path d="M12 9.9V4.2M14.1 12h5.7M12 14.1v5.7M9.9 12H4.2"/>',
+            psu: '<rect x="2.5" y="6" width="19" height="12" rx="1.5"/><circle cx="8" cy="12" r="3"/><path d="M14 9.6h5M14 12h5M14 14.4h3"/>',
+            case: '<rect x="6" y="2.5" width="12" height="19" rx="1.5"/><circle cx="12" cy="6.4" r="1.1"/><path d="M9 10.6h6M9 13.6h6M9 16.6h4"/>',
+            audio: '<path d="M4.2 14.2v-2.4a7.8 7.8 0 0 1 15.6 0v2.4"/><rect x="2.4" y="13.4" width="4.2" height="6.6" rx="1.7"/><rect x="17.4" y="13.4" width="4.2" height="6.6" rx="1.7"/>',
+            monitor: '<rect x="2.5" y="4.5" width="19" height="12.6" rx="1.5"/><path d="M8.8 20.4h6.4M12 17.1v3.3"/>',
+            keyboard: '<rect x="2.5" y="6.5" width="19" height="11" rx="1.5"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 13.6h.01M18 13.6h.01M9.4 13.6h5.2"/>',
+            mouse: '<rect x="7" y="2.5" width="10" height="19" rx="5"/><path d="M12 6.6v4"/>',
+            mic: '<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.6 11.6a6.4 6.4 0 0 0 12.8 0M12 18v3.4M9.2 21.4h5.6"/>',
+            other: '<path d="M12 3l7.6 4.4v9.2L12 21l-7.6-4.4V7.4z"/><path d="M12 12.2l7.6-4.4M12 12.2v8.6M12 12.2L4.4 7.8"/>',
+        };
+
+        // Shown while the KV namespace is empty or unreachable, so the page is never blank.
+        const DEFAULT_ITEMS = [
+            { id: 'cpu', section: 'pc', slot: 'Процессор', title: 'AMD Ryzen 5 8400F', icon: 'cpu', order: 1 },
+            { id: 'gpu', section: 'pc', slot: 'Видеокарта', title: 'Gigabyte NVIDIA GeForce GTX 650', icon: 'gpu', note: 'затычка, коплю на новую', order: 2 },
+            { id: 'ram', section: 'pc', slot: 'Оперативная память', title: 'DDR5 Kingston FURY Beast Black RGB 2x8GB', icon: 'ram', order: 3 },
+            { id: 'board', section: 'pc', slot: 'Материнская плата', title: 'GIGABYTE A620M H (AM5, Micro-ATX)', icon: 'board', order: 4 },
+            { id: 'ssd', section: 'pc', slot: 'SSD диск', title: 'Apacer AS350 PANTHER 128 ГБ', icon: 'ssd', order: 5 },
+            { id: 'hdd', section: 'pc', slot: 'HDD диск', title: 'Toshiba P300 1 ТБ', icon: 'hdd', order: 6 },
+            { id: 'cooler', section: 'pc', slot: 'Охлаждение процессора', title: 'Lovingcool LC-D400 White', icon: 'cooler', order: 7 },
+            { id: 'psu', section: 'pc', slot: 'Блок питания', title: 'Azerty RPA-650BA2 650W', icon: 'psu', order: 8 },
+            { id: 'case', section: 'pc', slot: 'Корпус', title: '1STPLAYER MIKU Mi2, черный', icon: 'case', order: 9 },
+            { id: 'iem', section: 'gear', slot: 'In-Ear Monitor', title: 'MOONDROP CHU II', icon: 'audio', order: 1 },
+            { id: 'monitor-main', section: 'gear', slot: 'Монитор', title: 'BenQ GL2055 20" 75 Гц', icon: 'monitor', order: 2 },
+            { id: 'monitor-second', section: 'gear', slot: 'Второй монитор', title: 'BenQ GL2055 20" 75 Гц', icon: 'monitor', order: 3 },
+            { id: 'keyboard', section: 'gear', slot: 'Клавиатура', title: 'ARDOR GAMING Blade PRO Optical', icon: 'keyboard', order: 4 },
+            { id: 'mouse', section: 'gear', slot: 'Мышка', title: 'Zaopin ZPW MAX', icon: 'mouse', link: 'https://mechkeys.com/products/zaopin-zpw?variant=46926838366431', order: 5 },
+            { id: 'mic', section: 'gear', slot: 'Микрофон', title: 'FIFINE AmpliGame AM8', icon: 'mic', order: 6 },
+        ].map(item => ({ note: null, link: null, updatedAt: 0, ...item }));
+
+        let list = [];
+        let listRevision = 0;
+        let adminSessionActive = false;
+        let saveInFlight = false;
+        let saveQueued = false;
+        let toastTimer = null;
+        let editingId = null;
+        let currentSection = 'pc';
+
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[char]));
+        }
+
+        function isAdmin() { return adminSessionActive; }
+
+        function safeRevision(value) {
+            const revision = Number(value);
+            return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+        }
+
+        function cloneList() { return JSON.parse(JSON.stringify(list)); }
+
+        function iconSVG(name) {
+            return `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ICON_PATHS.other}</svg>`;
+        }
+
+        function newId() {
+            return `part_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        function sectionItems(sectionId) {
+            return list
+                .filter(item => item.section === sectionId)
+                .sort((a, b) => (Number(a.order) - Number(b.order)) || String(a.slot).localeCompare(String(b.slot), 'ru'));
+        }
+
+        async function checkAdminSession() {
+            try {
+                const res = await fetch(API.admin, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                const data = await res.json().catch(() => ({}));
+                adminSessionActive = Boolean(res.ok && data.ok);
+            } catch {
+                adminSessionActive = false;
+            }
+            setAdminMode(adminSessionActive);
+        }
+
+        async function fetchList() {
+            let failed = false;
+            try {
+                const res = await fetch(API.list, { headers: { 'Accept': 'application/json' } });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'fetch_failed');
+                list = Array.isArray(data.items) && data.items.length
+                    ? data.items
+                    : DEFAULT_ITEMS.map(item => ({ ...item }));
+                listRevision = safeRevision(data.revision);
+            } catch {
+                list = DEFAULT_ITEMS.map(item => ({ ...item }));
+                listRevision = 0;
+                failed = true;
+                document.getElementById('setup-warn').classList.remove('hidden');
+            }
+            document.getElementById('loading-state').classList.add('hidden');
+            render();
+            if (failed) showToast('kv недоступен — показан встроенный конфиг');
+        }
+
+        async function saveToCloud() {
+            if (!isAdmin()) return;
+            saveQueued = true;
+            if (saveInFlight) return;
+
+            saveInFlight = true;
+            try {
+                while (saveQueued && isAdmin()) {
+                    saveQueued = false;
+                    const snapshot = cloneList();
+                    const revision = listRevision;
+                    setSaveIndicator('saving', 'сохранение...');
+
+                    const res = await fetch(API.list, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ items: snapshot, revision }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok) {
+                        if (res.status === 401) {
+                            adminSessionActive = false;
+                            setAdminMode(false);
+                            saveQueued = false;
+                            return;
+                        }
+                        if (res.status === 409 && Array.isArray(data.items)) {
+                            list = data.items;
+                            listRevision = safeRevision(data.revision);
+                            saveQueued = false;
+                            render();
+                            setSaveIndicator('error', 'конфиг обновлён в другой вкладке');
+                            showToast('конфиг обновлён в другой вкладке');
+                            setTimeout(() => setSaveIndicator('', ''), 3000);
+                            return;
+                        }
+                        throw new Error(data.error || 'save_failed');
+                    }
+
+                    listRevision = safeRevision(data.revision);
+                    setSaveIndicator('saved', 'сохранено');
+                    showToast('сохранено');
+                    setTimeout(() => setSaveIndicator('', ''), 1800);
+                }
+            } catch {
+                setSaveIndicator('error', 'ошибка сохранения');
+                setTimeout(() => setSaveIndicator('', ''), 3000);
+            } finally {
+                saveInFlight = false;
+            }
+        }
+
+        function setSaveIndicator(cls, message) {
+            const el = document.getElementById('save-indicator');
+            el.className = cls;
+            el.textContent = message;
+        }
+
+        function renderSummary() {
+            const total = list.length;
+            const pc = sectionItems('pc').length;
+            const gear = sectionItems('gear').length;
+            document.getElementById('summary').innerHTML = `
+                <span class="chip chip-accent"><strong>${total}</strong> позиций</span>
+                <span class="chip"><strong>${pc}</strong> системный блок</span>
+                <span class="chip"><strong>${gear}</strong> оборудование</span>
+                <span class="chip">am5 · ddr5</span>
+            `;
+        }
+
+        function rowHTML(item) {
+            const slot = escapeHTML(item.slot);
+            const title = escapeHTML(item.title);
+            const id = escapeHTML(item.id);
+            const link = item.link ? escapeHTML(item.link) : '';
+            return `
+                <article class="spec-row" data-id="${id}">
+                    <span class="spec-icon">${iconSVG(item.icon)}</span>
+                    <div class="row-main">
+                        <div class="spec-slot">${slot}</div>
+                        <div class="spec-title">${title}</div>
+                        ${item.note ? `<div class="spec-note">${escapeHTML(item.note)}</div>` : ''}
+                    </div>
+                    <div class="row-side">
+                        ${link ? `<a class="spec-link" href="${link}" target="_blank" rel="noopener noreferrer" title="Открыть страницу" aria-label="Открыть страницу ${title}">&#8599;</a>` : ''}
+                        <span class="spec-edit-hint">править</span>
+                    </div>
+                </article>`;
+        }
+
+        function render() {
+            renderSummary();
+            let visibleTotal = 0;
+
+            SECTIONS.forEach(section => {
+                const items = sectionItems(section.id);
+                const block = document.querySelector(`[data-block="${section.id}"]`);
+                const listEl = document.querySelector(`[data-list="${section.id}"]`);
+                document.querySelector(`[data-count="${section.id}"]`).textContent = `${items.length} шт.`;
+                listEl.innerHTML = items.map(rowHTML).join('');
+                block.classList.toggle('hidden', items.length === 0);
+                visibleTotal += items.length;
+            });
+
+            document.getElementById('empty-state').classList.toggle('hidden', visibleTotal > 0);
+        }
+
+        function setAdminMode(on) {
+            document.body.classList.toggle('is-admin', on);
+            const lockButton = document.getElementById('lock-btn');
+            lockButton.classList.toggle('is-admin-active', on);
+            lockButton.title = on ? 'Выйти из режима администратора' : 'Войти в режим администратора';
+            lockButton.setAttribute('aria-label', lockButton.title);
+            if (!on) setSaveIndicator('', '');
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        function openAdminModal() {
+            if (isAdmin()) {
+                if (confirm('Выйти из режима администратора?')) adminLogout();
+                return;
+            }
+            openModal('modal-admin');
+            setTimeout(() => document.getElementById('admin-password-input').focus(), 100);
+        }
+
+        async function submitAdminLogin() {
+            const input = document.getElementById('admin-password-input');
+            const btn = document.getElementById('login-btn');
+            const errEl = document.getElementById('admin-login-error');
+            const password = input.value.trim();
+            if (!password) return;
+
+            btn.disabled = true;
+            btn.textContent = 'проверка...';
+            errEl.classList.add('hidden');
+
+            try {
+                const res = await fetch(API.admin, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ password }),
+                });
+                if (!res.ok) throw new Error('invalid_password');
+                adminSessionActive = true;
+                setAdminMode(true);
+                closeModal('modal-admin');
+                input.value = '';
+                showToast('admin mode активен');
+            } catch {
+                errEl.classList.remove('hidden');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'войти';
+        }
+
+        async function adminLogout() {
+            await fetch(API.admin, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+            adminSessionActive = false;
+            setAdminMode(false);
+            showToast('вышел из admin mode');
+        }
+
+        function renderSectionChoices() {
+            document.getElementById('section-choices').innerHTML = SECTIONS.map(section => (
+                `<button class="choice ${currentSection === section.id ? 'active' : ''}" type="button" data-section="${section.id}">${section.label}</button>`
+            )).join('');
+        }
+
+        function renderIconOptions(selected) {
+            document.getElementById('part-icon').innerHTML = Object.entries(ICONS).map(([key, label]) => (
+                `<option value="${key}" ${key === selected ? 'selected' : ''}>${label}</option>`
+            )).join('');
+        }
+
+        function resetEditor() {
+            editingId = null;
+            currentSection = 'pc';
+            document.getElementById('part-modal-title').textContent = 'добавить компонент';
+            document.getElementById('part-slot').value = '';
+            document.getElementById('part-title').value = '';
+            document.getElementById('part-note').value = '';
+            document.getElementById('part-link').value = '';
+            document.getElementById('part-order').value = String(sectionItems('pc').length + 1);
+            document.getElementById('part-hint').textContent = 'id: новый';
+            document.getElementById('delete-part-btn').classList.add('hidden');
+            renderIconOptions('other');
+            renderSectionChoices();
+        }
+
+        function openAddModal() {
+            if (!isAdmin()) return;
+            resetEditor();
+            openModal('modal-part');
+            setTimeout(() => document.getElementById('part-slot').focus(), 100);
+        }
+
+        function openEditModal(item) {
+            if (!isAdmin()) return;
+            editingId = item.id;
+            currentSection = item.section || 'pc';
+            document.getElementById('part-modal-title').textContent = 'править компонент';
+            document.getElementById('part-slot').value = item.slot || '';
+            document.getElementById('part-title').value = item.title || '';
+            document.getElementById('part-note').value = item.note || '';
+            document.getElementById('part-link').value = item.link || '';
+            document.getElementById('part-order').value = String(Number(item.order) || 0);
+            document.getElementById('part-hint').textContent = `id: ${item.id}`;
+            document.getElementById('delete-part-btn').classList.remove('hidden');
+            renderIconOptions(item.icon || 'other');
+            renderSectionChoices();
+            openModal('modal-part');
+        }
+
+        function saveEditor() {
+            const slot = document.getElementById('part-slot').value.trim();
+            const title = document.getElementById('part-title').value.trim();
+            if (!slot || !title) {
+                showToast('заполни «что это» и «модель»');
+                return;
+            }
+
+            const link = document.getElementById('part-link').value.trim();
+            if (link && !/^https:\/\//i.test(link)) {
+                showToast('ссылка должна начинаться с https://');
+                return;
+            }
+
+            const now = Date.now();
+            const existing = editingId ? list.find(item => item.id === editingId) : null;
+            const item = {
+                id: existing?.id || newId(),
+                section: currentSection,
+                slot: slot.slice(0, 80),
+                title: title.slice(0, 180),
+                icon: document.getElementById('part-icon').value,
+                note: document.getElementById('part-note').value.trim().slice(0, 300) || null,
+                link: link || null,
+                order: Math.max(0, Math.min(999, Number(document.getElementById('part-order').value) || 0)),
+                updatedAt: now,
+            };
+
+            const index = list.findIndex(entry => entry.id === item.id);
+            if (index >= 0) list[index] = item;
+            else list.push(item);
+
+            render();
+            saveToCloud();
+            closeModal('modal-part');
+        }
+
+        function deleteCurrent() {
+            if (!editingId) return;
+            const item = list.find(entry => entry.id === editingId);
+            if (!item) return;
+            if (!confirm(`Удалить «${item.title}»?`)) return;
+            list = list.filter(entry => entry.id !== editingId);
+            render();
+            saveToCloud();
+            closeModal('modal-part');
+        }
+
+        function showToast(message) {
+            const el = document.getElementById('toast');
+            el.textContent = message;
+            clearTimeout(toastTimer);
+            el.classList.add('show');
+            toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+        }
+
+        document.getElementById('add-btn').addEventListener('click', openAddModal);
+        document.getElementById('lock-btn').addEventListener('click', openAdminModal);
+        document.getElementById('admin-logout-btn').addEventListener('click', adminLogout);
+        document.getElementById('login-btn').addEventListener('click', submitAdminLogin);
+        document.getElementById('admin-password-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') submitAdminLogin();
+        });
+        document.getElementById('save-part-btn').addEventListener('click', saveEditor);
+        document.getElementById('delete-part-btn').addEventListener('click', deleteCurrent);
+
+        document.getElementById('section-choices').addEventListener('click', e => {
+            const btn = e.target.closest('[data-section]');
+            if (!btn) return;
+            currentSection = btn.dataset.section;
+            renderSectionChoices();
+        });
+
+        document.addEventListener('click', e => {
+            const row = e.target.closest('.spec-row');
+            if (!row) return;
+            if (e.target.closest('.spec-link')) return; // внешняя ссылка открывается сама
+            if (!isAdmin()) return;
+            const item = list.find(entry => entry.id === row.dataset.id);
+            if (item) openEditModal(item);
+        });
+
+        document.querySelectorAll('[data-close]').forEach(btn => {
+            btn.addEventListener('click', () => closeModal(btn.dataset.close));
+        });
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', e => {
+                if (e.target === modal) closeModal(modal.id);
+            });
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key !== 'Escape') return;
+            closeModal('modal-part');
+            closeModal('modal-admin');
+        });
+
+        checkAdminSession();
+        fetchList();
+    </script>
+</body>
+</html>
+

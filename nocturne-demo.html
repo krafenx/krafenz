@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Чуть ближе к темноте</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --void:#050505;
+  --abyss:#0a0a0c;
+  --cathedral:#1a1a1e;
+  --monolith:#2c2c34;
+  --silver:#a0a0a0;
+  --silver-dim:#666;
+  --silver-bright:#e0e0e0;
+  --crimson:#7c0a0a;
+  --blood:#4a0404;
+  --glass:rgba(10,10,12,.72);
+  --glass-border:rgba(160,160,160,.16);
+  --font-heading:"Alice","Cormorant Infant",serif;
+  --font-serif:"Cormorant Infant",Georgia,serif;
+  --font-sans:"Manrope",Arial,sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(120% 90% at 50% -10%, #101016 0%, var(--abyss) 45%, var(--void) 100%);
+  color:#f5f5f5;
+  font-family:var(--font-sans);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+/* ---------- atmosphere layers ---------- */
+#rain{position:fixed;inset:0;z-index:3;pointer-events:none;opacity:.55}
+.fog{position:fixed;inset:-20%;z-index:2;pointer-events:none;
+  background:
+    radial-gradient(40% 30% at 20% 80%, rgba(160,160,160,.05), transparent 70%),
+    radial-gradient(50% 35% at 80% 75%, rgba(160,160,160,.04), transparent 70%);
+  animation:fogdrift 26s ease-in-out infinite alternate;
+  filter:blur(2px);
+}
+.fog.f2{animation-duration:34s;animation-direction:alternate-reverse;opacity:.7}
+@keyframes fogdrift{
+  from{transform:translate3d(-3%,1%,0) scale(1)}
+  to{transform:translate3d(3%,-2%,0) scale(1.06)}
+}
+#flash{position:fixed;inset:0;z-index:4;pointer-events:none;background:#cdd6ff;opacity:0}
+.vignette{position:fixed;inset:0;z-index:5;pointer-events:none;
+  background:radial-gradient(90% 90% at 50% 45%, transparent 55%, rgba(0,0,0,.75) 100%);
+}
+.grain{position:fixed;inset:0;z-index:6;pointer-events:none;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* ---------- layout ---------- */
+.stage{position:relative;z-index:10;height:100dvh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:32px;text-align:center}
+.brand{position:fixed;top:28px;left:32px;z-index:20;display:flex;align-items:center;gap:10px;
+  letter-spacing:.35em;font-size:11px;text-transform:uppercase;color:var(--silver-dim)}
+.brand .dot{width:6px;height:6px;border-radius:50%;background:var(--crimson);
+  box-shadow:0 0 12px rgba(124,10,10,.9)}
+h1{
+  font-family:var(--font-heading);
+  font-weight:400;
+  font-size:clamp(38px,6.5vw,84px);
+  line-height:1.05;
+  color:var(--silver-bright);
+  text-shadow:0 0 40px rgba(224,224,224,.18);
+  animation:rise 1.4s var(--ease) both;
+}
+h1 em{font-style:normal;color:var(--silver)}
+.sub{
+  margin-top:18px;
+  font-family:var(--font-serif);
+  font-size:clamp(17px,2vw,23px);
+  font-style:italic;
+  color:var(--silver);
+  animation:rise 1.4s .15s var(--ease) both;
+}
+.hint{
+  margin-top:14px;font-size:13px;color:var(--silver-dim);max-width:420px;line-height:1.7;
+  animation:rise 1.4s .3s var(--ease) both;
+}
+@keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+/* ---------- choice cards ---------- */
+.choices{display:flex;gap:22px;margin-top:52px;flex-wrap:wrap;justify-content:center;
+  animation:rise 1.4s .45s var(--ease) both}
+.card{
+  position:relative;width:min(300px,80vw);padding:34px 28px 30px;
+  background:var(--glass);
+  border:1px solid var(--glass-border);
+  border-radius:16px;
+  backdrop-filter:blur(14px);
+  cursor:pointer;
+  transition:transform .5s var(--ease), border-color .5s var(--ease), box-shadow .5s var(--ease);
+  overflow:hidden;
+}
+.card::before{content:"";position:absolute;inset:0;
+  background:linear-gradient(160deg, rgba(224,224,224,.06), transparent 45%);
+  opacity:0;transition:opacity .5s var(--ease)}
+.card:hover{transform:translateY(-6px);border-color:rgba(160,160,160,.32);
+  box-shadow:0 24px 64px rgba(0,0,0,.8), 0 0 24px rgba(160,160,160,.06)}
+.card:hover::before{opacity:1}
+.card .glyph{font-family:var(--font-heading);font-size:40px;color:var(--silver-bright);
+  text-shadow:0 0 18px rgba(224,224,224,.25)}
+.card h2{font-family:var(--font-heading);font-weight:400;font-size:26px;margin-top:14px;
+  color:var(--silver-bright)}
+.card p{margin-top:10px;font-size:13.5px;line-height:1.7;color:var(--silver)}
+.card .edge{position:absolute;left:0;right:0;bottom:0;height:2px;
+  background:linear-gradient(90deg, transparent, var(--crimson), transparent);
+  opacity:0;transition:opacity .5s var(--ease)}
+.card:hover .edge{opacity:1}
+.card.active{border-color:rgba(124,10,10,.55)}
+.card.active .edge{opacity:1}
+/* ---------- bottom bar ---------- */
+.dock{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:20;
+  display:flex;align-items:center;gap:18px;padding:10px 14px;
+  background:var(--glass);border:1px solid var(--glass-border);border-radius:999px;
+  backdrop-filter:blur(14px);animation:rise 1.4s .6s var(--ease) both}
+.eq{display:flex;align-items:flex-end;gap:3px;height:16px}
+.eq i{width:3px;background:var(--silver);border-radius:2px;animation:eq 1.1s ease-in-out infinite}
+.eq i:nth-child(1){animation-delay:0s}.eq i:nth-child(2){animation-delay:.2s}
+.eq i:nth-child(3){animation-delay:.35s}.eq i:nth-child(4){animation-delay:.1s}
+@keyframes eq{0%,100%{height:5px}50%{height:16px}}
+.dock.paused .eq i{animation-play-state:paused;height:5px}
+.dock .meta{font-size:12px;color:var(--silver);letter-spacing:.02em;white-space:nowrap}
+.dock .meta b{color:var(--silver-bright);font-weight:500}
+.btn{
+  font-family:var(--font-sans);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--silver-bright);background:transparent;border:1px solid var(--glass-border);
+  border-radius:999px;padding:8px 18px;cursor:pointer;
+  transition:border-color .3s var(--ease), background .3s var(--ease);
+}
+.btn:hover{border-color:rgba(160,160,160,.4);background:rgba(160,160,160,.05)}
+#atmo.on{border-color:rgba(124,10,10,.6)}
+@media (max-width:640px){
+  .dock{gap:10px;bottom:16px;max-width:94vw}
+  .dock .meta{font-size:11px}
+}
+</style>
+</head>
+<body>
+<canvas id="rain"></canvas>
+<div class="fog"></div>
+<div class="fog f2"></div>
+<div id="flash"></div>
+<div class="vignette"></div>
+<div class="grain"></div>
+
+<div class="brand"><span class="dot"></span>Nocturne</div>
+
+<main class="stage">
+  <h1>Чуть ближе<br /><em>к темноте</em></h1>
+  <p class="sub">Тихая музыка, лёгкий дождь, дым и далёкие молнии.</p>
+  <p class="hint">Выбери, как провести этот вечер. Выбор сохранится — переключить режим
+  можно кнопкой «Атмосфера» справа внизу.</p>
+
+  <div class="choices">
+    <div class="card" data-mode="rain">
+      <div class="glyph">☂</div>
+      <h2>У окна с дождём</h2>
+      <p>Медленные треки под стук капель по стеклу. Для долгих размышлений и тёплого чая.</p>
+      <div class="edge"></div>
+    </div>
+    <div class="card" data-mode="night">
+      <div class="glyph">☾</div>
+      <h2>Тишина после полуночи</h2>
+      <p>Почти без звука. Только гул города за стеной и редкие вспышки за горизонтом.</p>
+      <div class="edge"></div>
+    </div>
+    <div class="card" data-mode="storm">
+      <div class="glyph">⚡</div>
+      <h2>Гроза вдали</h2>
+      <p>Глубокий эмбиент и нарастающий раскат. Когда нужно почувствовать масштаб ночи.</p>
+      <div class="edge"></div>
+    </div>
+  </div>
+</main>
+
+<div class="dock paused" id="dock">
+  <div class="eq"><i></i><i></i><i></i><i></i></div>
+  <div class="meta">Музыка · <b id="vol">20%</b> · <span id="state">на паузе</span></div>
+  <button class="btn" id="atmo">Атмосфера</button>
+</div>
+
+<script>
+/* ---------- rain ---------- */
+const cv = document.getElementById('rain'), ctx = cv.getContext('2d');
+let W, H, drops = [];
+function resize(){
+  W = cv.width = innerWidth; H = cv.height = innerHeight;
+  drops = Array.from({length: Math.floor(W/6)}, () => spawn(true));
+}
+function spawn(any){
+  return { x: Math.random()*W, y: any ? Math.random()*H : -20,
+    l: 10 + Math.random()*18, v: 9 + Math.random()*9, o: .06 + Math.random()*.2 };
+}
+addEventListener('resize', resize); resize();
+(function loop(){
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle = '#9aa4b8'; ctx.lineWidth = 1;
+  for(const d of drops){
+    ctx.globalAlpha = d.o;
+    ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 1.5, d.y + d.l); ctx.stroke();
+    d.y += d.v; d.x -= .6;
+    if(d.y > H) Object.assign(d, spawn(false));
+  }
+  requestAnimationFrame(loop);
+})();
+
+/* ---------- distant lightning ---------- */
+const flash = document.getElementById('flash');
+function lightning(){
+  const bursts = 1 + Math.floor(Math.random()*3);
+  let n = 0;
+  (function flick(){
+    flash.style.transition = 'none'; flash.style.opacity = .18 + Math.random()*.3;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      flash.style.transition = 'opacity .6s ease-out'; flash.style.opacity = 0;
+    }));
+    if(++n < bursts) setTimeout(flick, 90 + Math.random()*140);
+  })();
+  setTimeout(lightning, 6000 + Math.random()*14000);
+}
+setTimeout(lightning, 2500);
+
+/* ---------- mode / atmosphere ---------- */
+const dock = document.getElementById('dock'),
+      atmo = document.getElementById('atmo'),
+      stateEl = document.getElementById('state'),
+      cards = document.querySelectorAll('.card');
+const SAVED = 'nocturne-mode';
+let playing = false;
+
+function setMode(mode, save){
+  cards.forEach(c => c.classList.toggle('active', c.dataset.mode === mode));
+  const rainIntensity = { rain:.55, night:.2, storm:.85 }[mode] ?? .55;
+  cv.style.transition = 'opacity 1.2s ease';
+  cv.style.opacity = rainIntensity;
+  if(save) localStorage.setItem(SAVED, mode);
+}
+const saved = localStorage.getItem(SAVED);
+if(saved) setMode(saved, false);
+
+cards.forEach(c => c.addEventListener('click', () => {
+  setMode(c.dataset.mode, true);
+  if(!playing) toggleAtmo();
+}));
+
+function toggleAtmo(){
+  playing = !playing;
+  dock.classList.toggle('paused', !playing);
+  atmo.classList.toggle('on', playing);
+  stateEl.textContent = playing ? 'играет' : 'на паузе';
+}
+atmo.addEventListener('click', toggleAtmo);
+</script>
+</body>
+</html>
