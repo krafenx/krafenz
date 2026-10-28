@@ -36,13 +36,43 @@ from pathlib import Path
 import requests
 import websocket
 
+
+def _load_dotenv(env_file: Path) -> None:
+    if not env_file.is_file():
+        return
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k = k.strip()
+        v = v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+_load_dotenv(ROOT_DIR / ".env")
+
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # ----------------------------- конфиг (env) -----------------------------
 
-CHANNEL = os.environ.get("TWITCH_CHANNEL", "danonsha")
+CHANNEL = (os.environ.get("RECORDER_CHANNEL") or os.environ.get("TWITCH_CHANNEL") or "danonsha").strip()
 CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
-RECORD_DIR = Path(os.environ.get("RECORD_DIR", "./vods"))
+RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT_DIR / "vods"))
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
+STREAMLINK_BIN = os.environ.get("STREAMLINK_BIN", "streamlink")
 
 # --- облако и ротация ---
 # RCLONE_REMOTE="gdrive:vods" — после завершения записи папка улетает в облако
@@ -210,22 +240,24 @@ class ChatRecorder(threading.Thread):
 # ----------------------------- запись -----------------------------------
 
 def disk_free_gb() -> float:
-    usage = os.statvfs(RECORD_DIR)
-    return usage.f_bavail * usage.f_frsize / (1024 ** 3)
+    RECORD_DIR.mkdir(parents=True, exist_ok=True)
+    return shutil.disk_usage(RECORD_DIR).free / (1024 ** 3)
 
 
 def rotate_old_recordings() -> None:
     """Удалять самые старые завершённые записи, пока свободно < MIN_FREE_GB."""
+    attempted: set[Path] = set()
     while disk_free_gb() < MIN_FREE_GB:
         candidates = sorted(
             (p for p in RECORD_DIR.iterdir()
-             if p.is_dir() and (p / "meta.json").exists()),
+             if p not in attempted and p.is_dir() and (p / "meta.json").exists()),
             key=lambda p: p.name,
         )
         if not candidates:
             log("rotate: удалять нечего, а места всё равно мало!")
             return
         victim = candidates[0]
+        attempted.add(victim)
         log(f"rotate: удаляю {victim.name} (свободно {disk_free_gb():.1f} ГБ)")
         shutil.rmtree(victim, ignore_errors=True)
 
@@ -239,7 +271,7 @@ def upload_to_cloud(folder: Path) -> bool:
         res = subprocess.run(
             [RCLONE_BIN, "move", str(folder), f"{RCLONE_REMOTE}/{folder.name}",
              "--transfers", "4", "--checkers", "8", "--stats-one-line", "-v"],
-            capture_output=True, text=True, timeout=None,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=None,
         )
         if res.returncode == 0:
             log(f"cloud: {folder.name} в облаке, локальная копия удалена")
@@ -261,7 +293,7 @@ def split_video(video: Path, max_bytes: float) -> list[Path]:
     out_pattern = str(video.with_suffix(".part%03d.mp4"))
     subprocess.run(
         ["ffmpeg", "-y", "-i", str(video), "-c", "copy", "-fs", str(int(max_bytes)), out_pattern],
-        check=True, capture_output=True,
+        stdin=subprocess.DEVNULL, check=True, capture_output=True,
     )
     return sorted(video.parent.glob(video.stem + ".part*.mp4"))
 
@@ -328,7 +360,48 @@ def upload_to_telegram(folder: Path, meta: dict) -> bool:
         return False
 
 
+def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
+    """Извлекает кадр из записанного VOD с помощью ffmpeg."""
+    if not video.is_file() or not shutil.which("ffmpeg"):
+        return False
+    seek_candidates = [min(180, max(5, duration_s // 5)) if duration_s > 10 else 2, 1]
+    tmp = thumb.with_suffix(".tmp.jpg")
+    for ss in seek_candidates:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-ss", str(ss),
+                    "-i", str(video),
+                    "-frames:v", "1",
+                    "-vf", "scale=960:-2",
+                    "-q:v", "3",
+                    str(tmp),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=25,
+                check=False,
+            )
+            if tmp.is_file() and tmp.stat().st_size > 1024:
+                tmp.replace(thumb)
+                return True
+        except Exception:
+            pass
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+    return False
+
+
 def record_session(stream: dict) -> None:
+    streamlink_exe = shutil.which(STREAMLINK_BIN)
+    if not streamlink_exe:
+        log(f"streamlink ({STREAMLINK_BIN}) не найден в PATH — установите: pip install streamlink")
+        time.sleep(POLL_INTERVAL)
+        return
+
     started_at = stream.get("started_at", datetime.now(timezone.utc).isoformat())
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     folder = RECORD_DIR / f"{stamp}_{slugify(stream.get('title', 'stream'))}"
@@ -351,7 +424,7 @@ def record_session(stream: dict) -> None:
     chat.start()
 
     cmd = [
-        "streamlink",
+        streamlink_exe,
         f"https://www.twitch.tv/{CHANNEL}",
         "best",
         "-o", str(video),
@@ -360,7 +433,12 @@ def record_session(stream: dict) -> None:
         "--twitch-disable-hosting",
         *EXTRA_STREAMLINK_ARGS,
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
 
     try:
         proc.wait()
@@ -370,6 +448,8 @@ def record_session(stream: dict) -> None:
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
         started = datetime.fromisoformat(meta["record_started_at"].replace("Z", "+00:00"))
         meta["duration_s"] = round((datetime.now(timezone.utc) - started).total_seconds())
+        if extract_vod_thumbnail(video, folder / "thumb.jpg", meta["duration_s"]):
+            meta["thumb_file"] = "thumb.jpg"
         (folder / "meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
