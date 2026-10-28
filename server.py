@@ -20,6 +20,7 @@ import contextlib
 import hashlib
 import html
 import hmac
+import io
 import json
 import os
 import re
@@ -30,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -106,6 +108,16 @@ SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 DISCORD_INVITE_CODE = os.environ.get("DISCORD_INVITE_CODE", "kGdxDzxtmK")
 GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID", "1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk").strip()
 
+AUTO_UPDATE_MODE = os.environ.get("AUTO_UPDATE", "auto").strip().lower()
+AUTO_UPDATE_REPO = os.environ.get("AUTO_UPDATE_REPO", "krafenx/krafenz").strip().strip("/")
+AUTO_UPDATE_BRANCH = os.environ.get("AUTO_UPDATE_BRANCH", "main").strip() or "main"
+try:
+    AUTO_UPDATE_INTERVAL = max(0, int(os.environ.get("AUTO_UPDATE_INTERVAL", "0") or "0"))
+except ValueError:
+    AUTO_UPDATE_INTERVAL = 0
+UPDATE_SHA_PATH = DATA_DIR / ".update_sha"
+_UPDATE_LOCK = threading.Lock()
+
 SESSION_COOKIE = "kf_admin_session"
 SPOTIFY_STATE_COOKIE = "kf_spotify_oauth"
 SESSION_TTL_SECONDS = 12 * 60 * 60
@@ -123,6 +135,228 @@ DISCORD_INVITE_BASE = "https://discord.com/api/invites"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
+
+_UPDATE_SKIP_TOP_DIRS = {".git", ".github", ".venv", "venv", "__pycache__", "vods"}
+_MAX_UPDATE_ZIP_BYTES = 64 * 1024 * 1024
+
+
+def is_auto_update_enabled() -> bool:
+    if AUTO_UPDATE_MODE in {"0", "false", "no", "off"}:
+        return False
+    if AUTO_UPDATE_MODE in {"1", "true", "yes", "on"}:
+        return True
+    # Режим "auto": включён автоматически на серверах без .git (например, Pterodactyl / H1Cloud),
+    # и выключен внутри локального git-репозитория, чтобы не перезатирать рабочие ветки.
+    return not (ROOT / ".git").exists()
+
+
+def _is_protected_update_path(rel_posix: str, target: Path) -> bool:
+    parts = [p for p in rel_posix.split("/") if p]
+    if not parts or ".." in parts:
+        return True
+    top = parts[0]
+    if top in _UPDATE_SKIP_TOP_DIRS:
+        return True
+    if len(parts) == 1 and (top == ".env" or (top.startswith(".env.") and top != ".env.example")):
+        return True
+    if top == "data":
+        if len(parts) >= 2 and parts[1] in {".update_sha", "vod_thumbs"}:
+            return True
+        name_lower = parts[-1].lower()
+        is_user_db_or_json = (
+            name_lower.endswith(".json")
+            or name_lower.endswith(".db")
+            or ".db-" in name_lower
+            or ".sqlite" in name_lower
+        )
+        # Сохраняем живую БД и пользовательские JSON, если они уже созданы на диске
+        if is_user_db_or_json and target.exists():
+            return True
+    return False
+
+
+def _fetch_remote_branch_sha() -> tuple[str, str]:
+    """Возвращает (sha, error_code). При успехе error_code == ''."""
+    if not AUTO_UPDATE_REPO or "/" not in AUTO_UPDATE_REPO:
+        return "", "invalid_repo"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "krafen-auto-updater/1.0",
+    }
+    gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
+    api_url = f"https://api.github.com/repos/{AUTO_UPDATE_REPO}/commits/{AUTO_UPDATE_BRANCH}"
+    try:
+        resp = requests.get(api_url, headers=headers, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            sha = str(data.get("sha") or "").strip()
+            if sha:
+                return sha, ""
+        return "", f"http_{resp.status_code}"
+    except Exception as exc:
+        return "", type(exc).__name__
+
+
+def _download_github_zip() -> bytes:
+    headers = {"User-Agent": "krafen-auto-updater/1.0"}
+    gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
+    urls = [
+        f"https://codeload.github.com/{AUTO_UPDATE_REPO}/zip/refs/heads/{AUTO_UPDATE_BRANCH}",
+        f"https://github.com/{AUTO_UPDATE_REPO}/archive/refs/heads/{AUTO_UPDATE_BRANCH}.zip",
+    ]
+    last_err: Exception | None = None
+    for url in urls:
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=25) as resp:
+                resp.raise_for_status()
+                buf = io.BytesIO()
+                total = 0
+                for chunk in resp.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > _MAX_UPDATE_ZIP_BYTES:
+                        raise ValueError("update_archive_too_large")
+                    buf.write(chunk)
+                return buf.getvalue()
+        except Exception as exc:
+            last_err = exc
+    raise RuntimeError(f"не удалось скачать архив с GitHub ({last_err})")
+
+
+def perform_github_update(*, force: bool = False, allow_zip_fallback_on_api_error: bool = True) -> dict[str, Any]:
+    with _UPDATE_LOCK:
+        saved_sha = ""
+        try:
+            if UPDATE_SHA_PATH.is_file():
+                saved_sha = UPDATE_SHA_PATH.read_text(encoding="utf-8").strip()
+        except OSError:
+            saved_sha = ""
+
+        remote_sha, api_err = _fetch_remote_branch_sha()
+        if not force and remote_sha and saved_sha and remote_sha == saved_sha:
+            print(f"автообновление: актуальная версия ({remote_sha[:7]})", flush=True)
+            return {
+                "ok": True,
+                "up_to_date": True,
+                "sha": remote_sha,
+                "updated": [],
+                "server_changed": False,
+            }
+        if not remote_sha and not allow_zip_fallback_on_api_error:
+            return {"ok": False, "error": f"github_api_{api_err}", "updated": [], "server_changed": False}
+
+        try:
+            raw_zip = _download_github_zip()
+            updated_files: list[str] = []
+            server_changed = False
+
+            with zipfile.ZipFile(io.BytesIO(raw_zip)) as zf:
+                for info in zf.infolist():
+                    if info.is_dir():
+                        continue
+                    if ((info.external_attr >> 16) & 0o170000) == 0o120000:
+                        continue
+                    raw_name = info.filename.replace("\\", "/").lstrip("/")
+                    if "/" not in raw_name:
+                        continue
+                    _, _, rel_posix = raw_name.partition("/")
+                    rel_posix = rel_posix.strip("/")
+                    if not rel_posix:
+                        continue
+
+                    target = (ROOT / rel_posix).resolve()
+                    try:
+                        target.relative_to(ROOT)
+                    except ValueError:
+                        continue
+
+                    if _is_protected_update_path(rel_posix, target):
+                        continue
+
+                    new_bytes = zf.read(info)
+                    if target.is_file():
+                        try:
+                            old_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+                            new_hash = hashlib.sha256(new_bytes).hexdigest()
+                            if old_hash == new_hash:
+                                continue
+                        except OSError:
+                            pass
+
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    tmp_path = target.with_name(f".{target.name}.upd.{os.getpid()}")
+                    try:
+                        tmp_path.write_bytes(new_bytes)
+                        os.replace(tmp_path, target)
+                    finally:
+                        if tmp_path.exists():
+                            with contextlib.suppress(OSError):
+                                tmp_path.unlink()
+
+                    updated_files.append(rel_posix)
+                    if rel_posix == "server.py":
+                        server_changed = True
+
+            if remote_sha:
+                with contextlib.suppress(OSError):
+                    DATA_DIR.mkdir(parents=True, exist_ok=True)
+                    UPDATE_SHA_PATH.write_text(remote_sha + "\n", encoding="utf-8")
+
+            sha_label = f" [{AUTO_UPDATE_BRANCH} @ {remote_sha[:7]}]" if remote_sha else f" [{AUTO_UPDATE_BRANCH}]"
+            if updated_files:
+                preview = ", ".join(updated_files[:8])
+                more = f" и ещё {len(updated_files) - 8}" if len(updated_files) > 8 else ""
+                print(
+                    f"автообновление: обновлено файлов: {len(updated_files)} ({preview}{more}){sha_label}",
+                    flush=True,
+                )
+            else:
+                print(f"автообновление: все файлы актуальны{sha_label}", flush=True)
+
+            return {
+                "ok": True,
+                "up_to_date": len(updated_files) == 0,
+                "sha": remote_sha or saved_sha,
+                "updated": updated_files,
+                "server_changed": server_changed,
+            }
+        except Exception as exc:
+            print(f"автообновление: ошибка обновления ({exc}) — продолжаю с локальными файлами", flush=True)
+            return {"ok": False, "error": str(exc), "updated": [], "server_changed": False}
+
+
+def _reexec_current_process() -> None:
+    os.environ["_KRAFEN_REEXEC"] = "1"
+    script_path = str(ROOT / "server.py")
+    print("автообновление: server.py изменился — перезапускаю процесс...", flush=True)
+    if os.name != "nt":
+        os.execv(sys.executable, [sys.executable, script_path, *sys.argv[1:]])
+    else:
+        code = subprocess.call([sys.executable, script_path, *sys.argv[1:]])
+        raise SystemExit(code)
+
+
+def _configure_stdio_utf8() -> None:
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            with contextlib.suppress(Exception):
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+if __name__ == "__main__":
+    _configure_stdio_utf8()
+    if is_auto_update_enabled():
+        if os.environ.get("_KRAFEN_REEXEC") == "1":
+            os.environ.pop("_KRAFEN_REEXEC", None)
+        else:
+            _startup_upd = perform_github_update(force=False, allow_zip_fallback_on_api_error=True)
+            if _startup_upd.get("ok") and _startup_upd.get("server_changed"):
+                _reexec_current_process()
 
 
 @contextlib.asynccontextmanager
@@ -1127,6 +1361,17 @@ def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
     response = j({"ok": True})
     response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, create_session(), SESSION_TTL_SECONDS)
     return response
+
+
+@app.post("/api/admin/update")
+def admin_trigger_update(request: Request) -> JSONResponse:
+    require_admin(request)
+    rate_limit(request, "admin_update", 6, 60)
+    result = perform_github_update(force=True, allow_zip_fallback_on_api_error=True)
+    status = 200 if result.get("ok") else 502
+    if result.get("ok") and result.get("server_changed"):
+        threading.Timer(1.0, _reexec_current_process).start()
+    return j(result, status)
 
 
 # ----------------------------- Поиск (TMDB / Shikimori / IGDB) -----------------------------
@@ -2297,7 +2542,23 @@ def static_file(full_path: str) -> Response:
             response.headers[key] = value
         return response
     media_type = MIME.get(path.suffix.lower(), "text/plain; charset=utf-8")
-    return FileResponse(path, media_type=media_type)
+    extra_headers = {"Cache-Control": "no-cache"} if path.suffix.lower() in {".css", ".js"} else None
+    return FileResponse(path, media_type=media_type, headers=extra_headers)
+
+
+def _start_auto_update_watcher() -> None:
+    interval = max(60, AUTO_UPDATE_INTERVAL)
+
+    def _loop() -> None:
+        while True:
+            time.sleep(interval)
+            res = perform_github_update(force=False, allow_zip_fallback_on_api_error=False)
+            if res.get("ok") and res.get("server_changed"):
+                _reexec_current_process()
+
+    t = threading.Thread(target=_loop, name="krafen-auto-updater", daemon=True)
+    t.start()
+    print(f"автообновление: фоновая проверка каждые {interval} сек.", flush=True)
 
 
 def start_recorder() -> subprocess.Popen | None:
@@ -2313,12 +2574,9 @@ def start_recorder() -> subprocess.Popen | None:
 
 
 def main() -> None:
-    for _stream in (sys.stdout, sys.stderr):
-        if hasattr(_stream, "reconfigure"):
-            try:
-                _stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
+    _configure_stdio_utf8()
+    if is_auto_update_enabled() and AUTO_UPDATE_INTERVAL > 0:
+        _start_auto_update_watcher()
     if not ADMIN_PASSWORD:
         print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, вход в админ-режим отключён", flush=True)
     rec_proc = start_recorder() if os.environ.get("RECORDER") == "1" else None
