@@ -90,15 +90,20 @@
         }
 
         @media (max-width: 720px) {
-            .toolbar-panel { grid-template-columns: 1fr; }
-            .game-row { grid-template-columns: 70px minmax(0, 1fr); gap: 14px; padding: 14px; }
-            .cover, .cover-empty { width: 70px; height: 96px; }
-            .game-name { font-size: 20px; white-space: normal; }
+            .toolbar-panel { grid-template-columns: 1fr; padding: 14px 16px; }
+            .game-row { grid-template-columns: 68px minmax(0, 1fr); gap: 12px; padding: 14px; }
+            .cover, .cover-empty { width: 68px; height: 94px; }
+            .game-name { font-size: 19px; white-space: normal; }
             .score-col {
                 grid-column: 1 / -1; flex-direction: row; justify-content: space-between;
                 align-items: center; min-width: 0; padding-top: 8px; border-top: 1px solid var(--line);
             }
             .score-value { font-size: 22px; }
+        }
+        @media (max-width: 480px) {
+            .search-result { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
+            .search-result > button { grid-column: 1 / -1; width: 100%; }
+            .range-row { grid-template-columns: 1fr; gap: 10px; }
         }
     </style>
     <script nonce="__CSP_NONCE__" src="/app.js" defer></script>

@@ -31,14 +31,17 @@
         }
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: auto; }
+        html { scroll-behavior: auto; overflow-x: clip; -webkit-text-size-adjust: 100%; }
         body {
             background: var(--void);
             color: #f5f5f5;
             font-family: var(--font-sans);
             overflow-x: hidden;
+            min-height: 100vh;
+            min-height: 100dvh;
             -webkit-font-smoothing: antialiased;
         }
+        a, button, input { touch-action: manipulation; }
         ::selection { background: rgba(124, 10, 10, .6); color: #fff; }
 
         /* ---------- скроллбары ---------- */
@@ -113,6 +116,41 @@
             transition: color .3s var(--ease);
         }
         .topnav .links a:hover { color: #fff; }
+
+        .menu-toggle {
+            display: none;
+            align-items: center; gap: 8px;
+            padding: 8px 16px; border-radius: 999px;
+            background: var(--glass); border: 1px solid var(--glass-border);
+            color: var(--silver-bright); font-family: var(--font-sans);
+            font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+            cursor: pointer;
+        }
+        .mobile-nav {
+            position: fixed; inset: 0; z-index: 85;
+            height: 100dvh;
+            display: flex; flex-direction: column; justify-content: safe center; align-items: center;
+            gap: clamp(16px, 2.8vh, 24px);
+            padding: max(68px, calc(env(safe-area-inset-top) + 48px)) 24px max(36px, calc(env(safe-area-inset-bottom) + 20px));
+            overflow-y: auto; overscroll-behavior: contain;
+            background: rgba(5, 5, 5, .94);
+            backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+            opacity: 0; pointer-events: none;
+            transition: opacity .35s var(--ease);
+        }
+        .mobile-nav.open { opacity: 1; pointer-events: auto; }
+        .mobile-nav a {
+            font-family: var(--font-heading); font-size: clamp(24px, 6vw, 32px);
+            color: var(--silver-bright); text-decoration: none;
+            transition: color .3s var(--ease), transform .3s var(--ease);
+        }
+        .mobile-nav a:hover { color: #fff; transform: translateX(4px); }
+        .mobile-nav-close {
+            position: absolute; top: max(20px, env(safe-area-inset-top)); right: 22px;
+            width: 42px; height: 42px; border-radius: 50%;
+            background: var(--glass); border: 1px solid var(--glass-border);
+            color: var(--silver-bright); font-size: 18px; cursor: pointer;
+        }
 
         /* ---------- вертикальный индикатор ---------- */
         .rail-line { position: fixed; left: 38px; top: 18vh; bottom: 18vh; width: 1px; background: rgba(160,160,160,.1); z-index: 54; }
@@ -707,32 +745,83 @@
         @media (max-width: 1100px) {
             .rail, .rail-line, .rail-progress { display: none; }
             .watch-stage { grid-template-columns: 1fr; }
-            .watch-chat-body-wrap { min-height: 300px; }
+            .watch-chat-body-wrap { height: min(44vh, 380px); min-height: 240px; }
         }
         @media (max-width: 980px) {
             .grid-2 { grid-template-columns: 1fr; }
             .social-grid { grid-template-columns: 1fr 1fr; }
-            .section { padding: 100px 26px; }
-            .topnav { padding: 18px 22px; }
+            .section { padding: 92px 24px; }
+            .section:first-child { padding-top: 118px; }
+            .topnav { padding: 16px 20px; }
             .topnav .links { display: none; }
-            .hero-layout { display: flex; flex-direction: column; align-items: stretch; gap: 30px; }
-            .hero-portrait { width: min(48%, 390px); margin: 0 14px 14px auto; }
-            .hero-name { font-size: clamp(88px, 13vw, 148px); }
+            .menu-toggle { display: inline-flex; }
+            .hero-layout { display: flex; flex-direction: column; align-items: stretch; gap: 28px; }
+            .hero-portrait { width: min(56%, 380px); margin: 8px auto 12px; }
+            .hero-portrait::before { inset: 10px -10px -10px 10px; }
+            .scroll-cue { display: none; }
+            .hero-name { font-size: clamp(84px, 14vw, 148px); }
             .hero-tagline, .hero-actions { max-width: 100%; }
             .vod-grid { grid-template-columns: repeat(2, 1fr); }
-            .vod-watch { padding: 18px 18px 28px; }
+            .vod-watch { height: 100dvh; padding: 16px 16px max(24px, env(safe-area-inset-bottom)); }
         }
         @media (max-width: 620px) {
             .social-grid, .vod-grid { grid-template-columns: 1fr; }
-            .scroll-modal-box { padding: 20px 16px 24px; }
-            .vod-watch { padding: 14px 12px 24px; }
+            .section { padding: 72px 16px; }
+            .section:first-child { padding-top: 98px; padding-bottom: 68px; min-height: 100svh; }
+            .topnav { padding: 14px 16px; }
+            .topnav .brand { font-size: 22px; }
+            .hero-portrait { width: min(76%, 320px); margin: 6px auto 10px; }
+            .hero-portrait::before { inset: 8px -8px -8px 8px; }
+            .hero-name { font-size: clamp(68px, 19vw, 108px); line-height: .9; }
+            .hero-tagline { font-size: 14px; line-height: 1.65; margin-top: 16px; }
+            .hero-actions { margin-top: 24px; gap: 10px; }
+            .hero-actions .btn-primary, .hero-actions .btn-ghost { padding: 13px 20px; font-size: 10px; }
+            .section h2 { font-size: clamp(28px, 8vw, 40px); }
+            .archive-head { gap: 14px; }
+            .social-card { min-height: 170px; padding: 22px; }
+            .social-card .name { margin-top: 20px; font-size: 24px; }
+            .social-card .num { top: 22px; right: 22px; }
+            .social-card .chev { bottom: 20px; left: 22px; }
+            .scroll-modal { padding: 12px; height: 100dvh; }
+            .scroll-modal-box { padding: 18px 14px 20px; max-height: calc(100dvh - 24px); border-radius: 18px; }
+            .scroll-modal-head { gap: 10px; padding-bottom: 14px; }
+            .archive-modal-title { font-size: 20px; gap: 8px; }
+            .archive-modal-title svg { width: 19px; height: 19px; }
+            .scroll-modal-actions { gap: 8px; }
+            .scroll-modal-actions .btn-scroll { padding: 7px 13px; font-size: 9px; letter-spacing: .12em; }
+            .scroll-close { width: 34px; height: 34px; font-size: 14px; }
+            .vod-watch {
+                height: 100dvh;
+                padding: max(12px, env(safe-area-inset-top)) 10px max(20px, calc(env(safe-area-inset-bottom) + 12px));
+            }
+            .watch-topbar { gap: 8px; margin-bottom: 12px; }
+            .watch-frame-inner { padding: 8px 12px; font-size: 9px; letter-spacing: .1em; gap: 6px; }
+            .watch-stage { gap: 12px; }
+            .watch-top-shade { padding: 10px 12px 20px; }
+            .watch-title { font-size: 13px; -webkit-line-clamp: 1; }
+            .watch-controls-wrap { padding: 18px 10px 8px; }
+            .watch-progress { padding: 8px 0; margin-bottom: 6px; }
+            .watch-controls-row { gap: 8px; }
             .watch-vol { display: none; }
-            .watch-ctrl-left, .watch-ctrl-right { gap: 10px; }
-            .dock { padding: 0 16px 18px; }
+            .watch-ctrl-left, .watch-ctrl-right { gap: 6px; }
+            .w-btn { width: 26px; height: 26px; }
+            .w-btn svg { width: 15px; height: 15px; }
+            .watch-time { font-size: 10px; letter-spacing: .02em; }
+            .watch-chat-head { padding: 12px 14px 10px; }
+            .watch-chat-head .title { font-size: 10px; letter-spacing: .16em; }
+            .watch-chat-body-wrap { height: min(42vh, 340px); min-height: 220px; }
+            .dock { padding: 0 14px max(16px, calc(env(safe-area-inset-bottom) + 10px)); }
             .dock .hide-m { display: none; }
-            .hero-portrait { width: min(72%, 360px); margin-top: 4px; }
-            .hero-name { font-size: clamp(76px, 16vw, 112px); }
-            .hero-tagline, .hero-actions { max-width: 100%; }
+            .dock-box { padding: 11px 16px; }
+            .heart-btn { width: 42px; height: 42px; font-size: 15px; }
+            footer.site { padding: 44px 16px calc(104px + env(safe-area-inset-bottom)); }
+        }
+        @media (max-width: 520px) {
+            #watch-pip { display: none; }
+        }
+        @media (max-width: 420px) {
+            .hero-actions { width: 100%; }
+            .hero-actions > a { flex: 1 1 auto; justify-content: center; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -750,7 +839,7 @@
     <div class="vignette"></div>
     <div class="grain"></div>
 
-    <nav class="topnav">
+    <nav class="topnav" aria-label="Навигация">
         <a class="brand" href="#hero">danon<em>sha</em></a>
         <div class="links">
             <a href="#stream">Эфир</a>
@@ -759,7 +848,18 @@
             <a href="#support">Поддержка</a>
             <a href="/">krafen</a>
         </div>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Меню</button>
     </nav>
+
+    <div class="mobile-nav" id="mobile-nav" aria-label="Мобильное меню">
+        <button class="mobile-nav-close" type="button" aria-label="Закрыть меню">✕</button>
+        <a href="#hero">Начало</a>
+        <a href="#stream">Эфир</a>
+        <a href="#archive">Записи</a>
+        <a href="#socials">Соцсети</a>
+        <a href="#support">Поддержка</a>
+        <a href="/">krafen ↗</a>
+    </div>
 
     <div class="rail-line"></div>
     <div class="rail-progress" id="rail-progress"></div>
@@ -1437,12 +1537,40 @@
 
         const RU_MONTHS_SHORT = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
 
+        const menuToggle = document.getElementById('menu-toggle');
+        const mobileNav = document.getElementById('mobile-nav');
+
         function syncBodyOverlayLock() {
             const locked = Boolean(
                 (scrollModal && scrollModal.classList.contains('open')) ||
-                (vodWatch && vodWatch.classList.contains('open'))
+                (vodWatch && vodWatch.classList.contains('open')) ||
+                (mobileNav && mobileNav.classList.contains('open'))
             );
             document.body.classList.toggle('overlay-open', locked);
+        }
+
+        function closeMobileNav() {
+            if (!mobileNav || !menuToggle) return;
+            mobileNav.classList.remove('open');
+            menuToggle.setAttribute('aria-expanded', 'false');
+            syncBodyOverlayLock();
+        }
+        if (menuToggle && mobileNav) {
+            menuToggle.addEventListener('click', () => {
+                if (mobileNav.classList.contains('open')) {
+                    closeMobileNav();
+                } else {
+                    mobileNav.classList.add('open');
+                    menuToggle.setAttribute('aria-expanded', 'true');
+                    syncBodyOverlayLock();
+                }
+            });
+            const mClose = mobileNav.querySelector('.mobile-nav-close');
+            if (mClose) mClose.addEventListener('click', closeMobileNav);
+            mobileNav.querySelectorAll('a').forEach(a => a.addEventListener('click', closeMobileNav));
+            addEventListener('resize', () => {
+                if (innerWidth > 980 && mobileNav.classList.contains('open')) closeMobileNav();
+            }, { passive: true });
         }
 
         function fmtClock(sec) {
@@ -1882,11 +2010,31 @@
             }
         }
 
+        function toggleWatchFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            } else if (watchStageInner && watchStageInner.requestFullscreen) {
+                watchStageInner.requestFullscreen().catch(() => {
+                    if (watchVideo && watchVideo.webkitEnterFullscreen) {
+                        try { watchVideo.webkitEnterFullscreen(); } catch {}
+                    }
+                });
+            } else if (watchVideo && watchVideo.webkitEnterFullscreen) {
+                try { watchVideo.webkitEnterFullscreen(); } catch {}
+            }
+        }
+
         if (watchBackBtn) watchBackBtn.addEventListener('click', () => closeVodWatch(true));
         if (watchDriveClose) watchDriveClose.addEventListener('click', hideDriveFallback);
         if (watchPlayBtn) watchPlayBtn.addEventListener('click', toggleWatchPlay);
         if (watchVideo) {
-            watchVideo.addEventListener('click', toggleWatchPlay);
+            watchVideo.addEventListener('click', () => {
+                if (isTouch && !watchVideo.paused && watchStageInner && watchStageInner.classList.contains('idle')) {
+                    pokeControls();
+                    return;
+                }
+                toggleWatchPlay();
+            });
             watchVideo.addEventListener('loadeddata', () => {
                 updateTimelineUI();
             });
@@ -1927,8 +2075,7 @@
             watchStageInner.addEventListener('mousemove', pokeControls);
             watchStageInner.addEventListener('dblclick', (e) => {
                 if (e.target.closest && e.target.closest('.watch-controls-wrap')) return;
-                if (!document.fullscreenElement) watchStageInner.requestFullscreen().catch(() => {});
-                else document.exitFullscreen().catch(() => {});
+                toggleWatchFullscreen();
             });
         }
         if (watchPrev10) {
@@ -2005,14 +2152,15 @@
             });
         }
         if (watchFs) {
-            watchFs.addEventListener('click', () => {
-                if (!document.fullscreenElement) watchStageInner.requestFullscreen().catch(() => {});
-                else document.exitFullscreen().catch(() => {});
-            });
+            watchFs.addEventListener('click', toggleWatchFullscreen);
         }
 
         addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                if (mobileNav && mobileNav.classList.contains('open')) {
+                    closeMobileNav();
+                    return;
+                }
                 if (vodWatch && vodWatch.classList.contains('open')) {
                     closeVodWatch(true);
                     return;
@@ -2036,8 +2184,7 @@
                 watchVideo.currentTime = Math.min(dur, (watchVideo.currentTime || 0) + 10);
             } else if (e.key === 'f' || e.key === 'F') {
                 e.preventDefault();
-                if (!document.fullscreenElement) watchStageInner.requestFullscreen().catch(() => {});
-                else document.exitFullscreen().catch(() => {});
+                toggleWatchFullscreen();
             } else if (e.key === 'm' || e.key === 'M') {
                 e.preventDefault();
                 watchVideo.muted = !watchVideo.muted;
