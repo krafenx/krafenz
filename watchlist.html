@@ -79,7 +79,8 @@
             transition: opacity .25s var(--ease);
         }
         body.is-admin .media-card:hover .card-overlay,
-        body.is-admin .media-card:focus-within .card-overlay {
+        body.is-admin .media-card:focus-within .card-overlay,
+        body.is-admin .media-card.touch-open .card-overlay {
             opacity: 1; pointer-events: auto;
         }
         .ov-btn {
@@ -139,7 +140,17 @@
 
         @media (max-width: 620px) {
             .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .filter-panel { padding: 16px; gap: 12px; }
             .filter-label { width: 100%; }
+            .card-info { padding: 11px 12px 13px; gap: 6px; }
+            .card-title { font-size: 15px; }
+            .card-overlay { padding: 10px; gap: 5px; }
+            .ov-btn { padding: 7px 8px; font-size: 8.5px; letter-spacing: .12em; }
+        }
+        @media (max-width: 480px) {
+            .search-item { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
+            .search-actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+            .add-mini { flex: 1 1 auto; text-align: center; padding: 6px 10px; }
         }
     </style>
     <script nonce="__CSP_NONCE__" src="/app.js" defer></script>
@@ -631,9 +642,19 @@
 
             document.getElementById('cards-grid').addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-card-action]');
-                if (!btn) return;
-                if (btn.dataset.cardAction === 'remove') removeItem(btn.dataset.id);
-                else if (btn.dataset.cardAction === 'status') changeStatus(btn.dataset.id, btn.dataset.status);
+                if (btn) {
+                    if (btn.dataset.cardAction === 'remove') removeItem(btn.dataset.id);
+                    else if (btn.dataset.cardAction === 'status') changeStatus(btn.dataset.id, btn.dataset.status);
+                    return;
+                }
+                if (admin.isAdmin() && matchMedia('(pointer: coarse)').matches) {
+                    const card = e.target.closest('.media-card');
+                    if (card) {
+                        const already = card.classList.contains('touch-open');
+                        document.querySelectorAll('.media-card.touch-open').forEach((c) => c.classList.remove('touch-open'));
+                        if (!already) card.classList.add('touch-open');
+                    }
+                }
             });
 
             document.addEventListener('error', (e) => {

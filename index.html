@@ -118,10 +118,11 @@
         .hint-tooltip {
             position: absolute; left: 50%; bottom: calc(100% + 10px); z-index: 30;
             transform: translateX(-50%) translateY(4px);
+            width: max-content; max-width: min(250px, 84vw);
             padding: 8px 12px; border-radius: 10px;
             background: rgba(10, 10, 14, .96); border: 1px solid var(--glass-border);
             color: var(--silver); font-size: 11px; letter-spacing: .03em; text-transform: none;
-            white-space: nowrap; opacity: 0; pointer-events: none;
+            text-align: center; white-space: normal; opacity: 0; pointer-events: none;
             box-shadow: 0 14px 34px rgba(0, 0, 0, .75);
             transition: opacity .2s var(--ease), transform .2s var(--ease);
         }
@@ -131,8 +132,16 @@
         @media (max-width: 980px) { .social-grid-4 { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 620px) {
             .social-grid-4 { grid-template-columns: 1fr; }
+            .music-body { padding: 20px 18px; gap: 16px; }
+            .music-head { gap: 8px; flex-wrap: wrap; }
             .music-art { width: 58px; height: 58px; }
-            .track-title { font-size: 20px; }
+            .track-title { font-size: 19px; }
+            .crypto-row { gap: 8px; padding: 10px 12px; }
+            .copy-btn { padding: 6px 10px; letter-spacing: .12em; }
+        }
+        @media (max-width: 400px) {
+            .mini-grid { grid-template-columns: 1fr; gap: 10px; }
+            .stat-pair { grid-template-columns: 1fr; }
         }
     </style>
     <script nonce="__CSP_NONCE__" src="/app.js" defer></script>

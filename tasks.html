@@ -197,9 +197,18 @@
             .tasks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (max-width: 640px) {
-            .bp-stat-grid { grid-template-columns: 1fr; }
-            .timers-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .bp-stat-grid { grid-template-columns: 1fr; gap: 10px; }
+            .online-box { flex-wrap: wrap; padding: 14px; }
+            .timers-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+            .timer-card { padding: 14px 12px; gap: 10px; }
+            .timer-display { font-size: 19px; }
+            .tasks-toolbar { padding: 14px 16px; }
+            #task-search { min-width: 0 !important; width: 100%; flex-basis: 100%; }
             .tasks-grid { grid-template-columns: 1fr; }
+            .task-card { padding: 13px 14px; gap: 10px; }
+        }
+        @media (max-width: 380px) {
+            .timers-grid { grid-template-columns: 1fr; }
         }
     </style>
     <script nonce="__CSP_NONCE__" src="/app.js" defer></script>

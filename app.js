@@ -167,10 +167,12 @@
 
         const close = () => {
             drawer.classList.remove('open');
+            document.body.classList.remove('nav-open');
             toggle.setAttribute('aria-expanded', 'false');
         };
         const open = () => {
             drawer.classList.add('open');
+            document.body.classList.add('nav-open');
             toggle.setAttribute('aria-expanded', 'true');
         };
 
@@ -183,6 +185,9 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && drawer.classList.contains('open')) close();
         });
+        window.addEventListener('resize', () => {
+            if (window.innerWidth > 980 && drawer.classList.contains('open')) close();
+        }, { passive: true });
     }
 
     /* ---------- плавный инерционный скролл + параллакс ---------- */
