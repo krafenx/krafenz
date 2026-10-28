@@ -309,73 +309,318 @@
         .social-card .chev { position: absolute; bottom: 26px; left: 28px; color: var(--silver-dim); font-size: 15px; transition: color .3s var(--ease), transform .3s var(--ease); }
         .social-card:hover .chev { color: #fff; transform: translateX(4px); }
 
-        /* ---------- архив VOD ---------- */
-        .archive-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
-        .player-wrap { display: none; border-radius: 18px; overflow: hidden; background: var(--glass); border: 1px solid var(--glass-border); backdrop-filter: blur(16px); margin-bottom: 24px; }
-        .player-box { position: relative; background: #000; }
-        .player-box video { display: block; width: 100%; max-height: 60vh; }
-        .player-box .drive-iframe { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh; border: 0; background: #000; }
-        .chat {
-            position: absolute; right: 0; top: 0; bottom: 0; width: min(330px, 44%);
-            display: flex; flex-direction: column;
-            background: linear-gradient(270deg, rgba(5,5,5,.9) 55%, transparent);
-            pointer-events: none;
+        /* ---------- архив VOD (Записи стримов) ---------- */
+        .archive-head {
+            display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap;
+            padding-bottom: 24px; margin-bottom: 30px;
+            border-bottom: 1px solid rgba(255,255,255,.06);
         }
-        .chat-head { padding: 13px 16px 9px; font-size: 9px; letter-spacing: .3em; text-transform: uppercase; color: var(--silver-dim); border-bottom: 1px solid rgba(160,160,160,.12); }
-        .chat-body { flex: 1; overflow: hidden; padding: 10px 14px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; }
-        .chat-msg { font-size: 12px; line-height: 1.5; color: var(--silver-bright); text-shadow: 0 1px 3px #000; animation: chatin .35s var(--ease); }
-        .chat-msg .u { color: #c9a0ff; font-weight: 600; }
-        @keyframes chatin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-        .meta-bar { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 16px 22px; flex-wrap: wrap; }
-        .meta-bar .title { font-family: var(--font-serif); font-style: italic; font-size: 16px; color: var(--silver-bright); }
-        .meta-bar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-        .meta-bar .info { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--silver-dim); }
+        .archive-modal-title {
+            display: inline-flex; align-items: center; gap: 12px;
+            font-family: var(--font-heading); font-weight: 400;
+            font-size: clamp(17px, 2vw, 22px); letter-spacing: .2em; text-transform: uppercase;
+            color: #e2e2e8; margin: 0;
+        }
+        .archive-modal-title svg { width: 18px; height: 15px; fill: #e8e8ee; flex-shrink: 0; opacity: .92; }
+        .btn-scroll {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 18px; border-radius: 3px;
+            background: rgba(10,10,13,.65); border: 1px solid rgba(255,255,255,.3);
+            color: #ececf2; font-family: var(--font-sans); font-size: 10px; font-weight: 600;
+            letter-spacing: .16em; text-transform: uppercase; text-decoration: none;
+            cursor: pointer; transition: border-color .3s var(--ease), background .3s var(--ease), color .3s var(--ease);
+        }
+        .btn-scroll:hover { border-color: rgba(255,255,255,.62); background: rgba(124,10,10,.22); color: #fff; }
 
-        .vod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 20px; }
+        .vod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
         .vod-card {
-            position: relative; display: flex; flex-direction: column; text-align: left; cursor: pointer; border-radius: 18px; overflow: hidden;
-            background: rgba(12,12,15,.6); border: 1px solid var(--glass-border);
+            position: relative; display: flex; flex-direction: column; text-align: left; cursor: pointer;
+            border-radius: 3px; overflow: hidden; padding: 0;
+            background: #0a0a0d; border: 1px solid rgba(255,255,255,.07);
             color: inherit; font-family: inherit;
+            box-shadow: 0 18px 44px rgba(0,0,0,.55);
             transition: border-color .4s var(--ease), transform .4s var(--ease), box-shadow .4s var(--ease);
         }
-        .vod-card:hover { border-color: rgba(160,160,160,.3); transform: translateY(-4px); box-shadow: 0 22px 50px rgba(0,0,0,.7); }
-        .vod-card.active { border-color: rgba(163,19,19,.55); box-shadow: 0 0 26px rgba(124,10,10,.22); }
+        .vod-card:hover { border-color: rgba(255,255,255,.22); transform: translateY(-4px); box-shadow: 0 26px 58px rgba(0,0,0,.8); }
+        .vod-card.active { border-color: rgba(163,19,19,.62); box-shadow: 0 0 30px rgba(124,10,10,.28); }
         .vod-thumb {
-            position: relative; overflow: hidden;
-            height: 164px;
-            background:
-                radial-gradient(60% 90% at 50% 110%, rgba(124,10,10,.2), transparent 70%),
-                linear-gradient(180deg, #0d0d10, #070708);
-            display: flex; align-items: center; justify-content: center;
-            color: rgba(224,224,224,.7); font-size: 24px;
-            border-bottom: 1px solid var(--glass-border);
-            transition: color .4s var(--ease);
+            position: relative; overflow: hidden; width: 100%;
+            aspect-ratio: 16 / 11;
+            background: radial-gradient(70% 90% at 50% 35%, #17171d, #060608);
         }
         .vod-thumb img {
-            position: absolute; inset: 0; width: 100%; height: 100%;
-            object-fit: cover; opacity: .58;
-            transition: transform .5s var(--ease), opacity .4s var(--ease);
+            display: block; width: 100%; height: 100%;
+            object-fit: cover; object-position: center;
+            opacity: .94;
+            transition: transform .65s var(--ease), opacity .4s var(--ease);
         }
-        .vod-card:hover .vod-thumb img { transform: scale(1.04); opacity: .78; }
-        .vod-play {
-            position: relative; z-index: 1;
-            width: 46px; height: 46px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(5,5,5,.68); border: 1px solid rgba(255,255,255,.18);
-            backdrop-filter: blur(8px); font-size: 15px; padding-left: 3px;
-            transition: transform .35s var(--ease), border-color .35s var(--ease), background .35s var(--ease);
+        .vod-card:hover .vod-thumb img { transform: scale(1.04); opacity: 1; }
+        .vod-curve {
+            position: absolute; left: -1px; right: -1px; bottom: -1px;
+            width: calc(100% + 2px); height: 48px;
+            fill: #0a0a0d; pointer-events: none; z-index: 2;
         }
-        .vod-card:hover .vod-play { transform: scale(1.08); border-color: rgba(163,19,19,.65); background: rgba(124,10,10,.45); color: #fff; }
-        .vod-info { padding: 18px 20px 20px; display: flex; flex-direction: column; flex: 1; }
-        .vod-info .date { font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: var(--silver-dim); }
-        .vod-info .title { margin-top: 9px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #fff; line-height: 1.5; }
+        .vod-info {
+            background: #0a0a0d; padding: 8px 22px 24px;
+            display: flex; flex-direction: column; flex: 1; position: relative; z-index: 3;
+        }
+        .vod-info .date {
+            font-family: var(--font-serif); font-size: 14px; font-weight: 400;
+            letter-spacing: .02em; color: #7d7d87;
+        }
+        .vod-info .title {
+            margin-top: 8px; font-family: var(--font-sans); font-size: 14px; font-weight: 700;
+            letter-spacing: .04em; text-transform: uppercase; color: #f2f2f6; line-height: 1.45;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
         .vod-note {
             margin-top: 8px; display: inline-block; width: fit-content;
-            padding: 3px 9px; border-radius: 999px;
+            padding: 3px 9px; border-radius: 3px;
             font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
             color: #fca5a5; background: rgba(124,10,10,.24); border: 1px solid rgba(163,19,19,.45);
         }
-        .vod-info .meta { margin-top: auto; padding-top: 10px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--silver-dim); }
+
+        /* ---------- модалка всех записей ---------- */
+        body.overlay-open { overflow: hidden; }
+        .scroll-modal {
+            position: fixed; inset: 0; z-index: 95;
+            display: none; align-items: center; justify-content: center;
+            padding: 28px 20px;
+            background: rgba(3,3,5,.86); backdrop-filter: blur(14px);
+        }
+        .scroll-modal.open { display: flex; }
+        .scroll-modal-box {
+            width: min(1100px, 100%); max-height: 86vh; overflow-y: auto;
+            background: #08080b; border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
+            padding: 28px 30px 32px;
+            box-shadow: 0 34px 90px rgba(0,0,0,.9);
+        }
+        .scroll-modal-head {
+            display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+            padding-bottom: 18px; margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,.08);
+        }
+        .scroll-modal-actions { display: flex; align-items: center; gap: 10px; }
+        .scroll-close {
+            width: 36px; height: 36px; border-radius: 3px;
+            background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.16);
+            color: var(--silver-bright); font-size: 15px; cursor: pointer;
+            transition: all .25s var(--ease);
+        }
+        .scroll-close:hover { background: rgba(124,10,10,.3); border-color: rgba(163,19,19,.55); color: #fff; }
+
+        /* ---------- полноэкранный просмотр записи (Cinema VOD View) ---------- */
+        .vod-watch {
+            position: fixed; inset: 0; z-index: 120;
+            display: none; flex-direction: column;
+            background:
+                radial-gradient(60% 45% at 38% 12%, rgba(28,28,36,.32), transparent 70%),
+                #060608;
+            overflow-y: auto;
+            padding: 24px 36px 36px;
+        }
+        .vod-watch.open { display: flex; }
+        .watch-topbar {
+            width: min(1480px, 100%); margin: 0 auto 30px;
+            display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+        }
+        .watch-frame-btn {
+            display: inline-flex; padding: 5px; border-radius: 5px;
+            background: rgba(14,14,18,.72); border: 1px solid rgba(255,255,255,.06);
+            text-decoration: none; cursor: pointer; color: #ececf2; font-family: var(--font-sans);
+            transition: border-color .3s var(--ease), background .3s var(--ease);
+        }
+        .watch-frame-inner {
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 10px 20px; border-radius: 2px;
+            border: 1px solid rgba(255,255,255,.32);
+            font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase;
+            color: #ececf2; white-space: nowrap;
+            transition: border-color .3s var(--ease), background .3s var(--ease), color .3s var(--ease);
+        }
+        .watch-frame-btn:hover .watch-frame-inner {
+            border-color: rgba(255,255,255,.68); background: rgba(255,255,255,.04); color: #fff;
+        }
+        .watch-frame-inner .ico-sm { width: 12px; height: 12px; fill: currentColor; flex-shrink: 0; }
+
+        .watch-stage {
+            width: min(1480px, 100%); margin: 0 auto;
+            display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px;
+            align-items: stretch;
+        }
+        .watch-player-outer {
+            padding: 6px; background: #07070a;
+            border: 1px solid rgba(255,255,255,.06);
+            box-shadow: 0 28px 80px rgba(0,0,0,.85);
+        }
+        .watch-player-inner {
+            position: relative; width: 100%; aspect-ratio: 16 / 9;
+            background: #030305; border: 1px solid rgba(255,255,255,.15);
+            overflow: hidden; user-select: none;
+        }
+        .watch-player-inner:fullscreen { border: 0; aspect-ratio: auto; width: 100vw; height: 100vh; }
+        .watch-poster {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; object-position: center;
+            opacity: .92; pointer-events: none; z-index: 1;
+            transition: opacity .45s var(--ease);
+        }
+        .watch-player-inner.has-frames .watch-poster { opacity: 0; }
+        .watch-video {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: contain; background: transparent; z-index: 2; cursor: pointer;
+        }
+        .watch-drive-iframe {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            border: 0; background: #000; z-index: 8; display: none;
+        }
+        .watch-drive-close {
+            position: absolute; top: 14px; right: 14px; z-index: 9; display: none;
+            padding: 7px 12px; border-radius: 3px;
+            background: rgba(8,8,11,.85); border: 1px solid rgba(255,255,255,.28);
+            color: #ececf2; font-family: var(--font-sans); font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+            cursor: pointer; backdrop-filter: blur(8px);
+        }
+        .watch-drive-close:hover { border-color: rgba(255,255,255,.65); color: #fff; }
+        .watch-top-shade {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 4;
+            padding: 22px 28px 46px;
+            background: linear-gradient(180deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.32) 58%, transparent 100%);
+            pointer-events: none;
+            transition: opacity .35s var(--ease);
+        }
+        .watch-title {
+            font-family: var(--font-heading); font-weight: 400;
+            font-size: clamp(19px, 2.05vw, 27px); letter-spacing: .04em; line-height: 1.25;
+            color: #ededf3; text-shadow: 0 2px 16px rgba(0,0,0,.95);
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .watch-controls-wrap {
+            position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+            padding: 34px 24px 16px;
+            background: linear-gradient(0deg, rgba(0,0,0,.9) 0%, rgba(0,0,0,.46) 64%, transparent 100%);
+            transition: opacity .35s var(--ease);
+        }
+        .watch-player-inner.idle .watch-top-shade,
+        .watch-player-inner.idle .watch-controls-wrap { opacity: 0; }
+        .watch-progress {
+            position: relative; height: 14px; display: flex; align-items: center; cursor: pointer;
+        }
+        .watch-progress-track {
+            position: relative; width: 100%; height: 2px;
+            background: rgba(255,255,255,.2); overflow: hidden;
+            transition: height .18s var(--ease);
+        }
+        .watch-progress:hover .watch-progress-track { height: 4px; }
+        .watch-progress-fill {
+            height: 100%; width: 0%; background: #e4e4ec;
+        }
+        .watch-controls {
+            margin-top: 8px; display: flex; justify-content: space-between; align-items: center; gap: 14px;
+        }
+        .watch-ctrl-left, .watch-ctrl-right {
+            display: flex; align-items: center; gap: 16px;
+        }
+        .w-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 28px; padding: 0; border: 0; background: transparent;
+            color: rgba(236,236,242,.82); cursor: pointer; text-decoration: none;
+            transition: color .2s var(--ease), transform .2s var(--ease);
+        }
+        .w-btn:hover { color: #fff; transform: scale(1.08); }
+        .w-btn svg { width: 16px; height: 16px; fill: currentColor; }
+        .w-btn.play-btn svg { width: 18px; height: 18px; }
+        .watch-vol-group { display: inline-flex; align-items: center; gap: 8px; }
+        .watch-vol {
+            -webkit-appearance: none; appearance: none;
+            width: 68px; height: 3px; border-radius: 99px;
+            background: rgba(255,255,255,.24); outline: none; cursor: pointer;
+        }
+        .watch-vol::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #ededf4; cursor: pointer;
+        }
+        .watch-vol::-moz-range-thumb {
+            width: 10px; height: 10px; border: 0; border-radius: 50%;
+            background: #ededf4; cursor: pointer;
+        }
+        .watch-time {
+            font-family: var(--font-sans); font-size: 13px; letter-spacing: .03em;
+            color: rgba(212,212,222,.56); font-variant-numeric: tabular-nums; white-space: nowrap;
+        }
+        .watch-toast {
+            position: absolute; bottom: 68px; right: 24px; z-index: 7;
+            padding: 7px 13px; border-radius: 3px;
+            background: rgba(10,10,14,.92); border: 1px solid rgba(255,255,255,.22);
+            font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #ededf4;
+            opacity: 0; transform: translateY(6px); pointer-events: none;
+            transition: opacity .25s var(--ease), transform .25s var(--ease);
+        }
+        .watch-toast.show { opacity: 1; transform: translateY(0); }
+
+        /* ---------- панель «Чат записи» ---------- */
+        .watch-chat-outer {
+            padding: 6px; background: #07070a;
+            border: 1px solid rgba(255,255,255,.06);
+            box-shadow: 0 28px 80px rgba(0,0,0,.85);
+            display: flex; min-height: 0;
+        }
+        .watch-chat-inner {
+            position: relative; flex: 1; display: flex; flex-direction: column;
+            background: #08080b; border: 1px solid rgba(255,255,255,.14);
+            overflow: hidden;
+        }
+        .watch-chat-head {
+            padding: 18px 20px 14px;
+            border-bottom: 1px solid rgba(255,255,255,.08);
+            flex-shrink: 0;
+        }
+        .watch-chat-heading {
+            display: flex; align-items: center; gap: 9px;
+            font-family: var(--font-heading); font-size: 13px; font-weight: 400;
+            letter-spacing: .16em; text-transform: uppercase; color: #dcdce6;
+        }
+        .watch-chat-heading svg { width: 13px; height: 13px; fill: rgba(228,228,236,.76); flex-shrink: 0; }
+        .watch-chat-count {
+            margin-top: 6px; font-family: var(--font-sans); font-size: 10px;
+            letter-spacing: .14em; text-transform: uppercase; color: #6c6c78;
+            font-variant-numeric: tabular-nums;
+        }
+        .watch-chat-body-wrap { position: relative; flex: 1; min-height: 260px; }
+        .watch-chat-body {
+            position: absolute; inset: 0; overflow-y: auto;
+            padding: 4px 20px 16px;
+        }
+        .watch-chat-body::-webkit-scrollbar { width: 4px; }
+        .watch-chat-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+        .w-chat-item {
+            padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+            animation: chatin .28s var(--ease);
+        }
+        @keyframes chatin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        .w-chat-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+        .w-chat-badge {
+            width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+            box-shadow: 0 0 8px currentColor;
+        }
+        .w-chat-user { font-weight: 600; color: #dcdce6; }
+        .w-chat-ts {
+            font-size: 10px; color: #6e6e7a; text-decoration: underline; text-underline-offset: 2px;
+            background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit;
+        }
+        .w-chat-ts:hover { color: #c4c4d0; }
+        .w-chat-text {
+            margin-top: 5px; font-size: 13px; line-height: 1.48; color: #e4e4ec; word-break: break-word;
+        }
+        .w-chat-empty {
+            height: 100%; display: flex; flex-direction: column; justify-content: center;
+            padding: 24px 6px; color: #72727e; font-family: var(--font-serif); font-style: italic;
+            font-size: 15px; line-height: 1.75;
+        }
+        .w-chat-empty small {
+            margin-top: 10px; font-family: var(--font-sans); font-style: normal;
+            font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #585864;
+        }
 
         .empty-vods { display: none; text-align: center; padding: 60px 24px; border: 1px dashed rgba(160,160,160,.2); border-radius: 18px; color: var(--silver-dim); }
         .empty-vods .big { font-family: var(--font-display); font-size: 42px; color: rgba(160,160,160,.35); letter-spacing: .06em; margin-bottom: 12px; }
@@ -419,7 +664,11 @@
         footer.site { position: relative; z-index: 10; text-align: center; padding: 60px 24px 150px; color: var(--silver-dim); font-size: 10px; letter-spacing: .3em; text-transform: uppercase; }
         footer.site .foot-name { font-family: var(--font-display); font-size: 46px; letter-spacing: .06em; color: rgba(160,160,160,.2); margin-bottom: 16px; }
 
-        @media (max-width: 1100px) { .rail, .rail-line, .rail-progress { display: none; } }
+        @media (max-width: 1100px) {
+            .rail, .rail-line, .rail-progress { display: none; }
+            .watch-stage { grid-template-columns: 1fr; }
+            .watch-chat-body-wrap { min-height: 300px; }
+        }
         @media (max-width: 980px) {
             .grid-2 { grid-template-columns: 1fr; }
             .social-grid { grid-template-columns: 1fr 1fr; }
@@ -430,9 +679,15 @@
             .hero-portrait { width: min(48%, 390px); margin: 0 14px 14px auto; }
             .hero-name { font-size: clamp(88px, 13vw, 148px); }
             .hero-tagline, .hero-actions { max-width: 100%; }
+            .vod-grid { grid-template-columns: repeat(2, 1fr); }
+            .vod-watch { padding: 18px 18px 28px; }
         }
         @media (max-width: 620px) {
             .social-grid, .vod-grid { grid-template-columns: 1fr; }
+            .scroll-modal-box { padding: 20px 16px 24px; }
+            .vod-watch { padding: 14px 12px 24px; }
+            .watch-vol { display: none; }
+            .watch-ctrl-left, .watch-ctrl-right { gap: 10px; }
             .dock { padding: 0 16px 18px; }
             .dock .hide-m { display: none; }
             .hero-portrait { width: min(72%, 360px); margin-top: 4px; }
@@ -535,28 +790,9 @@
                     <h2>Записи стримов</h2>
                     <p class="sub">Записи прошедших эфиров из облачного архива и локального рекордера.</p>
                 </div>
-                <a class="btn-ghost" id="drive-folder-link" href="https://drive.google.com/drive/folders/1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk" target="_blank" rel="noopener noreferrer">
-                    Google Drive ↗
-                </a>
+                <button class="btn-scroll" id="open-scroll-btn" type="button">Все записи ›</button>
             </div>
-            <div style="margin-top:36px;">
-                <div class="player-wrap" id="player-wrap">
-                    <div class="player-box">
-                        <video id="player" controls></video>
-                        <iframe id="drive-player" class="drive-iframe" allow="autoplay; fullscreen" allowfullscreen title="Плеер записи стрима" style="display:none;"></iframe>
-                        <div class="chat" id="chat" style="display:none;">
-                            <div class="chat-head">чат записи</div>
-                            <div class="chat-body" id="chat-body"></div>
-                        </div>
-                    </div>
-                    <div class="meta-bar">
-                        <div class="title" id="m-title"></div>
-                        <div class="meta-bar-right">
-                            <div class="info" id="m-info"></div>
-                            <a class="btn-action" id="m-drive-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">Открыть на Drive ↗</a>
-                        </div>
-                    </div>
-                </div>
+            <div>
                 <div class="vod-grid" id="vod-grid"></div>
                 <div class="empty-vods" id="empty-vods">
                     <div class="big">danonsha</div>
@@ -599,6 +835,113 @@
         <div class="dock-right">
             <button class="heart-btn" id="heart" title="♥">♥</button>
             <button class="dock-box" id="atmo">★ <span class="hide-m">Атмосфера</span></button>
+        </div>
+    </div>
+
+    <div class="scroll-modal" id="scroll-modal" aria-hidden="true">
+        <div class="scroll-modal-box" data-scroll role="dialog" aria-modal="true" aria-labelledby="scroll-modal-title">
+            <div class="scroll-modal-head">
+                <h3 class="archive-modal-title" id="scroll-modal-title">
+                    <svg viewBox="0 0 24 20" aria-hidden="true"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h5.1c.7 0 1.36.3 1.83.82L13.1 2.7h6.4A2.5 2.5 0 0 1 22 5.2v12.3a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 17.5V2.5z"/></svg>
+                    Записи стримов
+                </h3>
+                <div class="scroll-modal-actions">
+                    <a class="btn-scroll" id="drive-folder-link" href="https://drive.google.com/drive/folders/1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk" target="_blank" rel="noopener noreferrer">Google Drive ↗</a>
+                    <button class="scroll-close" id="close-scroll-btn" type="button" aria-label="Закрыть">✕</button>
+                </div>
+            </div>
+            <div class="vod-grid" id="scroll-vod-grid"></div>
+        </div>
+    </div>
+
+    <div class="vod-watch" id="vod-watch" data-scroll aria-hidden="true">
+        <div class="watch-topbar">
+            <button class="watch-frame-btn" id="watch-back-btn" type="button">
+                <span class="watch-frame-inner">
+                    <svg class="ico-sm" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5 5 8l5.5 5.5 1.1-1.1L7.2 8l4.4-4.4-1.1-1.1z"/></svg>
+                    Назад к записям
+                </span>
+            </button>
+            <a class="watch-frame-btn" href="https://donatex.gg/donate/danonsha" target="_blank" rel="noopener noreferrer">
+                <span class="watch-frame-inner">
+                    <svg class="ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                    Поддержать
+                </span>
+            </a>
+        </div>
+
+        <div class="watch-stage">
+            <div class="watch-player-outer">
+                <div class="watch-player-inner" id="watch-stage-inner">
+                    <img class="watch-poster" id="watch-poster" src="/images/vod-cover-1.webp" alt="">
+                    <video class="watch-video" id="watch-video" playsinline preload="metadata"></video>
+                    <iframe class="watch-drive-iframe" id="watch-drive-iframe" allow="autoplay; fullscreen" allowfullscreen title="Плеер записи стрима"></iframe>
+                    <button class="watch-drive-close" id="watch-drive-close" type="button">✕ Скрыть плеер Drive</button>
+
+                    <div class="watch-top-shade">
+                        <div class="watch-title" id="watch-title">Запись стрима</div>
+                    </div>
+
+                    <div class="watch-toast" id="watch-toast">Ссылка скопирована</div>
+
+                    <div class="watch-controls-wrap" id="watch-controls-wrap">
+                        <div class="watch-progress" id="watch-progress" role="slider" aria-label="Позиция записи" tabindex="0">
+                            <div class="watch-progress-track">
+                                <div class="watch-progress-fill" id="watch-progress-fill"></div>
+                            </div>
+                        </div>
+                        <div class="watch-controls">
+                            <div class="watch-ctrl-left">
+                                <button class="w-btn" id="watch-prev10" type="button" title="Назад 10 сек">
+                                    <svg viewBox="0 0 16 16"><path d="M10.4 3 5.4 8l5 5 1.1-1.1L7.6 8l3.9-3.9L10.4 3z"/></svg>
+                                </button>
+                                <button class="w-btn play-btn" id="watch-play" type="button" title="Воспроизвести / Пауза">
+                                    <svg id="watch-play-ico" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8 4.5 2.8z"/></svg>
+                                </button>
+                                <button class="w-btn" id="watch-next10" type="button" title="Вперёд 10 сек">
+                                    <svg viewBox="0 0 16 16"><path d="M5.6 3 4.5 4.1 8.4 8l-3.9 3.9L5.6 13l5-5-5-5z"/></svg>
+                                </button>
+                                <div class="watch-vol-group">
+                                    <button class="w-btn" id="watch-mute" type="button" title="Звук">
+                                        <svg id="watch-vol-ico" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                                    </button>
+                                    <input class="watch-vol" id="watch-vol" type="range" min="0" max="1" step="0.02" value="1" aria-label="Громкость">
+                                </div>
+                                <span class="watch-time" id="watch-time">0:00 / 0:00:00</span>
+                            </div>
+                            <div class="watch-ctrl-right">
+                                <a class="w-btn" id="watch-download" href="#" target="_blank" rel="noopener noreferrer" title="Скачать запись">
+                                    <svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zm7-16v9.17l-3.59-3.58L7 11l5 5 5-5-1.41-1.41L13 13.17V4h-1z"/></svg>
+                                </a>
+                                <button class="w-btn" id="watch-share" type="button" title="Поделиться ссылкой">
+                                    <svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+                                </button>
+                                <button class="w-btn" id="watch-pip" type="button" title="Картинка в картинке">
+                                    <svg viewBox="0 0 24 24"><path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/></svg>
+                                </button>
+                                <button class="w-btn" id="watch-fs" type="button" title="На весь экран">
+                                    <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="watch-chat-outer">
+                <div class="watch-chat-inner">
+                    <div class="watch-chat-head">
+                        <div class="watch-chat-heading">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                            Чат записи
+                        </div>
+                        <div class="watch-chat-count" id="watch-chat-count">0 / 0 показано</div>
+                    </div>
+                    <div class="watch-chat-body-wrap">
+                        <div class="watch-chat-body" id="watch-chat-body" data-scroll></div>
+                    </div>
+                </div>
+            </aside>
         </div>
     </div>
 
@@ -943,6 +1286,7 @@
             let wheelAcc = 0, wheelRaf = null;
             function onWheel(e) {
                 if (e.ctrlKey) return; // pinch-zoom не трогаем
+                if (document.body.classList.contains('overlay-open')) return;
                 e.preventDefault();
                 const max = document.documentElement.scrollHeight - innerHeight;
                 wheelAcc += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
@@ -963,6 +1307,7 @@
                 if (Math.abs(window.scrollY - smooth.current) > 2) { smooth.target = window.scrollY; kick(); }
             }, { passive: true });
             addEventListener('keydown', (e) => {
+                if (document.body.classList.contains('overlay-open')) return;
                 const max = document.documentElement.scrollHeight - innerHeight;
                 const step = { PageDown: innerHeight * 0.9, PageUp: -innerHeight * 0.9, ArrowDown: 90, ArrowUp: -90, Home: -1e9, End: 1e9 }[e.key];
                 if (step !== undefined) { smooth.target = Math.max(0, Math.min(max, smooth.target + step)); e.preventDefault(); kick(); }
@@ -981,137 +1326,610 @@
             smooth.current = smooth.target = window.scrollY;
             kick();
         }
-        /* ---------- встроенный архив VOD ---------- */
-        const vodGrid = document.getElementById('vod-grid');
-        const playerWrap = document.getElementById('player-wrap');
-        const emptyVods = document.getElementById('empty-vods');
-        const player = document.getElementById('player');
-        const drivePlayer = document.getElementById('drive-player');
-        const driveFolderLink = document.getElementById('drive-folder-link');
-        const metaDriveLink = document.getElementById('m-drive-link');
-        const chatEl = document.getElementById('chat');
-        const chatBody = document.getElementById('chat-body');
-        let chatLines = [], chatShown = 0;
 
-        function fmtDur(sec) {
-            sec = Math.max(0, Math.round(sec || 0));
-            const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-            return (h ? h + 'h ' : '') + m + 'm ' + s + 's';
+        /* ---------- архив VOD и полноэкранный просмотр ---------- */
+        const vodGrid = document.getElementById('vod-grid');
+        const scrollVodGrid = document.getElementById('scroll-vod-grid');
+        const scrollModal = document.getElementById('scroll-modal');
+        const openScrollBtn = document.getElementById('open-scroll-btn');
+        const closeScrollBtn = document.getElementById('close-scroll-btn');
+        const emptyVods = document.getElementById('empty-vods');
+        const driveFolderLink = document.getElementById('drive-folder-link');
+
+        const vodWatch = document.getElementById('vod-watch');
+        const watchBackBtn = document.getElementById('watch-back-btn');
+        const watchStageInner = document.getElementById('watch-stage-inner');
+        const watchPoster = document.getElementById('watch-poster');
+        const watchVideo = document.getElementById('watch-video');
+        const watchDriveIframe = document.getElementById('watch-drive-iframe');
+        const watchDriveClose = document.getElementById('watch-drive-close');
+        const watchTitleEl = document.getElementById('watch-title');
+        const watchToast = document.getElementById('watch-toast');
+        const watchProgress = document.getElementById('watch-progress');
+        const watchProgressFill = document.getElementById('watch-progress-fill');
+        const watchPrev10 = document.getElementById('watch-prev10');
+        const watchPlayBtn = document.getElementById('watch-play');
+        const watchPlayIco = document.getElementById('watch-play-ico');
+        const watchNext10 = document.getElementById('watch-next10');
+        const watchMuteBtn = document.getElementById('watch-mute');
+        const watchVolIco = document.getElementById('watch-vol-ico');
+        const watchVol = document.getElementById('watch-vol');
+        const watchTimeEl = document.getElementById('watch-time');
+        const watchDownload = document.getElementById('watch-download');
+        const watchShare = document.getElementById('watch-share');
+        const watchPip = document.getElementById('watch-pip');
+        const watchFs = document.getElementById('watch-fs');
+        const watchChatCount = document.getElementById('watch-chat-count');
+        const watchChatBody = document.getElementById('watch-chat-body');
+
+        let chatLines = [], chatShown = -1, allVods = [], activeVod = null, activeVodId = null;
+        let streamUnavailable = false, idleTimer = null, toastTimer = null;
+
+        const VOD_COVERS = [
+            '/images/vod-cover-1.webp',
+            '/images/vod-cover-2.webp',
+            '/images/vod-cover-3.webp'
+        ];
+
+        const USER_BADGE_COLORS = ['#86efac', '#c4b5fd', '#fda4af', '#93c5fd', '#fcd34d', '#d8b4fe', '#e2e8f0'];
+
+        const FALLBACK_VODS = [
+            { id: '2026-09-03_17-56', source: 'gdrive', drive_id: '1_SRlYEQ9E0hF1dWmoS3segy5qSAV7rG3', title: 'мама в 16 (я) ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '7.21 GB', note: '' },
+            { id: '2026-09-02_12-15', source: 'gdrive', drive_id: '1td-vOnVhyvsT6VjzROhhdIV7asxvJImR', title: 'ну допустим мяу ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '12.32 GB', note: '' },
+            { id: '2026-08-31_13-44', source: 'gdrive', drive_id: '1u8ZrnJPIASjUEI5EeYS1v_X7C63YnDeJ', title: 'ну допустим мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '7.48 GB', note: '' },
+            { id: '2026-08-30_13-04', source: 'gdrive', drive_id: '1igadvmUfhI_XOjcmGsE_2rMaxYB7_4Be', title: 'мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '1.84 GB', note: '' },
+            { id: '2026-08-30_01-01', source: 'gdrive', drive_id: '1mLVCiVyC6yBVkX-E3YJafLY7EJhGeu-k', title: 'мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '3.65 GB', note: '' },
+            { id: '2026-08-27_17-23', source: 'gdrive', drive_id: '1KyokELlAV_-f703pnSjEtRpaKyWDH2mk', title: 'щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '7.5 GB', note: '' },
+            { id: '2026-08-25_14-52', source: 'gdrive', drive_id: '13maPLTBIWghOtGDDhdtG5iY9MUFdeXeE', title: 'щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '13.25 GB', note: 'эта запись лагающая — не исправить' },
+            { id: '2026-08-23_11-50', source: 'gdrive', drive_id: '1QPUp9NYaHEdvS8P-cndGpks1LivR-YkP', title: 'щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '17.27 GB', note: '' }
+        ].map(v => ({
+            ...v,
+            stream_url: `/api/vods/${v.id}/stream`,
+            download_url: `https://drive.usercontent.google.com/download?id=${v.drive_id}&export=download&confirm=t`,
+            embed_url: `https://drive.google.com/file/d/${v.drive_id}/preview`,
+            view_url: `https://drive.google.com/file/d/${v.drive_id}/view`
+        }));
+
+        const RU_MONTHS_SHORT = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
+
+        function syncBodyOverlayLock() {
+            const locked = Boolean(
+                (scrollModal && scrollModal.classList.contains('open')) ||
+                (vodWatch && vodWatch.classList.contains('open'))
+            );
+            document.body.classList.toggle('overlay-open', locked);
+        }
+
+        function fmtClock(sec) {
+            if (!Number.isFinite(sec) || sec < 0) return '0:00';
+            sec = Math.floor(sec);
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = sec % 60;
+            if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            return `${m}:${String(s).padStart(2, '0')}`;
+        }
+        function fmtChatClock(vod, offsetSec) {
+            const m = (vod && vod.id || '').match(/(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})/);
+            if (m) {
+                const startMin = parseInt(m[4], 10) * 60 + parseInt(m[5], 10);
+                const curMin = (startMin + Math.floor((offsetSec || 0) / 60)) % (24 * 60);
+                return `${String(Math.floor(curMin / 60)).padStart(2, '0')}:${String(curMin % 60).padStart(2, '0')}`;
+            }
+            return fmtClock(offsetSec || 0);
         }
         function fmtDate(id) {
             const m = (id || '').match(/(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})/);
-            return m ? `${m[3]}.${m[2]}.${m[1]} · ${m[4]}:${m[5]}` : (id || '').slice(0, 16);
+            if (!m) return (id || '').slice(0, 16);
+            const day = parseInt(m[3], 10);
+            const mon = RU_MONTHS_SHORT[Math.max(0, Math.min(11, parseInt(m[2], 10) - 1))];
+            return `${day} ${mon} ${m[1]} • ${m[4]}:${m[5]}`;
         }
-        function vodMetaLine(v) {
-            if (v.source === 'gdrive') {
-                const parts = [];
-                if (v.size_label) parts.push(v.size_label);
-                parts.push('Google Drive');
-                return parts.join(' · ');
+        function cleanVodTitle(raw) {
+            return String(raw || 'Запись без названия').replace(/\s*｜\s*/g, ' | ').trim();
+        }
+        function vodCoverSrc(v, idx) {
+            if (v && v.source === 'local' && v.has_thumb && v.thumb_url) return v.thumb_url;
+            return VOD_COVERS[idx % VOD_COVERS.length];
+        }
+        function userBadgeColor(name) {
+            let h = 0;
+            const s = String(name || '');
+            for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+            return USER_BADGE_COLORS[Math.abs(h) % USER_BADGE_COLORS.length];
+        }
+
+        function renderVodCard(v, idx, showNote) {
+            const activeCls = activeVodId && v.id === activeVodId ? ' active' : '';
+            const cover = vodCoverSrc(v, idx);
+            const fallbackCover = VOD_COVERS[idx % VOD_COVERS.length];
+            return `
+                <button class="vod-card${activeCls}" type="button" data-vod-idx="${idx}">
+                    <div class="vod-thumb">
+                        <img src="${escapeHTML(cover)}" data-fallback="${escapeHTML(fallbackCover)}" alt="" loading="lazy" data-vod-thumb>
+                        <svg class="vod-curve" viewBox="0 0 400 54" preserveAspectRatio="none" aria-hidden="true">
+                            <path d="M0,0 Q200,54 400,0 L400,54 L0,54 Z"/>
+                        </svg>
+                    </div>
+                    <div class="vod-info">
+                        <div class="date">${escapeHTML(fmtDate(v.id))}</div>
+                        <div class="title">${escapeHTML(cleanVodTitle(v.title))}</div>
+                        ${showNote && v.note ? `<span class="vod-note">${escapeHTML(v.note)}</span>` : ''}
+                    </div>
+                </button>`;
+        }
+
+        function bindVodContainer(container) {
+            if (!container) return;
+            container.querySelectorAll('img[data-vod-thumb]').forEach(img => {
+                img.addEventListener('error', () => {
+                    const fb = img.getAttribute('data-fallback');
+                    if (fb && img.getAttribute('src') !== fb) img.src = fb;
+                }, { once: true });
+            });
+            container.querySelectorAll('.vod-card').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const idx = +btn.dataset.vodIdx;
+                    const v = allVods[idx];
+                    if (!v) return;
+                    closeScrollModal();
+                    openVod(v, idx, true);
+                });
+            });
+        }
+
+        function syncActiveVodCards() {
+            document.querySelectorAll('.vod-card[data-vod-idx]').forEach(btn => {
+                const v = allVods[+btn.dataset.vodIdx];
+                btn.classList.toggle('active', Boolean(v && v.id === activeVodId));
+            });
+        }
+
+        function openScrollModal() {
+            if (!scrollModal) return;
+            scrollModal.classList.add('open');
+            scrollModal.setAttribute('aria-hidden', 'false');
+            syncBodyOverlayLock();
+        }
+        function closeScrollModal() {
+            if (!scrollModal) return;
+            scrollModal.classList.remove('open');
+            scrollModal.setAttribute('aria-hidden', 'true');
+            syncBodyOverlayLock();
+        }
+        if (openScrollBtn) openScrollBtn.addEventListener('click', openScrollModal);
+        if (closeScrollBtn) closeScrollBtn.addEventListener('click', closeScrollModal);
+        if (scrollModal) {
+            scrollModal.addEventListener('click', (e) => {
+                if (e.target === scrollModal) closeScrollModal();
+            });
+        }
+
+        function showWatchToast(text) {
+            if (!watchToast) return;
+            watchToast.textContent = text;
+            watchToast.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => watchToast.classList.remove('show'), 2100);
+        }
+
+        function updatePlayIcon() {
+            if (!watchPlayIco) return;
+            const playing = !watchVideo.paused && !watchVideo.ended;
+            watchPlayIco.innerHTML = playing
+                ? '<path d="M4 2.8h2.8v10.4H4V2.8zm5.2 0H12v10.4H9.2V2.8z"/>'
+                : '<path d="M4.5 2.8v10.4L13 8 4.5 2.8z"/>';
+        }
+
+        function updateVolIcon() {
+            if (!watchVolIco) return;
+            const muted = watchVideo.muted || watchVideo.volume === 0;
+            watchVolIco.innerHTML = muted
+                ? '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>'
+                : '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+        }
+
+        function updateTimelineUI() {
+            const cur = watchVideo.currentTime || 0;
+            const dur = Number.isFinite(watchVideo.duration) && watchVideo.duration > 0
+                ? watchVideo.duration
+                : (activeVod && activeVod.duration_s ? activeVod.duration_s : 0);
+            const pct = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
+            if (watchProgressFill) watchProgressFill.style.width = `${pct}%`;
+            if (watchTimeEl) {
+                watchTimeEl.textContent = dur > 0
+                    ? `${fmtClock(cur)} / ${fmtClock(dur)}`
+                    : `${fmtClock(cur)} / --:--:--`;
             }
-            const parts = [];
-            if (v.game) parts.push(v.game);
-            if (v.duration_s) parts.push(fmtDur(v.duration_s));
-            if (v.has_chat) parts.push('с чатом');
-            return parts.join(' · ') || 'Локальная запись';
         }
+
+        function pokeControls() {
+            if (!watchStageInner) return;
+            watchStageInner.classList.remove('idle');
+            clearTimeout(idleTimer);
+            if (!watchVideo.paused && !watchVideo.ended) {
+                idleTimer = setTimeout(() => watchStageInner.classList.add('idle'), 2600);
+            }
+        }
+
+        function hideDriveFallback() {
+            if (!watchDriveIframe) return;
+            watchDriveIframe.src = 'about:blank';
+            watchDriveIframe.style.display = 'none';
+            if (watchDriveClose) watchDriveClose.style.display = 'none';
+        }
+
+        function showDriveFallback() {
+            if (!activeVod || !activeVod.embed_url || !watchDriveIframe) return;
+            watchDriveIframe.src = activeVod.embed_url;
+            watchDriveIframe.style.display = 'block';
+            if (watchDriveClose) watchDriveClose.style.display = 'block';
+        }
+
+        function toggleWatchPlay() {
+            if (!activeVod) return;
+            if (streamUnavailable && activeVod.embed_url) {
+                showDriveFallback();
+                return;
+            }
+            if (watchVideo.paused || watchVideo.ended) {
+                watchVideo.play().catch(() => {
+                    if (activeVod && activeVod.embed_url) showDriveFallback();
+                });
+            } else {
+                watchVideo.pause();
+            }
+        }
+
+        function renderEmptyChatState(vod) {
+            if (!watchChatBody || !watchChatCount) return;
+            watchChatCount.textContent = '0 / 0 показано';
+            const metaParts = [fmtDate(vod.id)];
+            if (vod.size_label) metaParts.push(vod.size_label);
+            watchChatBody.innerHTML = `
+                <div class="w-chat-empty">
+                    <div>Лог чата для облачной записи не сохранён.</div>
+                    ${vod.note ? `<div style="margin-top:8px; color:#fca5a5;">${escapeHTML(vod.note)}</div>` : ''}
+                    <small>${escapeHTML(metaParts.join(' • '))}</small>
+                </div>`;
+        }
+
+        function renderChatAtTime(t) {
+            if (!watchChatBody || !watchChatCount) return;
+            const total = chatLines.length;
+            if (!total) {
+                if (activeVod) renderEmptyChatState(activeVod);
+                return;
+            }
+            // бинарный поиск по времени t
+            let lo = 0, hi = total;
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (chatLines[mid].t <= t) lo = mid + 1;
+                else hi = mid;
+            }
+            const shownTotal = lo;
+            if (shownTotal === chatShown) return;
+            chatShown = shownTotal;
+            watchChatCount.textContent = `${shownTotal} / ${total} показано`;
+
+            const startIdx = Math.max(0, shownTotal - 120);
+            let html = '';
+            for (let i = startIdx; i < shownTotal; i++) {
+                const m = chatLines[i];
+                const color = userBadgeColor(m.user);
+                const ts = fmtChatClock(activeVod, m.t);
+                html += `
+                    <div class="w-chat-item">
+                        <div class="w-chat-meta">
+                            <span class="w-chat-badge" style="background:${color}; color:${color};"></span>
+                            <span class="w-chat-user">${escapeHTML(m.user)}</span>
+                            <button class="w-chat-ts" type="button" data-seek="${Number(m.t) || 0}">${escapeHTML(ts)}</button>
+                        </div>
+                        <div class="w-chat-text">${escapeHTML(m.msg)}</div>
+                    </div>`;
+            }
+            watchChatBody.innerHTML = html;
+            watchChatBody.scrollTop = watchChatBody.scrollHeight;
+        }
+
+        if (watchChatBody) {
+            watchChatBody.addEventListener('click', (e) => {
+                const btn = e.target.closest && e.target.closest('[data-seek]');
+                if (!btn) return;
+                const sec = parseFloat(btn.getAttribute('data-seek'));
+                if (Number.isFinite(sec)) {
+                    watchVideo.currentTime = Math.max(0, sec);
+                    updateTimelineUI();
+                }
+            });
+        }
+
+        async function openVod(vod, idxHint, pushHistory) {
+            const idx = Number.isInteger(idxHint) && idxHint >= 0
+                ? idxHint
+                : Math.max(0, allVods.findIndex(x => x.id === vod.id));
+            activeVod = vod;
+            activeVodId = vod.id;
+            streamUnavailable = false;
+            syncActiveVodCards();
+
+            hideDriveFallback();
+            watchStageInner.classList.remove('has-frames', 'idle');
+            watchPoster.src = vodCoverSrc(vod, idx);
+            watchTitleEl.textContent = cleanVodTitle(vod.title);
+
+            const dlHref = vod.source === 'local'
+                ? `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`
+                : (vod.download_url || vod.view_url || '#');
+            watchDownload.href = dlHref;
+
+            vodWatch.classList.add('open');
+            vodWatch.setAttribute('aria-hidden', 'false');
+            syncBodyOverlayLock();
+
+            if (pushHistory) {
+                const url = new URL(location.href);
+                url.searchParams.set('vod', vod.id);
+                history.pushState({ vodId: vod.id }, '', url);
+            }
+
+            try { watchVideo.pause(); } catch {}
+            const streamSrc = vod.source === 'local'
+                ? `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`
+                : (vod.stream_url || `/api/vods/${encodeURIComponent(vod.id)}/stream`);
+            watchVideo.src = streamSrc;
+            watchVideo.load();
+            updatePlayIcon();
+            updateTimelineUI();
+
+            chatLines = [];
+            chatShown = -1;
+            if (vod.has_chat) {
+                watchChatCount.textContent = 'загрузка…';
+                watchChatBody.innerHTML = '';
+                try {
+                    const res = await fetch(`/api/vods/${encodeURIComponent(vod.id)}/chat`);
+                    if (res.ok) {
+                        chatLines = (await res.text()).trim().split('\n')
+                            .map(l => { try { return JSON.parse(l); } catch { return null; } })
+                            .filter(Boolean).sort((a, b) => a.t - b.t);
+                    }
+                } catch {}
+                if (chatLines.length) {
+                    renderChatAtTime(0);
+                } else {
+                    renderEmptyChatState(vod);
+                }
+            } else {
+                renderEmptyChatState(vod);
+            }
+        }
+
+        function closeVodWatch(updateHistory) {
+            if (!vodWatch || !vodWatch.classList.contains('open')) return;
+            try { watchVideo.pause(); } catch {}
+            watchVideo.removeAttribute('src');
+            watchVideo.load();
+            hideDriveFallback();
+            clearTimeout(idleTimer);
+            vodWatch.classList.remove('open');
+            vodWatch.setAttribute('aria-hidden', 'true');
+            syncBodyOverlayLock();
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            }
+            if (updateHistory) {
+                const url = new URL(location.href);
+                if (url.searchParams.has('vod')) {
+                    url.searchParams.delete('vod');
+                    history.pushState({}, '', url);
+                }
+            }
+        }
+
+        if (watchBackBtn) watchBackBtn.addEventListener('click', () => closeVodWatch(true));
+        if (watchDriveClose) watchDriveClose.addEventListener('click', hideDriveFallback);
+        if (watchPlayBtn) watchPlayBtn.addEventListener('click', toggleWatchPlay);
+        if (watchVideo) {
+            watchVideo.addEventListener('click', toggleWatchPlay);
+            watchVideo.addEventListener('loadeddata', () => {
+                updateTimelineUI();
+            });
+            watchVideo.addEventListener('playing', () => {
+                watchStageInner.classList.add('has-frames');
+                updatePlayIcon();
+                pokeControls();
+            });
+            watchVideo.addEventListener('pause', () => {
+                updatePlayIcon();
+                watchStageInner.classList.remove('idle');
+                clearTimeout(idleTimer);
+            });
+            watchVideo.addEventListener('ended', () => {
+                updatePlayIcon();
+                watchStageInner.classList.remove('idle');
+            });
+            watchVideo.addEventListener('durationchange', updateTimelineUI);
+            watchVideo.addEventListener('timeupdate', () => {
+                updateTimelineUI();
+                if (chatLines.length) renderChatAtTime(watchVideo.currentTime || 0);
+            });
+            watchVideo.addEventListener('seeked', () => {
+                chatShown = -1;
+                if (chatLines.length) renderChatAtTime(watchVideo.currentTime || 0);
+            });
+            watchVideo.addEventListener('volumechange', () => {
+                if (watchVol) watchVol.value = watchVideo.muted ? 0 : watchVideo.volume;
+                updateVolIcon();
+            });
+            watchVideo.addEventListener('error', () => {
+                streamUnavailable = true;
+                updatePlayIcon();
+            });
+        }
+
+        if (watchStageInner) {
+            watchStageInner.addEventListener('mousemove', pokeControls);
+            watchStageInner.addEventListener('dblclick', (e) => {
+                if (e.target.closest && e.target.closest('.watch-controls-wrap')) return;
+                if (!document.fullscreenElement) watchStageInner.requestFullscreen().catch(() => {});
+                else document.exitFullscreen().catch(() => {});
+            });
+        }
+        if (watchPrev10) {
+            watchPrev10.addEventListener('click', () => {
+                watchVideo.currentTime = Math.max(0, (watchVideo.currentTime || 0) - 10);
+                updateTimelineUI();
+            });
+        }
+        if (watchNext10) {
+            watchNext10.addEventListener('click', () => {
+                const dur = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 1e9;
+                watchVideo.currentTime = Math.min(dur, (watchVideo.currentTime || 0) + 10);
+                updateTimelineUI();
+            });
+        }
+        if (watchMuteBtn) {
+            watchMuteBtn.addEventListener('click', () => {
+                watchVideo.muted = !watchVideo.muted;
+                updateVolIcon();
+            });
+        }
+        if (watchVol) {
+            watchVol.addEventListener('input', () => {
+                const val = parseFloat(watchVol.value);
+                watchVideo.volume = Math.max(0, Math.min(1, val));
+                watchVideo.muted = val === 0;
+                updateVolIcon();
+            });
+        }
+
+        if (watchProgress) {
+            let scrubbing = false;
+            const seekFromEvent = (e) => {
+                const dur = watchVideo.duration;
+                if (!Number.isFinite(dur) || dur <= 0) return;
+                const rect = watchProgress.getBoundingClientRect();
+                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                watchVideo.currentTime = ratio * dur;
+                updateTimelineUI();
+            };
+            watchProgress.addEventListener('pointerdown', (e) => {
+                scrubbing = true;
+                watchProgress.setPointerCapture(e.pointerId);
+                seekFromEvent(e);
+            });
+            watchProgress.addEventListener('pointermove', (e) => {
+                if (scrubbing) seekFromEvent(e);
+            });
+            watchProgress.addEventListener('pointerup', () => { scrubbing = false; });
+            watchProgress.addEventListener('pointercancel', () => { scrubbing = false; });
+        }
+
+        if (watchShare) {
+            watchShare.addEventListener('click', async () => {
+                const shareUrl = new URL(location.href);
+                if (activeVodId) shareUrl.searchParams.set('vod', activeVodId);
+                try {
+                    await navigator.clipboard.writeText(shareUrl.toString());
+                    showWatchToast('Ссылка скопирована');
+                } catch {
+                    showWatchToast(shareUrl.pathname + shareUrl.search);
+                }
+            });
+        }
+        if (watchPip) {
+            watchPip.addEventListener('click', async () => {
+                try {
+                    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+                    else if (watchVideo.readyState >= 1 && watchVideo.requestPictureInPicture) await watchVideo.requestPictureInPicture();
+                    else showWatchToast('Сначала запустите видео');
+                } catch {
+                    showWatchToast('PiP недоступен');
+                }
+            });
+        }
+        if (watchFs) {
+            watchFs.addEventListener('click', () => {
+                if (!document.fullscreenElement) watchStageInner.requestFullscreen().catch(() => {});
+                else document.exitFullscreen().catch(() => {});
+            });
+        }
+
+        addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (vodWatch && vodWatch.classList.contains('open')) {
+                    closeVodWatch(true);
+                    return;
+                }
+                if (scrollModal && scrollModal.classList.contains('open')) {
+                    closeScrollModal();
+                    return;
+                }
+            }
+            if (!vodWatch || !vodWatch.classList.contains('open')) return;
+            if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            if (e.key === ' ' || e.key === 'k' || e.key === 'K') {
+                e.preventDefault();
+                toggleWatchPlay();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                watchVideo.currentTime = Math.max(0, (watchVideo.currentTime || 0) - 10);
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                const dur = Number.isFinite(watchVideo.duration) ? watchVideo.duration : 1e9;
+                watchVideo.currentTime = Math.min(dur, (watchVideo.currentTime || 0) + 10);
+            } else if (e.key === 'f' || e.key === 'F') {
+                e.preventDefault();
+                if (!document.fullscreenElement) watchStageInner.requestFullscreen().catch(() => {});
+                else document.exitFullscreen().catch(() => {});
+            } else if (e.key === 'm' || e.key === 'M') {
+                e.preventDefault();
+                watchVideo.muted = !watchVideo.muted;
+            }
+        });
+
+        addEventListener('popstate', () => {
+            const vodParam = new URLSearchParams(location.search).get('vod');
+            if (vodParam && allVods.length) {
+                const idx = allVods.findIndex(x => x.id === vodParam);
+                if (idx >= 0) openVod(allVods[idx], idx, false);
+            } else {
+                closeVodWatch(false);
+            }
+        });
 
         async function loadVods() {
             if (!vodGrid) return;
             let vods = [];
             try {
                 const res = await fetch('/api/vods');
-                const data = await res.json();
-                vods = data.vods || [];
-                if (data.folder_url && driveFolderLink) driveFolderLink.href = data.folder_url;
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data.vods) && data.vods.length) vods = data.vods;
+                    if (data.folder_url && driveFolderLink) driveFolderLink.href = data.folder_url;
+                }
             } catch (e) {}
-            if (!vods.length) { emptyVods.style.display = ''; return; }
+            if (!vods.length) vods = FALLBACK_VODS;
+            allVods = vods;
+            if (!allVods.length) { emptyVods.style.display = 'block'; return; }
             emptyVods.style.display = 'none';
 
-            vodGrid.innerHTML = vods.map((v, i) => `
-                <button class="vod-card" type="button" data-i="${i}" style="--d:${0.05 * i}s;">
-                    <div class="vod-thumb">
-                        ${v.thumb_url ? `<img src="${escapeHTML(v.thumb_url)}" alt="" loading="lazy" data-vod-thumb>` : ''}
-                        <span class="vod-play">▶</span>
-                    </div>
-                    <div class="vod-info">
-                        <div class="date">${escapeHTML(fmtDate(v.id))}</div>
-                        <div class="title">${escapeHTML(v.title || 'Запись без названия')}</div>
-                        ${v.note ? `<span class="vod-note">${escapeHTML(v.note)}</span>` : ''}
-                        <div class="meta">${escapeHTML(vodMetaLine(v))}</div>
-                    </div>
-                </button>`).join('');
+            vodGrid.innerHTML = allVods.slice(0, 3).map((v, i) => renderVodCard(v, i, false)).join('');
+            bindVodContainer(vodGrid);
 
-            vodGrid.querySelectorAll('img[data-vod-thumb]').forEach(img => {
-                img.addEventListener('error', () => { img.remove(); }, { once: true });
-            });
-
-            vodGrid.querySelectorAll('.vod-card').forEach(btn => {
-                btn.addEventListener('click', () => openVod(vods[+btn.dataset.i], btn));
-            });
-        }
-
-        async function openVod(vod, btn) {
-            vodGrid.querySelectorAll('.vod-card').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            playerWrap.style.display = '';
-            playerWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            document.getElementById('m-title').textContent = vod.title || 'Запись';
-            document.getElementById('m-info').textContent =
-                `${vodMetaLine(vod)} · ${fmtDate(vod.id)}`;
-
-            chatLines = []; chatShown = 0; chatBody.innerHTML = '';
-
-            if (vod.source === 'gdrive' && vod.embed_url) {
-                try { player.pause(); } catch {}
-                player.removeAttribute('src');
-                player.load();
-                player.style.display = 'none';
-                chatEl.style.display = 'none';
-
-                drivePlayer.style.display = 'block';
-                drivePlayer.src = vod.embed_url;
-                if (metaDriveLink && vod.view_url) {
-                    metaDriveLink.href = vod.view_url;
-                    metaDriveLink.style.display = '';
-                }
-                return;
+            if (scrollVodGrid) {
+                scrollVodGrid.innerHTML = allVods.map((v, i) => renderVodCard(v, i, true)).join('');
+                bindVodContainer(scrollVodGrid);
             }
 
-            if (drivePlayer) {
-                drivePlayer.src = 'about:blank';
-                drivePlayer.style.display = 'none';
-            }
-            if (metaDriveLink) metaDriveLink.style.display = 'none';
-            player.style.display = 'block';
-            player.src = `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`;
-            player.load();
-
-            if (vod.has_chat) {
-                try {
-                    const res = await fetch(`/api/vods/${encodeURIComponent(vod.id)}/chat`);
-                    chatLines = (await res.text()).trim().split('\n')
-                        .map(l => { try { return JSON.parse(l); } catch { return null; } })
-                        .filter(Boolean).sort((a, b) => a.t - b.t);
-                    chatEl.style.display = '';
-                } catch { chatEl.style.display = 'none'; }
-            } else {
-                chatEl.style.display = 'none';
+            const initialVodId = new URLSearchParams(location.search).get('vod');
+            if (initialVodId) {
+                const idx = allVods.findIndex(x => x.id === initialVodId);
+                if (idx >= 0) openVod(allVods[idx], idx, false);
             }
         }
-
-        player.addEventListener('timeupdate', () => {
-            if (!chatLines.length) return;
-            const t = player.currentTime;
-            let html = '', idx = 0;
-            for (const m of chatLines) {
-                if (m.t > t) break;
-                idx++;
-                html += `<div class="chat-msg"><span class="u">${escapeHTML(m.user)}:</span> ${escapeHTML(m.msg)}</div>`;
-            }
-            if (idx !== chatShown) { chatShown = idx; chatBody.innerHTML = html; }
-        });
-        player.addEventListener('seeked', () => { chatShown = -1; });
 
         function init() {
             loadVods();
