@@ -34,7 +34,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 import uvicorn
@@ -84,6 +84,7 @@ DB_PATH = DATA_DIR / "krafen.db"
 AUTH_DB_PATH = DATA_DIR / "auth.db"
 SEED_SQL_PATH = DATA_DIR / "seed.sql"
 THUMB_CACHE_DIR = DATA_DIR / "vod_thumbs"
+CHAT_CACHE_DIR = DATA_DIR / "vod_chats"
 RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT / "vods"))
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
@@ -107,6 +108,7 @@ SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 DISCORD_INVITE_CODE = os.environ.get("DISCORD_INVITE_CODE", "kGdxDzxtmK")
 GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID", "1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk").strip()
+GDRIVE_API_KEY = os.environ.get("GDRIVE_API_KEY", "").strip()
 
 AUTO_UPDATE_MODE = os.environ.get("AUTO_UPDATE", "auto").strip().lower()
 AUTO_UPDATE_REPO = os.environ.get("AUTO_UPDATE_REPO", "krafenx/krafenz").strip().strip("/")
@@ -160,7 +162,7 @@ def _is_protected_update_path(rel_posix: str, target: Path) -> bool:
     if len(parts) == 1 and (top == ".env" or (top.startswith(".env.") and top != ".env.example")):
         return True
     if top == "data":
-        if len(parts) >= 2 and parts[1] in {".update_sha", "vod_thumbs"}:
+        if len(parts) >= 2 and parts[1] in {".update_sha", "vod_thumbs", "vod_chats"}:
             return True
         name_lower = parts[-1].lower()
         is_user_db_or_json = (
@@ -524,7 +526,14 @@ CREATE TABLE IF NOT EXISTS drive_vods (
     title TEXT NOT NULL,
     size_label TEXT NOT NULL DEFAULT '',
     note TEXT NOT NULL DEFAULT '',
-    sort_key TEXT NOT NULL
+    sort_key TEXT NOT NULL,
+    folder_drive_id TEXT NOT NULL DEFAULT '',
+    chat_drive_id TEXT NOT NULL DEFAULT '',
+    thumb_drive_id TEXT NOT NULL DEFAULT '',
+    meta_drive_id TEXT NOT NULL DEFAULT '',
+    game TEXT NOT NULL DEFAULT '',
+    duration_s INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -1195,6 +1204,21 @@ def init_db() -> None:
     now = int(time.time())
     with _db_lock, db_connect() as conn:
         conn.executescript(SCHEMA_SQL)
+
+        existing_vod_cols = {
+            row["name"] for row in conn.execute("PRAGMA table_info(drive_vods)").fetchall()
+        }
+        for col_name, col_ddl in (
+            ("folder_drive_id", "TEXT NOT NULL DEFAULT ''"),
+            ("chat_drive_id", "TEXT NOT NULL DEFAULT ''"),
+            ("thumb_drive_id", "TEXT NOT NULL DEFAULT ''"),
+            ("meta_drive_id", "TEXT NOT NULL DEFAULT ''"),
+            ("game", "TEXT NOT NULL DEFAULT ''"),
+            ("duration_s", "INTEGER NOT NULL DEFAULT 0"),
+            ("started_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if col_name not in existing_vod_cols:
+                conn.execute(f"ALTER TABLE drive_vods ADD COLUMN {col_name} {col_ddl}")
 
         meta_count = conn.execute("SELECT COUNT(*) AS cnt FROM collection_meta").fetchone()["cnt"]
         has_legacy_json = any((DATA_DIR / spec["legacy_file"]).is_file() for spec in LIST_SPECS.values())
@@ -1947,13 +1971,45 @@ def discord_invite(request: Request, code: str = DISCORD_INVITE_CODE) -> JSONRes
 
 
 def safe_name(value: str) -> bool:
-    return bool(value) and ".." not in value and not value.startswith(("/", "\\")) and re.fullmatch(r"[A-Za-z0-9_.-]+", value) is not None
+    if not value or len(value) > 200 or "\x00" in value:
+        return False
+    if value in {".", ".."} or ".." in value or "/" in value or "\\" in value or value.startswith("."):
+        return False
+    return re.fullmatch(r"[\w.-]+", value, flags=re.UNICODE) is not None
+
+
+def _vod_cache_stem(vod_id: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", vod_id):
+        return vod_id
+    prefix = re.sub(r"[^A-Za-z0-9_-]+", "_", vod_id)[:48].strip("_") or "vod"
+    digest = hashlib.sha1(vod_id.encode("utf-8")).hexdigest()[:12]
+    return f"{prefix}_{digest}"
+
+
+def _format_size_bytes(num_bytes: int | float) -> str:
+    n = float(num_bytes or 0)
+    if n <= 0:
+        return ""
+    gb = n / (1024 ** 3)
+    if gb >= 1.0:
+        return f"{gb:.2f} GB"
+    mb = n / (1024 ** 2)
+    if mb >= 1.0:
+        return f"{mb:.1f} MB"
+    kb = max(1, round(n / 1024))
+    return f"{kb} KB"
 
 
 _drive_sync_lock = threading.Lock()
+_drive_sync_worker_lock = threading.Lock()
 _drive_sync_ts = 0.0
-_DRIVE_ENTRY_RE = re.compile(
-    r'href="https://drive\.google\.com/file/d/([A-Za-z0-9_-]{10,})/view[^"]*"[\s\S]*?<div[^>]*class="flip-entry-title"[^>]*>([\s\S]*?)</div>',
+_FLIP_TITLE_RE = re.compile(r'<div[^>]*class="flip-entry-title"[^>]*>([\s\S]*?)</div>', re.IGNORECASE)
+_FLIP_FOLDER_HREF_RE = re.compile(
+    r'href="https://drive\.google\.com/(?:drive/(?:u/\d+/)?folders/|folderview\?id=)([A-Za-z0-9_-]{10,})',
+    re.IGNORECASE,
+)
+_FLIP_FILE_HREF_RE = re.compile(
+    r'href="https://(?:drive|docs)\.google\.com/(?:file/d/|open\?id=)([A-Za-z0-9_-]{10,})',
     re.IGNORECASE,
 )
 
@@ -1971,68 +2027,442 @@ def parse_drive_filename(raw_name: str, fallback_key: str) -> dict[str, str]:
         title = suffix or clean
         note = prefix
     else:
-        vod_id = f"gdrive_{fallback_key}"
+        stamp_match = re.match(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})(?:[_-]+(.*))?$", clean)
+        if stamp_match:
+            vod_id = re.sub(r"[^\w.-]+", "_", clean, flags=re.UNICODE).strip("._") or stamp_match.group(1)
+            slug_tail = (stamp_match.group(2) or "").replace("-", " ").replace("_", " ").strip()
+            title = slug_tail or "Запись стрима"
+        else:
+            vod_id = f"gdrive_{fallback_key}"
     return {
-        "id": vod_id,
+        "id": vod_id[:160],
         "title": title[:260] or "Запись стрима",
         "note": note[:180],
-        "sort_key": vod_id,
+        "sort_key": vod_id[:160],
     }
 
 
-def _sync_drive_vods_worker(folder_id: str) -> None:
+def parse_drive_folder_name(raw_folder_name: str, fallback_key: str) -> dict[str, str]:
+    clean = html.unescape(raw_folder_name or "").strip()
+    sanitized_id = re.sub(r"[^\w.-]+", "_", clean, flags=re.UNICODE).strip("._")[:160]
+    stamp_m = re.search(r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})", clean)
+    if stamp_m:
+        stamp = stamp_m.group(1)
+        vod_id = sanitized_id if sanitized_id else stamp
+        tail = clean[stamp_m.end() :].lstrip("_- —·").strip()
+        fallback_title = tail.replace("-", " ").replace("_", " ").strip() or "Запись стрима"
+        sort_key = vod_id if vod_id.startswith(stamp) else f"{stamp}_{vod_id}"
+    else:
+        vod_id = sanitized_id or f"gdrive_{fallback_key}"
+        fallback_title = clean or "Запись стрима"
+        sort_key = vod_id
+    return {
+        "id": vod_id[:160],
+        "fallback_title": fallback_title[:260],
+        "sort_key": sort_key[:160],
+    }
+
+
+def _parse_embedded_folder_html(html_text: str) -> list[dict[str, Any]]:
+    """Парсит файлы и подпапки из https://drive.google.com/embeddedfolderview?id=...#list."""
+    entries: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    chunks = re.split(r"""<div[^>]+class=["'](?:[^"']*\s)?flip-entry(?:\s[^"']*)?["']""", html_text, flags=re.IGNORECASE)
+    for chunk in chunks[1:]:
+        title_m = _FLIP_TITLE_RE.search(chunk)
+        if not title_m:
+            continue
+        plain_name = html.unescape(re.sub(r"<[^>]+>", "", title_m.group(1))).strip()
+        if not plain_name:
+            continue
+        folder_m = _FLIP_FOLDER_HREF_RE.search(chunk)
+        if folder_m:
+            did = folder_m.group(1)
+            if did not in seen_ids:
+                seen_ids.add(did)
+                entries.append({"id": did, "name": plain_name, "kind": "folder", "size": 0})
+            continue
+        file_m = _FLIP_FILE_HREF_RE.search(chunk)
+        if file_m:
+            did = file_m.group(1)
+            if did not in seen_ids:
+                seen_ids.add(did)
+                entries.append({"id": did, "name": plain_name, "kind": "file", "size": 0})
+    return entries
+
+
+def _list_gdrive_folder(folder_id: str) -> tuple[bool, list[dict[str, Any]]]:
+    """Возвращает (ok, entries), где каждый элемент: {id, name, kind: 'file'|'folder', size: int}."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", folder_id):
-        return
+        return False, []
+
+    if GDRIVE_API_KEY:
+        try:
+            items: list[dict[str, Any]] = []
+            page_token = ""
+            for _ in range(10):
+                params: dict[str, Any] = {
+                    "q": f"'{folder_id}' in parents and trashed = false",
+                    "fields": "nextPageToken,files(id,name,mimeType,size)",
+                    "pageSize": 200,
+                    "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true",
+                    "key": GDRIVE_API_KEY,
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                resp = requests.get(
+                    "https://www.googleapis.com/drive/v3/files",
+                    params=params,
+                    headers={"User-Agent": "KrafenSite/1.0"},
+                    timeout=10,
+                )
+                if not resp.ok:
+                    break
+                payload = resp.json()
+                for f in payload.get("files") or []:
+                    fid = str(f.get("id") or "").strip()
+                    fname = str(f.get("name") or "").strip()
+                    if not fid or not fname:
+                        continue
+                    mime = str(f.get("mimeType") or "")
+                    kind = "folder" if mime == "application/vnd.google-apps.folder" else "file"
+                    try:
+                        fsize = int(f.get("size") or 0)
+                    except (TypeError, ValueError):
+                        fsize = 0
+                    items.append({"id": fid, "name": fname, "kind": kind, "size": fsize})
+                page_token = str(payload.get("nextPageToken") or "").strip()
+                if not page_token:
+                    return True, items
+            if items:
+                return True, items
+        except Exception:
+            pass
+
     try:
         res = requests.get(
             f"https://drive.google.com/embeddedfolderview?id={folder_id}#list",
             headers={"User-Agent": "Mozilla/5.0 (compatible; KrafenSite/1.0)"},
-            timeout=6,
+            timeout=10,
         )
         if not res.ok:
+            return False, []
+        body = res.text
+        if "flip-entries" not in body and "flip-entry" not in body:
+            return False, []
+        return True, _parse_embedded_folder_html(body)
+    except Exception:
+        return False, []
+
+
+def _download_gdrive_small_bytes(drive_id: str, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
+    """Скачивает небольшой публичный файл с Google Drive (meta.json, chat.jsonl, thumb.jpg)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", drive_id):
+        return None
+    base_url = "https://drive.usercontent.google.com/download"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+    }
+    params: dict[str, str] = {"id": drive_id, "export": "download", "confirm": "t"}
+    session = requests.Session()
+    try:
+        resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(4, 15))
+        ctype = (resp.headers.get("content-type") or "").lower()
+        if "text/html" in ctype:
+            sample = resp.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+            resp.close()
+            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
+            if not uuid_m:
+                return None
+            params["uuid"] = uuid_m.group(1)
+            resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(4, 15))
+            ctype = (resp.headers.get("content-type") or "").lower()
+
+        if resp.status_code >= 400 or "text/html" in ctype:
+            resp.close()
+            return None
+
+        buf = io.BytesIO()
+        total = 0
+        for chunk in resp.iter_content(chunk_size=32 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                resp.close()
+                return None
+            buf.write(chunk)
+        resp.close()
+        return buf.getvalue()
+    except requests.RequestException:
+        return None
+    finally:
+        session.close()
+
+
+def _upsert_drive_vod(conn: sqlite3.Connection, row_data: dict[str, Any]) -> None:
+    # Удаляем конфликтующие дубли с тем же drive_id под другим id, если такие были
+    conn.execute(
+        "DELETE FROM drive_vods WHERE drive_id = ? AND id != ?",
+        (row_data["drive_id"], row_data["id"]),
+    )
+    conn.execute(
+        """
+        INSERT INTO drive_vods (
+            id, drive_id, title, size_label, note, sort_key,
+            folder_drive_id, chat_drive_id, thumb_drive_id, meta_drive_id,
+            game, duration_s, started_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            drive_id = excluded.drive_id,
+            title = excluded.title,
+            size_label = CASE WHEN excluded.size_label != '' THEN excluded.size_label ELSE drive_vods.size_label END,
+            note = CASE WHEN drive_vods.note != '' AND excluded.note = '' THEN drive_vods.note ELSE excluded.note END,
+            sort_key = excluded.sort_key,
+            folder_drive_id = excluded.folder_drive_id,
+            chat_drive_id = excluded.chat_drive_id,
+            thumb_drive_id = excluded.thumb_drive_id,
+            meta_drive_id = excluded.meta_drive_id,
+            game = excluded.game,
+            duration_s = CASE WHEN excluded.duration_s > 0 THEN excluded.duration_s ELSE drive_vods.duration_s END,
+            started_at = CASE WHEN excluded.started_at != '' THEN excluded.started_at ELSE drive_vods.started_at END
+        """,
+        (
+            row_data["id"],
+            row_data["drive_id"],
+            row_data["title"],
+            row_data.get("size_label", ""),
+            row_data.get("note", ""),
+            row_data["sort_key"],
+            row_data.get("folder_drive_id", ""),
+            row_data.get("chat_drive_id", ""),
+            row_data.get("thumb_drive_id", ""),
+            row_data.get("meta_drive_id", ""),
+            row_data.get("game", ""),
+            int(row_data.get("duration_s") or 0),
+            row_data.get("started_at", ""),
+        ),
+    )
+
+
+def _inspect_drive_vod_subfolder(
+    folder_drive_id: str,
+    folder_name: str,
+    existing: dict[str, Any] | None,
+    force: bool = False,
+) -> dict[str, Any] | None:
+    """
+    Читает структуру подпапки записи на Google Drive формата:
+      <vod_folder>/
+        ├── video.mp4
+        ├── chat.jsonl
+        ├── meta.json
+        └── thumb.jpg
+    """
+    parsed_folder = parse_drive_folder_name(folder_name, folder_drive_id[:12])
+    if (
+        not force
+        and existing
+        and existing.get("drive_id")
+        and existing.get("meta_drive_id")
+        and existing.get("chat_drive_id")
+        and existing.get("thumb_drive_id")
+    ):
+        return None
+
+    ok, sub_entries = _list_gdrive_folder(folder_drive_id)
+    if not ok or not sub_entries:
+        return None
+
+    files_by_lower: dict[str, dict[str, Any]] = {}
+    all_files: list[dict[str, Any]] = []
+    for item in sub_entries:
+        if item["kind"] != "file":
+            continue
+        all_files.append(item)
+        files_by_lower[item["name"].lower()] = item
+
+    meta_entry = files_by_lower.get("meta.json")
+    meta_obj: dict[str, Any] = {}
+    if meta_entry:
+        raw_meta = _download_gdrive_small_bytes(meta_entry["id"], max_bytes=256 * 1024)
+        if raw_meta:
+            try:
+                loaded = json.loads(raw_meta.decode("utf-8", errors="replace"))
+                if isinstance(loaded, dict):
+                    meta_obj = loaded
+            except Exception:
+                meta_obj = {}
+
+    preferred_video = str(meta_obj.get("video_file") or "video.mp4").strip().lower()
+    preferred_chat = str(meta_obj.get("chat_file") or "chat.jsonl").strip().lower()
+    preferred_thumb = str(meta_obj.get("thumb_file") or "thumb.jpg").strip().lower()
+
+    video_entry = files_by_lower.get(preferred_video) or files_by_lower.get("video.mp4")
+    if not video_entry:
+        for f in all_files:
+            low = f["name"].lower()
+            if low.endswith((".mp4", ".mkv", ".webm", ".mov")) and not re.search(r"\.part\d+\.mp4$", low):
+                video_entry = f
+                break
+    if not video_entry:
+        return None
+
+    chat_entry = files_by_lower.get(preferred_chat) or files_by_lower.get("chat.jsonl")
+    if not chat_entry:
+        for f in all_files:
+            if f["name"].lower().endswith(".jsonl"):
+                chat_entry = f
+                break
+
+    thumb_entry = files_by_lower.get(preferred_thumb) or files_by_lower.get("thumb.jpg")
+    if not thumb_entry:
+        for f in all_files:
+            low = f["name"].lower()
+            if low.startswith("thumb.") and low.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                thumb_entry = f
+                break
+        if not thumb_entry:
+            for f in all_files:
+                if f["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                    thumb_entry = f
+                    break
+
+    raw_title = str(meta_obj.get("title") or "").strip()
+    title = (raw_title or parsed_folder["fallback_title"] or "Запись стрима")[:260]
+    game = str(meta_obj.get("game") or "").strip()[:120]
+    note = str(meta_obj.get("note") or "").strip()[:180]
+    started_at = str(meta_obj.get("started_at") or meta_obj.get("record_started_at") or "").strip()[:64]
+    try:
+        duration_s = max(0, int(float(meta_obj.get("duration_s") or 0)))
+    except (TypeError, ValueError):
+        duration_s = 0
+
+    size_label = str(meta_obj.get("size_label") or "").strip()[:40]
+    if not size_label:
+        size_bytes = video_entry.get("size") or meta_obj.get("size_bytes") or 0
+        try:
+            size_label = _format_size_bytes(int(size_bytes))
+        except (TypeError, ValueError):
+            size_label = ""
+
+    return {
+        "id": parsed_folder["id"],
+        "drive_id": video_entry["id"],
+        "title": title,
+        "size_label": size_label,
+        "note": note,
+        "sort_key": parsed_folder["sort_key"],
+        "folder_drive_id": folder_drive_id,
+        "chat_drive_id": chat_entry["id"] if chat_entry else "",
+        "thumb_drive_id": thumb_entry["id"] if thumb_entry else "",
+        "meta_drive_id": meta_entry["id"] if meta_entry else "",
+        "game": game,
+        "duration_s": duration_s,
+        "started_at": started_at,
+    }
+
+
+def _sync_drive_vods_worker(folder_id: str, force: bool = False) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", folder_id):
+        return
+    if not _drive_sync_worker_lock.acquire(blocking=False):
+        return
+    try:
+        ok, top_entries = _list_gdrive_folder(folder_id)
+        if not ok:
             return
-        matches = _DRIVE_ENTRY_RE.findall(res.text)
-        if not matches:
+
+        with _db_lock, db_connect() as conn:
+            existing_rows = {
+                str(r["folder_drive_id"]): dict(r)
+                for r in conn.execute("SELECT * FROM drive_vods WHERE folder_drive_id != ''").fetchall()
+            }
+
+        prepared_rows: list[dict[str, Any]] = []
+        seen_folder_ids: set[str] = set()
+        seen_flat_drive_ids: set[str] = set()
+
+        for entry in top_entries:
+            if entry["kind"] == "folder":
+                f_id = entry["id"]
+                seen_folder_ids.add(f_id)
+                sub_row = _inspect_drive_vod_subfolder(
+                    f_id,
+                    entry["name"],
+                    existing_rows.get(f_id),
+                    force=force,
+                )
+                if sub_row:
+                    prepared_rows.append(sub_row)
+            elif entry["kind"] == "file":
+                plain_title = entry["name"]
+                if not plain_title.lower().endswith((".mp4", ".mkv", ".webm", ".mov")):
+                    continue
+                seen_flat_drive_ids.add(entry["id"])
+                parsed = parse_drive_filename(plain_title, entry["id"][:12])
+                prepared_rows.append(
+                    {
+                        "id": parsed["id"],
+                        "drive_id": entry["id"],
+                        "title": parsed["title"],
+                        "size_label": _format_size_bytes(entry.get("size") or 0),
+                        "note": parsed["note"],
+                        "sort_key": parsed["sort_key"],
+                        "folder_drive_id": "",
+                        "chat_drive_id": "",
+                        "thumb_drive_id": "",
+                        "meta_drive_id": "",
+                        "game": "",
+                        "duration_s": 0,
+                        "started_at": "",
+                    }
+                )
+
+        if not top_entries and not GDRIVE_API_KEY:
             return
+
         with _db_lock, db_connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                for drive_id, raw_title in matches:
-                    plain_title = re.sub(r"<[^>]+>", "", raw_title).strip()
-                    if not plain_title.lower().endswith((".mp4", ".mkv", ".webm", ".mov")):
-                        continue
-                    parsed = parse_drive_filename(plain_title, drive_id[:12])
-                    conn.execute(
-                        """
-                        INSERT INTO drive_vods (id, drive_id, title, size_label, note, sort_key)
-                        VALUES (?, ?, ?, '', ?, ?)
-                        ON CONFLICT(drive_id) DO UPDATE SET
-                            title = excluded.title,
-                            note = CASE WHEN drive_vods.note != '' THEN drive_vods.note ELSE excluded.note END,
-                            sort_key = excluded.sort_key
-                        """,
-                        (parsed["id"], drive_id, parsed["title"], parsed["note"], parsed["sort_key"]),
-                    )
+                for row_data in prepared_rows:
+                    _upsert_drive_vod(conn, row_data)
+                if top_entries:
+                    # Удаляем записи подпапок, которые были удалены из Google Drive
+                    for old_folder_id, old_row in existing_rows.items():
+                        if old_folder_id not in seen_folder_ids:
+                            conn.execute("DELETE FROM drive_vods WHERE id = ?", (old_row["id"],))
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
     except Exception:
         pass
+    finally:
+        _drive_sync_worker_lock.release()
 
 
-def maybe_sync_drive_vods() -> None:
+def maybe_sync_drive_vods(force: bool = False) -> None:
     global _drive_sync_ts
     if not GDRIVE_FOLDER_ID:
         return
     now = time.time()
+    min_interval = 15.0 if force else 90.0
     with _drive_sync_lock:
-        if now - _drive_sync_ts < 600:
+        if now - _drive_sync_ts < min_interval:
             return
         _drive_sync_ts = now
-    threading.Thread(target=_sync_drive_vods_worker, args=(GDRIVE_FOLDER_ID,), daemon=True).start()
+    if force:
+        _sync_drive_vods_worker(GDRIVE_FOLDER_ID, force=True)
+    else:
+        threading.Thread(target=_sync_drive_vods_worker, args=(GDRIVE_FOLDER_ID, False), daemon=True).start()
 
 
-def list_vods() -> list[dict[str, Any]]:
+def list_vods(force_sync: bool = False) -> list[dict[str, Any]]:
+    if force_sync:
+        maybe_sync_drive_vods(force=True)
+
     vods_by_id: dict[str, dict[str, Any]] = {}
 
     if RECORD_DIR.exists():
@@ -2048,12 +2478,13 @@ def list_vods() -> list[dict[str, Any]]:
                 continue
             video_file = text(meta.get("video_file"), 120) or "video.mp4"
             thumb_file = text(meta.get("thumb_file"), 120) or "thumb.jpg"
+            q_id = quote(folder.name, safe="")
             meta["id"] = folder.name
             meta["source"] = "local"
             meta["has_chat"] = (folder / "chat.jsonl").is_file()
             meta["has_video"] = (folder / video_file).is_file() or (folder / "video.mp4").is_file()
             meta["has_thumb"] = (folder / thumb_file).is_file() or (folder / "thumb.jpg").is_file()
-            meta["thumb_url"] = f"/api/vods/{folder.name}/thumb"
+            meta["thumb_url"] = f"/api/vods/{q_id}/thumb"
             meta["thumb_fallbacks"] = []
             meta["sort_key"] = folder.name
             vods_by_id[folder.name] = meta
@@ -2064,29 +2495,47 @@ def list_vods() -> list[dict[str, Any]]:
             vid = r["id"]
             if vid in vods_by_id:
                 continue
+            q_vid = quote(vid, safe="")
             drive_id = r["drive_id"]
+            thumb_drive_id = r["thumb_drive_id"] or ""
+            chat_drive_id = r["chat_drive_id"] or ""
+            folder_drive_id = r["folder_drive_id"] or ""
+
+            fallbacks: list[str] = []
+            if thumb_drive_id:
+                fallbacks.append(f"https://drive.google.com/thumbnail?id={thumb_drive_id}&sz=w960")
+                fallbacks.append(f"https://lh3.googleusercontent.com/d/{thumb_drive_id}=w960")
+            fallbacks.append(f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960")
+            fallbacks.append(f"https://lh3.googleusercontent.com/d/{drive_id}=w960")
+
             vods_by_id[vid] = {
                 "id": vid,
                 "source": "gdrive",
                 "drive_id": drive_id,
+                "folder_drive_id": folder_drive_id,
                 "title": r["title"],
+                "game": r["game"] or "",
+                "duration_s": int(r["duration_s"] or 0),
+                "started_at": r["started_at"] or "",
                 "size_label": r["size_label"] or "",
                 "note": r["note"] or "",
-                "stream_url": f"/api/vods/{vid}/stream",
+                "stream_url": f"/api/vods/{q_vid}/stream",
                 "download_url": f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t",
                 "embed_url": f"https://drive.google.com/file/d/{drive_id}/preview",
-                "view_url": f"https://drive.google.com/file/d/{drive_id}/view",
-                "thumb_url": f"/api/vods/{vid}/thumb",
-                "thumb_fallbacks": [
-                    f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960",
-                    f"https://lh3.googleusercontent.com/d/{drive_id}=w960",
-                ],
-                "has_chat": False,
+                "view_url": (
+                    f"https://drive.google.com/drive/folders/{folder_drive_id}"
+                    if folder_drive_id
+                    else f"https://drive.google.com/file/d/{drive_id}/view"
+                ),
+                "thumb_url": f"/api/vods/{q_vid}/thumb",
+                "thumb_fallbacks": fallbacks,
+                "has_chat": bool(chat_drive_id),
                 "has_video": True,
                 "sort_key": r["sort_key"],
             }
 
-    maybe_sync_drive_vods()
+    if not force_sync:
+        maybe_sync_drive_vods(force=False)
     return sorted(vods_by_id.values(), key=lambda x: str(x.get("sort_key") or x.get("id") or ""), reverse=True)
 
 
@@ -2097,19 +2546,57 @@ def find_vod(vod_id: str) -> Path | None:
     return folder if folder.is_dir() else None
 
 
+def _get_drive_vod_row(vod_id: str) -> dict[str, Any] | None:
+    if not safe_name(vod_id):
+        return None
+    with _db_lock, db_connect() as conn:
+        row = conn.execute("SELECT * FROM drive_vods WHERE id = ?", (vod_id,)).fetchone()
+        return dict(row) if row else None
+
+
 @app.get("/api/vods")
-def api_vods() -> JSONResponse:
+def api_vods(request: Request, refresh: str = "") -> JSONResponse:
+    force = refresh in {"1", "true", "yes"}
+    if force:
+        rate_limit(request, "vods_refresh", 6, 60)
     folder_url = f"https://drive.google.com/drive/folders/{GDRIVE_FOLDER_ID}" if GDRIVE_FOLDER_ID else ""
-    return j({"vods": list_vods(), "folder_url": folder_url})
+    return j({"vods": list_vods(force_sync=force), "folder_url": folder_url})
 
 
 @app.get("/api/vods/{vod_id}/chat")
 def vod_chat(vod_id: str):
+    if not safe_name(vod_id):
+        return j({"error": "not found"}, 404)
     folder = find_vod(vod_id)
     chat = folder / "chat.jsonl" if folder else None
-    if not chat or not chat.is_file():
+    if chat and chat.is_file():
+        return FileResponse(chat, media_type=MIME[".jsonl"])
+
+    row = _get_drive_vod_row(vod_id)
+    chat_drive_id = str(row.get("chat_drive_id") or "").strip() if row else ""
+    if not chat_drive_id:
         return j({"error": "no chat"}, 404)
-    return FileResponse(chat, media_type=MIME[".jsonl"])
+
+    cached_chat = CHAT_CACHE_DIR / f"{_vod_cache_stem(vod_id)}.jsonl"
+    if cached_chat.is_file() and cached_chat.stat().st_size > 0:
+        return FileResponse(cached_chat, media_type=MIME[".jsonl"], headers={"Cache-Control": "public, max-age=86400"})
+
+    raw_chat = _download_gdrive_small_bytes(chat_drive_id, max_bytes=20 * 1024 * 1024)
+    if not raw_chat:
+        return j({"error": "chat_unavailable"}, 502)
+
+    CHAT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_chat = cached_chat.with_name(f".{cached_chat.stem}.{secrets.token_hex(4)}.jsonl")
+    try:
+        tmp_chat.write_bytes(raw_chat)
+        tmp_chat.replace(cached_chat)
+    except OSError:
+        return Response(content=raw_chat, media_type=MIME[".jsonl"])
+    finally:
+        if tmp_chat.exists():
+            tmp_chat.unlink(missing_ok=True)
+
+    return FileResponse(cached_chat, media_type=MIME[".jsonl"], headers={"Cache-Control": "public, max-age=86400"})
 
 
 def video_file_for(folder: Path, filename: str) -> Path | None:
@@ -2305,39 +2792,53 @@ def vod_thumb(vod_id: str) -> Response:
                 return FileResponse(thumb_path, media_type="image/jpeg", headers=cache_headers)
         return j({"error": "no thumb"}, 404)
 
-    drive_id = _resolve_drive_id(vod_id)
+    row = _get_drive_vod_row(vod_id)
+    drive_id = str(row.get("drive_id") or "").strip() if row else ""
+    thumb_drive_id = str(row.get("thumb_drive_id") or "").strip() if row else ""
     if not drive_id:
         return j({"error": "not found"}, 404)
 
-    cached_path = THUMB_CACHE_DIR / f"{vod_id}.jpg"
-    if cached_path.is_file() and cached_path.stat().st_size > 1024:
+    cached_path = THUMB_CACHE_DIR / f"{_vod_cache_stem(vod_id)}.jpg"
+    if cached_path.is_file() and cached_path.stat().st_size > 512:
         return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
 
     if time.time() < _gdrive_unreachable_until:
         return j({"error": "thumb_unavailable"}, 404)
 
     with _get_thumb_lock(vod_id):
-        if cached_path.is_file() and cached_path.stat().st_size > 1024:
+        if cached_path.is_file() and cached_path.stat().st_size > 512:
             return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
         if time.time() < _gdrive_unreachable_until:
             return j({"error": "thumb_unavailable"}, 404)
 
         with _thumb_sem:
+            # 1) Если в подпапке записи на Google Drive лежит готовый thumb.jpg — забираем его напрямую
+            if thumb_drive_id:
+                raw_thumb = _download_gdrive_small_bytes(thumb_drive_id, max_bytes=4 * 1024 * 1024)
+                if raw_thumb and len(raw_thumb) > 512:
+                    if _atomic_write_bytes(cached_path, raw_thumb):
+                        return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
+
+            # 2) Локальный ffmpeg по прямому потоку видео
             if shutil.which("ffmpeg"):
                 direct_url = _resolve_gdrive_direct_url(drive_id)
                 if direct_url and _extract_ffmpeg_frame(direct_url, cached_path, [180, 30, 3]):
                     return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
 
+            # 3) Превью от Google Drive (для thumb.jpg или для video.mp4)
             if time.time() >= _gdrive_unreachable_until:
                 ua = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"}
-                for candidate_url in (
-                    f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960",
-                    f"https://lh3.googleusercontent.com/d/{drive_id}=w960",
-                ):
+                candidate_urls: list[str] = []
+                if thumb_drive_id:
+                    candidate_urls.append(f"https://drive.google.com/thumbnail?id={thumb_drive_id}&sz=w960")
+                    candidate_urls.append(f"https://lh3.googleusercontent.com/d/{thumb_drive_id}=w960")
+                candidate_urls.append(f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960")
+                candidate_urls.append(f"https://lh3.googleusercontent.com/d/{drive_id}=w960")
+                for candidate_url in candidate_urls:
                     try:
                         r = requests.get(candidate_url, headers=ua, timeout=(3, 10))
                         ctype = (r.headers.get("content-type") or "").lower()
-                        if r.status_code == 200 and ctype.startswith("image/") and len(r.content) > 1024:
+                        if r.status_code == 200 and ctype.startswith("image/") and len(r.content) > 512:
                             if _atomic_write_bytes(cached_path, r.content):
                                 return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
                     except requests.RequestException:
@@ -2360,7 +2861,7 @@ async def cache_client_vod_thumb(vod_id: str, request: Request) -> JSONResponse:
     if folder:
         dest = folder / "thumb.jpg"
     elif _resolve_drive_id(vod_id):
-        dest = THUMB_CACHE_DIR / f"{vod_id}.jpg"
+        dest = THUMB_CACHE_DIR / f"{_vod_cache_stem(vod_id)}.jpg"
     else:
         return j({"error": "not found"}, 404)
 

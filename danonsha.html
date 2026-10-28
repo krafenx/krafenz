@@ -1894,6 +1894,15 @@
             chatShown = shownTotal;
             watchChatCount.textContent = `${shownTotal} / ${total} показано`;
 
+            if (shownTotal === 0) {
+                watchChatBody.innerHTML = `
+                    <div class="w-chat-empty">
+                        <div>Сообщений в записи: ${total}</div>
+                        <small>Чат начнёт появляться по ходу эфира</small>
+                    </div>`;
+                return;
+            }
+
             const startIdx = Math.max(0, shownTotal - 120);
             let html = '';
             for (let i = startIdx; i < shownTotal; i++) {

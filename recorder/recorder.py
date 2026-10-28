@@ -262,6 +262,18 @@ def rotate_old_recordings() -> None:
         shutil.rmtree(victim, ignore_errors=True)
 
 
+def _format_size(num_bytes: int) -> str:
+    if num_bytes <= 0:
+        return ""
+    gb = num_bytes / (1024 ** 3)
+    if gb >= 1.0:
+        return f"{gb:.2f} GB"
+    mb = num_bytes / (1024 ** 2)
+    if mb >= 1.0:
+        return f"{mb:.1f} MB"
+    return f"{max(1, round(num_bytes / 1024))} KB"
+
+
 def upload_to_cloud(folder: Path) -> bool:
     """rclone move папки записи в облако. True — успех, локальная копия снесена."""
     if not RCLONE_REMOTE:
@@ -270,10 +282,12 @@ def upload_to_cloud(folder: Path) -> bool:
         log(f"cloud: заливаю {folder.name} → {RCLONE_REMOTE} ...")
         res = subprocess.run(
             [RCLONE_BIN, "move", str(folder), f"{RCLONE_REMOTE}/{folder.name}",
-             "--transfers", "4", "--checkers", "8", "--stats-one-line", "-v"],
+             "--delete-empty-src-dirs", "--transfers", "4", "--checkers", "8", "--stats-one-line", "-v"],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=None,
         )
         if res.returncode == 0:
+            if folder.exists():
+                shutil.rmtree(folder, ignore_errors=True)
             log(f"cloud: {folder.name} в облаке, локальная копия удалена")
             return True
         log(f"cloud: ошибка rclone: {res.stderr.strip()[-300:]}")
@@ -325,22 +339,29 @@ def upload_to_telegram(folder: Path, meta: dict) -> bool:
             await client.send_message(chat, caption)
 
             parts: list[Path] = [video]
+            split_parts: list[Path] = []
             if video.exists() and video.stat().st_size > TG_SIZE_LIMIT:
                 if shutil.which("ffmpeg"):
                     log(f"telegram: видео {video.stat().st_size / 2**30:.1f} ГБ — разбиваю на части")
-                    parts = split_video(video, TG_SIZE_LIMIT)
+                    split_parts = split_video(video, TG_SIZE_LIMIT)
+                    parts = split_parts
                 else:
                     log("telegram: видео больше лимита, а ffmpeg не найден — пропускаю видео")
 
-            total = len(parts)
-            for i, part in enumerate(parts, 1):
-                cap = f"часть {i}/{total}" if total > 1 else None
-                await client.send_file(
-                    chat, str(part),
-                    caption=cap, supports_streaming=(total == 1),
-                    force_document=(total > 1),
-                )
-                log(f"telegram: отправлено {part.name} ({part.stat().st_size / 2**20:.0f} МБ)")
+            try:
+                total = len(parts)
+                for i, part in enumerate(parts, 1):
+                    cap = f"часть {i}/{total}" if total > 1 else None
+                    await client.send_file(
+                        chat, str(part),
+                        caption=cap, supports_streaming=(total == 1),
+                        force_document=(total > 1),
+                    )
+                    log(f"telegram: отправлено {part.name} ({part.stat().st_size / 2**20:.0f} МБ)")
+            finally:
+                # Удаляем временные .partNNN.mp4, чтобы rclone не выгружал их дублями в Google Drive
+                for sp in split_parts:
+                    sp.unlink(missing_ok=True)
 
             # чат и meta — маленькие документы
             for extra in ("chat.jsonl", "meta.json"):
@@ -448,6 +469,10 @@ def record_session(stream: dict) -> None:
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
         started = datetime.fromisoformat(meta["record_started_at"].replace("Z", "+00:00"))
         meta["duration_s"] = round((datetime.now(timezone.utc) - started).total_seconds())
+        if video.is_file():
+            v_bytes = video.stat().st_size
+            meta["size_bytes"] = v_bytes
+            meta["size_label"] = _format_size(v_bytes)
         if extract_vod_thumbnail(video, folder / "thumb.jpg", meta["duration_s"]):
             meta["thumb_file"] = "thumb.jpg"
         (folder / "meta.json").write_text(
