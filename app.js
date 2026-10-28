@@ -59,6 +59,82 @@
         nodes.forEach((el) => revealObserver.observe(el));
     }
 
+    /* ---------- лёгкая предгенерация зерна (без live SVG feTurbulence) ---------- */
+    let cachedGrainDataUrl = '';
+    function initGrain() {
+        const grainEl = document.querySelector('.grain');
+        if (!grainEl) return;
+        if (!cachedGrainDataUrl) {
+            try {
+                const c = document.createElement('canvas');
+                c.width = 128;
+                c.height = 128;
+                const gctx = c.getContext('2d');
+                const img = gctx.createImageData(128, 128);
+                const d = img.data;
+                let seed = 0x5f3759df;
+                for (let i = 0; i < d.length; i += 4) {
+                    seed = (seed * 1664525 + 1013904223) >>> 0;
+                    const v = (seed >>> 24) & 255;
+                    d[i] = v;
+                    d[i + 1] = v;
+                    d[i + 2] = v;
+                    d[i + 3] = 255;
+                }
+                gctx.putImageData(img, 0, 0);
+                cachedGrainDataUrl = `url("${c.toDataURL('image/png')}")`;
+            } catch {}
+        }
+        if (cachedGrainDataUrl) {
+            grainEl.style.backgroundImage = cachedGrainDataUrl;
+        }
+    }
+
+    /* ---------- мгновенный prefetch внутренних страниц при наведении ---------- */
+    const prefetchedUrls = new Set();
+    function initNavPrefetch() {
+        const prefetchHref = (rawHref) => {
+            if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('javascript:')) return;
+            let url;
+            try {
+                url = new URL(rawHref, location.origin);
+            } catch {
+                return;
+            }
+            if (url.origin !== location.origin || url.pathname === location.pathname) return;
+            if (url.pathname.startsWith('/api/')) return;
+            const key = url.pathname + url.search;
+            if (prefetchedUrls.has(key)) return;
+            prefetchedUrls.add(key);
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.as = 'document';
+            link.href = key;
+            document.head.appendChild(link);
+        };
+
+        document.addEventListener('pointerover', (e) => {
+            const a = e.target.closest && e.target.closest('a[href]');
+            if (a && !a.target) prefetchHref(a.getAttribute('href'));
+        }, { passive: true });
+        document.addEventListener('touchstart', (e) => {
+            const a = e.target.closest && e.target.closest('a[href]');
+            if (a && !a.target) prefetchHref(a.getAttribute('href'));
+        }, { passive: true });
+    }
+
+    /* ---------- плавная смена фильтров / списков ---------- */
+    function smoothSwap(fn) {
+        const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!reduced && typeof document.startViewTransition === 'function' && !document.hidden) {
+            try {
+                document.startViewTransition(() => { fn(); });
+                return;
+            } catch {}
+        }
+        fn();
+    }
+
     /* ---------- атмосфера: дождь + молнии + туман ---------- */
     function setAtmo(on, save) {
         document.body.classList.toggle('calm', !on);
@@ -72,51 +148,90 @@
     function initRain() {
         const cv = document.getElementById('rain');
         if (!cv) return;
-        const ctx = cv.getContext('2d');
-        let W = 0, H = 0, drops = [];
+        const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduced) return;
+        const ctx = cv.getContext('2d', { alpha: true, desynchronized: true }) || cv.getContext('2d');
+        if (!ctx) return;
+
+        let W = 0, H = 0;
+        const BUCKET_ALPHAS = [0.08, 0.14, 0.22];
+        let buckets = [[], [], []];
+        let rainRaf = null, lastTs = 0, resizeTimer = null;
 
         function spawn(any) {
             return {
                 x: Math.random() * W,
-                y: any ? Math.random() * H : -20,
+                y: any ? Math.random() * H : -20 - Math.random() * 40,
                 l: 10 + Math.random() * 18,
-                v: 9 + Math.random() * 9,
-                o: 0.06 + Math.random() * 0.2,
+                v: 8.5 + Math.random() * 8.5,
             };
         }
 
-        function resize() {
+        function rebuildDrops() {
             W = cv.width = window.innerWidth;
             H = cv.height = window.innerHeight;
-            drops = Array.from({ length: Math.floor(W / 6) }, () => spawn(true));
+            const total = Math.min(260, Math.max(48, Math.floor(W / 7)));
+            buckets = [[], [], []];
+            for (let i = 0; i < total; i++) {
+                buckets[i % 3].push(spawn(true));
+            }
         }
 
-        window.addEventListener('resize', resize, { passive: true });
-        resize();
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(rebuildDrops, 100);
+        }, { passive: true });
+        rebuildDrops();
 
-        (function loop() {
+        function loop(now) {
+            if (document.hidden) {
+                rainRaf = null;
+                return;
+            }
+            const dtScale = lastTs ? Math.min(2.4, Math.max(0.2, (now - lastTs) / 16.6667)) : 1;
+            lastTs = now;
+
             ctx.clearRect(0, 0, W, H);
             ctx.strokeStyle = '#9aa4b8';
             ctx.lineWidth = 1;
-            for (const d of drops) {
-                ctx.globalAlpha = d.o;
+
+            const dx = 0.6 * dtScale;
+            for (let b = 0; b < 3; b++) {
+                const list = buckets[b];
+                if (!list.length) continue;
+                ctx.globalAlpha = BUCKET_ALPHAS[b];
                 ctx.beginPath();
-                ctx.moveTo(d.x, d.y);
-                ctx.lineTo(d.x - 1.5, d.y + d.l);
+                for (let i = 0; i < list.length; i++) {
+                    const d = list[i];
+                    ctx.moveTo(d.x, d.y);
+                    ctx.lineTo(d.x - 1.5, d.y + d.l);
+                    d.y += d.v * dtScale;
+                    d.x -= dx;
+                    if (d.y > H) {
+                        d.x = Math.random() * W;
+                        d.y = -20 - Math.random() * 30;
+                    }
+                }
                 ctx.stroke();
-                d.y += d.v;
-                d.x -= 0.6;
-                if (d.y > H) Object.assign(d, spawn(false));
             }
-            requestAnimationFrame(loop);
-        })();
+            rainRaf = requestAnimationFrame(loop);
+        }
+
+        function startRain() {
+            if (!rainRaf && !document.hidden) {
+                lastTs = 0;
+                rainRaf = requestAnimationFrame(loop);
+            }
+        }
+        document.addEventListener('visibilitychange', startRain);
+        startRain();
 
         const flash = document.getElementById('flash');
         function schedule() {
             setTimeout(lightning, 6000 + Math.random() * 14000);
         }
         function lightning() {
-            if (!flash || document.body.classList.contains('calm')) return schedule();
+            if (!flash || document.hidden || document.body.classList.contains('calm')) return schedule();
             const bursts = 1 + Math.floor(Math.random() * 3);
             let n = 0;
             (function flick() {
@@ -190,8 +305,8 @@
         }, { passive: true });
     }
 
-    /* ---------- плавный инерционный скролл + параллакс ---------- */
-    const lerp = (a, b, t) => a + (b - a) * t;
+    /* ---------- плавный инерционный скролл (dt-независимый 60–360 Гц, без reflow) ---------- */
+    const damp = (a, b, lambda, dt) => b + (a - b) * Math.exp(-lambda * dt);
     const smooth = { target: 0, current: 0, glow: 0, glowT: 0, hero: 0, heroT: 0, rail: 0, railT: 0 };
 
     function anyOverlayOpen() {
@@ -202,11 +317,34 @@
         const isTouch = matchMedia('(pointer: coarse)').matches;
         const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
         const heroInner = document.querySelector('.hero-inner');
-        const ghosts = document.querySelectorAll('.ghost');
+        const ghostNodes = Array.from(document.querySelectorAll('.ghost'));
         const railLinks = document.querySelectorAll('.rail a');
         const railProgress = document.getElementById('rail-progress');
         const glow = document.getElementById('glow');
-        const railH = () => window.innerHeight * 0.64;
+
+        let vh = window.innerHeight || 1;
+        let maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+        let ghostOffsets = [];
+
+        function measureLayout() {
+            vh = window.innerHeight || 1;
+            maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+            const sy = window.scrollY;
+            ghostOffsets = ghostNodes.map((el) => {
+                const parent = el.parentElement;
+                return parent ? parent.getBoundingClientRect().top + sy : 0;
+            });
+            if (smooth.target > maxScroll) smooth.target = maxScroll;
+        }
+
+        if ('ResizeObserver' in window) {
+            const ro = new ResizeObserver(() => measureLayout());
+            ro.observe(document.documentElement);
+            const mainEl = document.querySelector('main');
+            if (mainEl) ro.observe(mainEl);
+        }
+        window.addEventListener('resize', measureLayout, { passive: true });
+        measureLayout();
 
         if (railLinks.length) {
             const secObserver = new IntersectionObserver((entries) => {
@@ -219,79 +357,96 @@
         }
 
         if (reduced || isTouch) {
+            let touchRaf = null;
             const upd = () => {
+                touchRaf = null;
                 const y = window.scrollY;
-                const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-                if (railProgress) railProgress.style.transform = `translateY(${railH() * (max > 0 ? y / max : 0)}px)`;
+                const rH = vh * 0.64;
+                if (railProgress) railProgress.style.transform = `translate3d(0, ${rH * (maxScroll > 0 ? y / maxScroll : 0)}px, 0)`;
             };
-            window.addEventListener('scroll', upd, { passive: true });
+            window.addEventListener('scroll', () => {
+                if (!touchRaf) touchRaf = requestAnimationFrame(upd);
+            }, { passive: true });
             upd();
             return;
         }
 
         let raf = null;
-        function animate() {
-            const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-            if (smooth.target > max) smooth.target = max;
+        let lastFrameTs = 0;
+        let lastProgrammaticY = Math.round(window.scrollY);
+        let programmaticUntil = 0;
 
-            smooth.current = lerp(smooth.current, smooth.target, 0.11);
-            if (Math.abs(smooth.target - smooth.current) < 0.4) smooth.current = smooth.target;
+        function animate(now) {
+            const dt = lastFrameTs ? Math.min(0.05, Math.max(0.001, (now - lastFrameTs) / 1000)) : (1 / 60);
+            lastFrameTs = now;
+
+            if (smooth.target > maxScroll) smooth.target = maxScroll;
+
+            smooth.current = damp(smooth.current, smooth.target, 9.6, dt);
+            if (Math.abs(smooth.target - smooth.current) < 0.15) smooth.current = smooth.target;
+
+            lastProgrammaticY = Math.round(smooth.current);
+            programmaticUntil = now + 90;
             window.scrollTo(0, smooth.current);
 
-            smooth.hero = lerp(smooth.hero, smooth.heroT, 0.08);
-            smooth.glow = lerp(smooth.glow, smooth.glowT, 0.05);
-            smooth.rail = lerp(smooth.rail, smooth.railT, 0.12);
+            smooth.hero = damp(smooth.hero, smooth.heroT, 8.2, dt);
+            smooth.glow = damp(smooth.glow, smooth.glowT, 4.6, dt);
+            smooth.rail = damp(smooth.rail, smooth.railT, 11.0, dt);
 
             const y = smooth.current;
             if (heroInner) {
-                heroInner.style.transform = `translateY(${y * 0.3}px)`;
-                heroInner.style.opacity = String(Math.max(0, 1 - y / 640));
+                heroInner.style.transform = `translate3d(0, ${y * 0.28}px, 0)`;
+                heroInner.style.opacity = String(Math.max(0, 1 - y / 660));
             }
-            const p = max > 0 ? y / max : 0;
-            if (glow) glow.style.transform = `translateY(${(p - 0.5) * 55}vh)`;
-            if (railProgress) railProgress.style.transform = `translateY(${smooth.rail * Math.max(0, railH() - 40)}px)`;
-            ghosts.forEach((g) => {
-                const r = g.parentElement.getBoundingClientRect();
-                g.style.transform = `translateY(${r.top * -0.1}px)`;
-            });
+            const p = maxScroll > 0 ? smooth.glow / maxScroll : 0;
+            if (glow) glow.style.transform = `translate3d(0, ${(p - 0.5) * 52}vh, 0)`;
+            if (railProgress) {
+                const rSpan = Math.max(0, vh * 0.64 - 40);
+                railProgress.style.transform = `translate3d(0, ${smooth.rail * rSpan}px, 0)`;
+            }
+            for (let i = 0; i < ghostNodes.length; i++) {
+                const relTop = ghostOffsets[i] - y;
+                if (relTop > -vh * 1.5 && relTop < vh * 1.8) {
+                    ghostNodes[i].style.transform = `translate3d(0, ${relTop * -0.1}px, 0)`;
+                }
+            }
 
-            if (smooth.current !== smooth.target || Math.abs(smooth.glow - smooth.glowT) > 0.001) {
+            if (Math.abs(smooth.target - smooth.current) > 0.15 || Math.abs(smooth.glow - smooth.glowT) > 0.4) {
                 raf = requestAnimationFrame(animate);
             } else {
                 raf = null;
+                lastFrameTs = 0;
             }
         }
 
         function kick() {
-            const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-            if (smooth.target > max) smooth.target = max;
+            if (smooth.target > maxScroll) smooth.target = maxScroll;
             smooth.heroT = smooth.target;
             smooth.glowT = smooth.target;
-            smooth.railT = max > 0 ? smooth.target / max : 0;
-            if (!raf) raf = requestAnimationFrame(animate);
+            smooth.railT = maxScroll > 0 ? smooth.target / maxScroll : 0;
+            if (!raf) {
+                lastFrameTs = 0;
+                raf = requestAnimationFrame(animate);
+            }
         }
 
-        let wheelAcc = 0, wheelRaf = null;
         window.addEventListener('wheel', (e) => {
             if (e.ctrlKey || anyOverlayOpen()) return;
             const sc = e.target.closest && e.target.closest('.chat-body, .modal-box, [data-scroll]');
             if (sc && sc.scrollHeight > sc.clientHeight) return;
             e.preventDefault();
-            const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-            wheelAcc += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
-            if (!wheelRaf) {
-                wheelRaf = requestAnimationFrame(() => {
-                    smooth.target = Math.max(0, Math.min(max, smooth.target + wheelAcc));
-                    wheelAcc = 0;
-                    wheelRaf = null;
-                    kick();
-                });
-            }
+            const mult = e.deltaMode === 1 ? 28 : (e.deltaMode === 2 ? vh * 0.85 : 1);
+            const delta = e.deltaY * mult;
+            smooth.target = Math.max(0, Math.min(maxScroll, smooth.target + delta));
+            kick();
         }, { passive: false });
 
         window.addEventListener('scroll', () => {
-            if (Math.abs(window.scrollY - smooth.current) > 2) {
-                smooth.target = window.scrollY;
+            const sy = window.scrollY;
+            if (performance.now() < programmaticUntil && Math.abs(sy - lastProgrammaticY) <= 6) return;
+            if (Math.abs(sy - smooth.current) > 4) {
+                smooth.current = sy;
+                smooth.target = sy;
                 kick();
             }
         }, { passive: true });
@@ -300,17 +455,16 @@
             if (anyOverlayOpen()) return;
             const tag = (e.target && e.target.tagName) || '';
             if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.target?.isContentEditable) return;
-            const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
             const step = {
-                PageDown: window.innerHeight * 0.9,
-                PageUp: -window.innerHeight * 0.9,
-                ArrowDown: 90,
-                ArrowUp: -90,
+                PageDown: vh * 0.88,
+                PageUp: -vh * 0.88,
+                ArrowDown: 100,
+                ArrowUp: -100,
                 Home: -1e9,
                 End: 1e9,
             }[e.key];
             if (step !== undefined) {
-                smooth.target = Math.max(0, Math.min(max, smooth.target + step));
+                smooth.target = Math.max(0, Math.min(maxScroll, smooth.target + step));
                 e.preventDefault();
                 kick();
             }
@@ -319,7 +473,7 @@
         document.querySelectorAll('a[href^="#"]').forEach((a) => {
             a.addEventListener('click', (e) => {
                 const href = a.getAttribute('href');
-                if (!href || href === '#') {
+                if (!href || href === '#' || href === '#top') {
                     e.preventDefault();
                     smooth.target = 0;
                     kick();
@@ -328,8 +482,8 @@
                 const targetEl = document.querySelector(href);
                 if (!targetEl) return;
                 e.preventDefault();
-                const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-                smooth.target = Math.max(0, Math.min(max, targetEl.getBoundingClientRect().top + window.scrollY - 36));
+                measureLayout();
+                smooth.target = Math.max(0, Math.min(maxScroll, targetEl.getBoundingClientRect().top + window.scrollY - 36));
                 kick();
             });
         });
@@ -494,17 +648,20 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        initGrain();
         observeReveals();
         initRain();
         initDock();
         initMobileNav();
         initSmooth();
+        initNavPrefetch();
     });
 
     window.KrafenUI = {
         escapeHTML,
         toast,
         observeReveals,
+        smoothSwap,
         openModal,
         closeModal,
         bindModalDismiss,

@@ -630,7 +630,7 @@
                     }
 
                     if (track.image) {
-                        artContainer.innerHTML = `<img src="${escapeHTML(track.image)}" alt="Обложка">`;
+                        artContainer.innerHTML = `<img src="${escapeHTML(track.image)}" alt="Обложка" decoding="async">`;
                         blurBg.style.backgroundImage = `url(${JSON.stringify(track.image)})`;
                     } else {
                         artContainer.textContent = '♪';

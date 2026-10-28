@@ -27,7 +27,39 @@
             --font-serif: "Cormorant Infant", Georgia, serif;
             --font-sans: "Manrope", Arial, sans-serif;
             --font-mono: "JetBrains Mono", monospace;
-            --ease: cubic-bezier(.22, .8, .24, 1);
+            --ease: cubic-bezier(.16, 1, .3, 1);
+            --ease-soft: cubic-bezier(.22, .8, .24, 1);
+        }
+
+        @view-transition {
+            navigation: auto;
+        }
+        ::view-transition,
+        ::view-transition-group(*),
+        ::view-transition-image-pair(*),
+        ::view-transition-old(*),
+        ::view-transition-new(*) {
+            pointer-events: none;
+        }
+        ::view-transition-old(root) {
+            animation: dn-vt-out .22s cubic-bezier(.4, 0, .2, 1) both;
+        }
+        ::view-transition-new(root) {
+            animation: dn-vt-in .32s cubic-bezier(.16, 1, .3, 1) both;
+        }
+        @keyframes dn-vt-out {
+            from { opacity: 1; transform: translate3d(0, 0, 0); }
+            to   { opacity: 0; transform: translate3d(0, -8px, 0); }
+        }
+        @keyframes dn-vt-in {
+            from { opacity: 0; transform: translate3d(0, 10px, 0); }
+            to   { opacity: 1; transform: translate3d(0, 0, 0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation-duration: .01ms !important;
+            }
         }
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -64,28 +96,35 @@
         }
 
         /* ---------- атмосфера ---------- */
-        #rain { position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .45; transition: opacity 1.2s ease; }
+        #rain {
+            position: fixed; inset: 0; z-index: 40; pointer-events: none;
+            opacity: .45; transition: opacity 1.2s ease;
+            transform: translateZ(0);
+        }
         body.calm #rain { opacity: .1; }
         .fog {
-            position: fixed; inset: -20%; z-index: 30; pointer-events: none;
+            position: fixed; inset: -16%; z-index: 30; pointer-events: none;
             background:
-                radial-gradient(42% 30% at 18% 82%, rgba(160,160,160,.05), transparent 70%),
-                radial-gradient(50% 35% at 82% 76%, rgba(160,160,160,.04), transparent 70%);
-            animation: fogdrift 30s ease-in-out infinite alternate;
-            filter: blur(2px);
+                radial-gradient(44% 32% at 18% 82%, rgba(160,160,160,.052), transparent 72%),
+                radial-gradient(52% 36% at 82% 76%, rgba(160,160,160,.042), transparent 72%);
+            animation: fogdrift 32s ease-in-out infinite alternate;
+            will-change: transform;
+            backface-visibility: hidden;
             transition: opacity 1.2s ease;
         }
-        .fog.f2 { animation-duration: 40s; animation-direction: alternate-reverse; opacity: .7; }
+        .fog.f2 { animation-duration: 42s; animation-direction: alternate-reverse; opacity: .7; }
         body.calm .fog { opacity: 0; }
         @keyframes fogdrift {
             from { transform: translate3d(-3%, 1%, 0) scale(1); }
-            to   { transform: translate3d(3%, -2%, 0) scale(1.06); }
+            to   { transform: translate3d(3%, -2%, 0) scale(1.05); }
         }
-        #flash { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: #cdd6ff; opacity: 0; }
-        .vignette { position: fixed; inset: 0; z-index: 45; pointer-events: none; background: radial-gradient(95% 90% at 50% 45%, transparent 58%, rgba(0,0,0,.72) 100%); }
+        #flash { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: #cdd6ff; opacity: 0; will-change: opacity; }
+        .vignette { position: fixed; inset: 0; z-index: 45; pointer-events: none; background: radial-gradient(95% 90% at 50% 45%, transparent 58%, rgba(0,0,0,.72) 100%); transform: translateZ(0); }
         .grain {
-            position: fixed; inset: 0; z-index: 46; pointer-events: none; opacity: .045; mix-blend-mode: overlay;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            position: fixed; inset: 0; z-index: 46; pointer-events: none; opacity: .038;
+            background-repeat: repeat;
+            background-size: 128px 128px;
+            transform: translateZ(0);
         }
         /* плавно движущийся багровый свет (координату плавит JS) */
         #glow {
@@ -94,6 +133,8 @@
                 radial-gradient(46% 34% at 20% 18%, rgba(124, 10, 10, .17), transparent 65%),
                 radial-gradient(120% 90% at 50% -10%, #101018 0%, var(--abyss) 45%, var(--void) 100%);
             will-change: transform;
+            transform: translate3d(0, 0, 0);
+            backface-visibility: hidden;
         }
 
         /* ---------- верхняя навигация ---------- */
@@ -214,8 +255,18 @@
         .section .sub { margin-top: 14px; font-size: 14px; color: var(--silver-dim); max-width: 520px; line-height: 1.75; }
 
         /* blur-in появление с задержкой */
-        .reveal { opacity: 0; filter: blur(10px); transform: translateY(28px); transition: opacity .9s var(--ease), transform .9s var(--ease), filter .9s var(--ease); transition-delay: var(--d, 0s); }
-        .reveal.visible { opacity: 1; filter: blur(0); transform: none; }
+        .reveal {
+            opacity: 0;
+            filter: blur(6px);
+            transform: translate3d(0, 22px, 0);
+            transition: opacity .78s var(--ease), transform .78s var(--ease), filter .72s var(--ease);
+            transition-delay: var(--d, 0s);
+        }
+        .reveal.visible {
+            opacity: 1;
+            filter: none;
+            transform: translate3d(0, 0, 0);
+        }
 
         /* ---------- hero ---------- */
         .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
@@ -322,17 +373,18 @@
 
         /* ---------- карточки ---------- */
         .glass {
-            position: relative; background: var(--glass); border: 1px solid var(--glass-border);
+            position: relative; background: rgba(12, 12, 16, .78); border: 1px solid var(--glass-border);
             border-radius: 18px;
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            transition: border-color .45s var(--ease), box-shadow .45s var(--ease), transform .45s var(--ease);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+            backface-visibility: hidden;
+            transition: border-color .42s var(--ease), box-shadow .42s var(--ease), transform .42s var(--ease);
         }
         .glass::before {
             content: ""; position: absolute; inset: 0; border-radius: inherit;
             background: linear-gradient(160deg, rgba(224,224,224,.06), transparent 45%);
-            opacity: 0; pointer-events: none; transition: opacity .45s var(--ease);
+            opacity: 0; pointer-events: none; transition: opacity .42s var(--ease);
         }
-        .glass:hover { border-color: rgba(160, 160, 160, .3); box-shadow: 0 30px 70px rgba(0,0,0,.75), 0 0 30px rgba(160,160,160,.05); transform: translateY(-3px); }
+        .glass:hover { border-color: rgba(160, 160, 160, .3); box-shadow: 0 30px 70px rgba(0,0,0,.75), 0 0 30px rgba(160,160,160,.05), inset 0 1px 0 rgba(255,255,255,.06); transform: translate3d(0, -3px, 0); }
         .glass:hover::before { opacity: 1; }
         .glass > * { position: relative; }
 
@@ -442,17 +494,27 @@
         body.overlay-open { overflow: hidden; }
         .scroll-modal {
             position: fixed; inset: 0; z-index: 95;
-            display: none; align-items: center; justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             padding: 28px 20px;
-            background: rgba(3,3,5,.86); backdrop-filter: blur(14px);
+            background: rgba(3,3,5,.86); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            opacity: 0; visibility: hidden; pointer-events: none;
+            transition: opacity .32s var(--ease), visibility 0s linear .32s;
         }
-        .scroll-modal.open { display: flex; }
+        .scroll-modal.open {
+            opacity: 1; visibility: visible; pointer-events: auto;
+            transition: opacity .32s var(--ease), visibility 0s linear 0s;
+        }
         .scroll-modal-box {
             width: min(1100px, 100%); max-height: 86vh;
             display: flex; flex-direction: column; overflow: hidden;
             background: #08080b; border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
             padding: 26px 28px 28px;
             box-shadow: 0 34px 90px rgba(0,0,0,.9);
+            transform: translate3d(0, 14px, 0) scale(.985);
+            transition: transform .36s var(--ease);
+        }
+        .scroll-modal.open .scroll-modal-box {
+            transform: translate3d(0, 0, 0) scale(1);
         }
         .scroll-modal-head {
             display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
@@ -489,18 +551,26 @@
         /* ---------- полноэкранный просмотр записи (Cinema VOD View) ---------- */
         .vod-watch {
             position: fixed; inset: 0; z-index: 120;
-            display: none; flex-direction: column;
+            display: flex; flex-direction: column;
             background:
                 radial-gradient(60% 45% at 38% 12%, rgba(28,28,36,.32), transparent 70%),
                 #060608;
             overflow-y: auto;
             padding: 24px 36px 36px;
+            opacity: 0; visibility: hidden; pointer-events: none;
+            transition: opacity .34s var(--ease), visibility 0s linear .34s;
         }
-        .vod-watch.open { display: flex; }
+        .vod-watch.open {
+            opacity: 1; visibility: visible; pointer-events: auto;
+            transition: opacity .34s var(--ease), visibility 0s linear 0s;
+        }
         .watch-topbar {
             width: min(1480px, 100%); margin: 0 auto 30px;
             display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+            transform: translate3d(0, -8px, 0);
+            transition: transform .38s var(--ease);
         }
+        .vod-watch.open .watch-topbar { transform: translate3d(0, 0, 0); }
         .watch-frame-btn {
             display: inline-flex; padding: 5px; border-radius: 5px;
             background: rgba(14,14,18,.72); border: 1px solid rgba(255,255,255,.06);
@@ -524,6 +594,11 @@
             width: min(1480px, 100%); margin: 0 auto;
             display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px;
             align-items: stretch;
+            transform: translate3d(0, 14px, 0) scale(.99);
+            transition: transform .4s var(--ease);
+        }
+        .vod-watch.open .watch-stage {
+            transform: translate3d(0, 0, 0) scale(1);
         }
         .watch-player-outer {
             padding: 6px; background: #07070a;
@@ -675,6 +750,7 @@
             padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.05);
             animation: chatin .28s var(--ease);
         }
+        .w-chat-item.no-anim { animation: none; }
         @keyframes chatin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
         .w-chat-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; }
         .w-chat-badge {
@@ -1272,51 +1348,140 @@
             if (save) localStorage.setItem('danonsha-atmo', on ? '1' : '0');
         }
 
+        let resumeRainLoop = () => {};
+
+        function initGrain() {
+            const grainEl = document.querySelector('.grain');
+            if (!grainEl) return;
+            try {
+                const c = document.createElement('canvas');
+                c.width = 128;
+                c.height = 128;
+                const gctx = c.getContext('2d');
+                const img = gctx.createImageData(128, 128);
+                const d = img.data;
+                let seed = 0x5f3759df;
+                for (let i = 0; i < d.length; i += 4) {
+                    seed = (seed * 1664525 + 1013904223) >>> 0;
+                    const v = (seed >>> 24) & 255;
+                    d[i] = v;
+                    d[i + 1] = v;
+                    d[i + 2] = v;
+                    d[i + 3] = 255;
+                }
+                gctx.putImageData(img, 0, 0);
+                grainEl.style.backgroundImage = `url("${c.toDataURL('image/png')}")`;
+            } catch {}
+        }
+
+        const prefetchedUrls = new Set();
+        function initNavPrefetch() {
+            const prefetchHref = (rawHref) => {
+                if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:')) return;
+                let url;
+                try { url = new URL(rawHref, location.origin); } catch { return; }
+                if (url.origin !== location.origin || url.pathname === location.pathname || url.pathname.startsWith('/api/')) return;
+                const key = url.pathname + url.search;
+                if (prefetchedUrls.has(key)) return;
+                prefetchedUrls.add(key);
+                const link = document.createElement('link');
+                link.rel = 'prefetch';
+                link.as = 'document';
+                link.href = key;
+                document.head.appendChild(link);
+            };
+            document.addEventListener('pointerover', (e) => {
+                const a = e.target.closest && e.target.closest('a[href]');
+                if (a && !a.target) prefetchHref(a.getAttribute('href'));
+            }, { passive: true });
+        }
+
         function initRain() {
             const cv = document.getElementById('rain');
             if (!cv) return;
-            const ctx = cv.getContext('2d');
-            let W, H, drops = [];
+            if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const ctx = cv.getContext('2d', { alpha: true, desynchronized: true }) || cv.getContext('2d');
+            if (!ctx) return;
+
+            let W = 0, H = 0;
+            const BUCKET_ALPHAS = [0.08, 0.14, 0.22];
+            let buckets = [[], [], []];
+            let rainRaf = null, lastTs = 0, resizeTimer = null;
 
             function spawn(any) {
                 return {
                     x: Math.random() * W,
-                    y: any ? Math.random() * H : -20,
+                    y: any ? Math.random() * H : -20 - Math.random() * 40,
                     l: 10 + Math.random() * 18,
-                    v: 9 + Math.random() * 9,
-                    o: 0.06 + Math.random() * 0.2
+                    v: 8.5 + Math.random() * 8.5
                 };
             }
 
-            function resize() {
+            function rebuildDrops() {
                 W = cv.width = innerWidth;
                 H = cv.height = innerHeight;
-                drops = Array.from({ length: Math.floor(W / 6) }, () => spawn(true));
+                const total = Math.min(260, Math.max(48, Math.floor(W / 7)));
+                buckets = [[], [], []];
+                for (let i = 0; i < total; i++) {
+                    buckets[i % 3].push(spawn(true));
+                }
             }
 
-            addEventListener('resize', resize);
-            resize();
+            addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(rebuildDrops, 100);
+            }, { passive: true });
+            rebuildDrops();
 
-            (function loop() {
+            function loop(now) {
+                const watchOpen = document.getElementById('vod-watch')?.classList.contains('open');
+                if (document.hidden || watchOpen) {
+                    rainRaf = null;
+                    return;
+                }
+                const dtScale = lastTs ? Math.min(2.4, Math.max(0.2, (now - lastTs) / 16.6667)) : 1;
+                lastTs = now;
+
                 ctx.clearRect(0, 0, W, H);
                 ctx.strokeStyle = '#9aa4b8';
                 ctx.lineWidth = 1;
-                for (const d of drops) {
-                    ctx.globalAlpha = d.o;
+
+                const dx = 0.6 * dtScale;
+                for (let b = 0; b < 3; b++) {
+                    const list = buckets[b];
+                    if (!list.length) continue;
+                    ctx.globalAlpha = BUCKET_ALPHAS[b];
                     ctx.beginPath();
-                    ctx.moveTo(d.x, d.y);
-                    ctx.lineTo(d.x - 1.5, d.y + d.l);
+                    for (let i = 0; i < list.length; i++) {
+                        const d = list[i];
+                        ctx.moveTo(d.x, d.y);
+                        ctx.lineTo(d.x - 1.5, d.y + d.l);
+                        d.y += d.v * dtScale;
+                        d.x -= dx;
+                        if (d.y > H) {
+                            d.x = Math.random() * W;
+                            d.y = -20 - Math.random() * 30;
+                        }
+                    }
                     ctx.stroke();
-                    d.y += d.v;
-                    d.x -= 0.6;
-                    if (d.y > H) Object.assign(d, spawn(false));
                 }
-                requestAnimationFrame(loop);
-            })();
+                rainRaf = requestAnimationFrame(loop);
+            }
+
+            resumeRainLoop = () => {
+                const watchOpen = document.getElementById('vod-watch')?.classList.contains('open');
+                if (!rainRaf && !document.hidden && !watchOpen) {
+                    lastTs = 0;
+                    rainRaf = requestAnimationFrame(loop);
+                }
+            };
+            document.addEventListener('visibilitychange', resumeRainLoop);
+            resumeRainLoop();
 
             const flash = document.getElementById('flash');
             function lightning() {
-                if (!flash || document.body.classList.contains('calm')) return schedule();
+                const watchOpen = document.getElementById('vod-watch')?.classList.contains('open');
+                if (!flash || document.hidden || watchOpen || document.body.classList.contains('calm')) return schedule();
                 const bursts = 1 + Math.floor(Math.random() * 3);
                 let n = 0;
                 (function flick() {
@@ -1344,8 +1509,8 @@
             });
         }
 
-        /* ---------- плавность: инерционный скролл + lerp-эффекты ---------- */
-        const lerp = (a, b, t) => a + (b - a) * t;
+        /* ---------- плавность: dt-независимый инерционный скролл 60–360 Гц (без reflow) ---------- */
+        const damp = (a, b, lambda, dt) => b + (a - b) * Math.exp(-lambda * dt);
         const smooth = {
             target: 0, current: 0,
             glow: 0, glowT: 0,
@@ -1357,12 +1522,34 @@
 
         function initSmooth() {
             const heroInner = document.querySelector('.hero-inner');
-            const ghosts = document.querySelectorAll('.ghost');
+            const ghostNodes = Array.from(document.querySelectorAll('.ghost'));
             const railLinks = document.querySelectorAll('.rail a');
             const railProgress = document.getElementById('rail-progress');
             const glow = document.getElementById('glow');
-            const railTop = () => innerHeight * 0.18;
-            const railH = () => innerHeight * 0.64;
+
+            let vh = innerHeight || 1;
+            let maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+            let ghostOffsets = [];
+
+            function measureLayout() {
+                vh = innerHeight || 1;
+                maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+                const sy = window.scrollY;
+                ghostOffsets = ghostNodes.map(el => {
+                    const parent = el.parentElement;
+                    return parent ? parent.getBoundingClientRect().top + sy : 0;
+                });
+                if (smooth.target > maxScroll) smooth.target = maxScroll;
+            }
+
+            if ('ResizeObserver' in window) {
+                const ro = new ResizeObserver(() => measureLayout());
+                ro.observe(document.documentElement);
+                const mainEl = document.querySelector('main');
+                if (mainEl) ro.observe(mainEl);
+            }
+            addEventListener('resize', measureLayout, { passive: true });
+            measureLayout();
 
             const secObserver = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
@@ -1373,95 +1560,127 @@
             document.querySelectorAll('.section').forEach(s => secObserver.observe(s));
 
             if (reduced || isTouch) {
-                // без инерции: просто обновляем состояние
+                let touchRaf = null;
                 const upd = () => {
+                    touchRaf = null;
                     const y = window.scrollY;
-                    const max = document.documentElement.scrollHeight - innerHeight;
-                    if (railProgress) railProgress.style.transform = `translateY(${railH() * (max > 0 ? y / max : 0) - 20}px)`;
+                    const rH = vh * 0.64;
+                    if (railProgress) railProgress.style.transform = `translate3d(0, ${rH * (maxScroll > 0 ? y / maxScroll : 0) - 20}px, 0)`;
                 };
-                addEventListener('scroll', upd, { passive: true });
+                addEventListener('scroll', () => {
+                    if (!touchRaf) touchRaf = requestAnimationFrame(upd);
+                }, { passive: true });
                 upd();
                 return;
             }
 
-            // инерционный скролл: колесо → цель → плавный догон
             let raf = null;
-            function animate() {
-                smooth.current = lerp(smooth.current, smooth.target, 0.11);
-                if (Math.abs(smooth.target - smooth.current) < 0.4) smooth.current = smooth.target;
+            let lastFrameTs = 0;
+            let lastProgrammaticY = Math.round(window.scrollY);
+            let programmaticUntil = 0;
+
+            function animate(now) {
+                const dt = lastFrameTs ? Math.min(0.05, Math.max(0.001, (now - lastFrameTs) / 1000)) : (1 / 60);
+                lastFrameTs = now;
+
+                if (smooth.target > maxScroll) smooth.target = maxScroll;
+
+                smooth.current = damp(smooth.current, smooth.target, 9.6, dt);
+                if (Math.abs(smooth.target - smooth.current) < 0.15) smooth.current = smooth.target;
+
+                lastProgrammaticY = Math.round(smooth.current);
+                programmaticUntil = now + 90;
                 window.scrollTo(0, smooth.current);
 
-                // lerp-эффекты догоняют скролл
-                smooth.hero = lerp(smooth.hero, smooth.heroT, 0.08);
-                smooth.glow = lerp(smooth.glow, smooth.glowT, 0.05);
-                smooth.rail = lerp(smooth.rail, smooth.railT, 0.12);
+                smooth.hero = damp(smooth.hero, smooth.heroT, 8.2, dt);
+                smooth.glow = damp(smooth.glow, smooth.glowT, 4.6, dt);
+                smooth.rail = damp(smooth.rail, smooth.railT, 11.0, dt);
 
                 const y = smooth.current;
                 if (heroInner) {
-                    heroInner.style.transform = `translateY(${y * 0.3}px)`;
-                    heroInner.style.opacity = Math.max(0, 1 - y / 640);
+                    heroInner.style.transform = `translate3d(0, ${y * 0.28}px, 0)`;
+                    heroInner.style.opacity = Math.max(0, 1 - y / 660);
                 }
-                const max = document.documentElement.scrollHeight - innerHeight;
-                const p = max > 0 ? y / max : 0;
-                if (glow) glow.style.transform = `translateY(${(p - 0.5) * 55}vh)`;
-                if (railProgress) railProgress.style.transform = `translateY(${smooth.rail * (railH() - 40)}px)`;
-                ghosts.forEach(g => {
-                    const r = g.parentElement.getBoundingClientRect();
-                    g.style.transform = `translateY(${r.top * -0.1}px)`;
-                });
+                const p = maxScroll > 0 ? smooth.glow / maxScroll : 0;
+                if (glow) glow.style.transform = `translate3d(0, ${(p - 0.5) * 52}vh, 0)`;
+                if (railProgress) {
+                    const rSpan = Math.max(0, vh * 0.64 - 40);
+                    railProgress.style.transform = `translate3d(0, ${smooth.rail * rSpan}px, 0)`;
+                }
+                for (let i = 0; i < ghostNodes.length; i++) {
+                    const relTop = ghostOffsets[i] - y;
+                    if (relTop > -vh * 1.5 && relTop < vh * 1.8) {
+                        ghostNodes[i].style.transform = `translate3d(0, ${relTop * -0.1}px, 0)`;
+                    }
+                }
 
-                if (smooth.current !== smooth.target || Math.abs(smooth.glow - smooth.glowT) > 0.001) {
+                if (Math.abs(smooth.target - smooth.current) > 0.15 || Math.abs(smooth.glow - smooth.glowT) > 0.4) {
                     raf = requestAnimationFrame(animate);
                 } else {
                     raf = null;
+                    lastFrameTs = 0;
                 }
-            }
-            function kick() {
-                smooth.heroT = smooth.target;
-                smooth.glowT = smooth.target;
-                const max = document.documentElement.scrollHeight - innerHeight;
-                smooth.railT = max > 0 ? smooth.target / max : 0;
-                if (!raf) raf = requestAnimationFrame(animate);
             }
 
-            // перехват колеса (только десктоп)
-            let wheelAcc = 0, wheelRaf = null;
-            function onWheel(e) {
-                if (e.ctrlKey) return; // pinch-zoom не трогаем
-                if (document.body.classList.contains('overlay-open')) return;
-                e.preventDefault();
-                const max = document.documentElement.scrollHeight - innerHeight;
-                wheelAcc += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
-                // прокрутка «сквозь» плеер и прокручиваемые блоки
-                const sc = e.target.closest && e.target.closest('.chat-body, .modal, [data-scroll]');
-                if (sc && sc.scrollHeight > sc.clientHeight) { sc.scrollTop += wheelAcc; wheelAcc = 0; return; }
-                if (!wheelRaf) {
-                    wheelRaf = requestAnimationFrame(() => {
-                        smooth.target = Math.max(0, Math.min(max, smooth.target + wheelAcc));
-                        wheelAcc = 0; wheelRaf = null;
-                        kick();
-                    });
+            function kick() {
+                if (smooth.target > maxScroll) smooth.target = maxScroll;
+                smooth.heroT = smooth.target;
+                smooth.glowT = smooth.target;
+                smooth.railT = maxScroll > 0 ? smooth.target / maxScroll : 0;
+                if (!raf) {
+                    lastFrameTs = 0;
+                    raf = requestAnimationFrame(animate);
                 }
             }
+
+            function onWheel(e) {
+                if (e.ctrlKey) return;
+                if (document.body.classList.contains('overlay-open')) return;
+                const sc = e.target.closest && e.target.closest('.watch-chat-body, .scroll-modal-body, .chat-body, .modal, [data-scroll]');
+                if (sc && sc.scrollHeight > sc.clientHeight) return;
+                e.preventDefault();
+                const mult = e.deltaMode === 1 ? 28 : (e.deltaMode === 2 ? vh * 0.85 : 1);
+                smooth.target = Math.max(0, Math.min(maxScroll, smooth.target + e.deltaY * mult));
+                kick();
+            }
             addEventListener('wheel', onWheel, { passive: false });
-            // тач/клавиатура/шкроллбар — синхронизируем цель
+
             addEventListener('scroll', () => {
-                if (Math.abs(window.scrollY - smooth.current) > 2) { smooth.target = window.scrollY; kick(); }
+                const sy = window.scrollY;
+                if (performance.now() < programmaticUntil && Math.abs(sy - lastProgrammaticY) <= 6) return;
+                if (Math.abs(sy - smooth.current) > 4) {
+                    smooth.current = sy;
+                    smooth.target = sy;
+                    kick();
+                }
             }, { passive: true });
+
             addEventListener('keydown', (e) => {
                 if (document.body.classList.contains('overlay-open')) return;
-                const max = document.documentElement.scrollHeight - innerHeight;
-                const step = { PageDown: innerHeight * 0.9, PageUp: -innerHeight * 0.9, ArrowDown: 90, ArrowUp: -90, Home: -1e9, End: 1e9 }[e.key];
-                if (step !== undefined) { smooth.target = Math.max(0, Math.min(max, smooth.target + step)); e.preventDefault(); kick(); }
+                const tag = (e.target && e.target.tagName) || '';
+                if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.target?.isContentEditable) return;
+                const step = { PageDown: vh * 0.88, PageUp: -vh * 0.88, ArrowDown: 100, ArrowUp: -100, Home: -1e9, End: 1e9 }[e.key];
+                if (step !== undefined) {
+                    smooth.target = Math.max(0, Math.min(maxScroll, smooth.target + step));
+                    e.preventDefault();
+                    kick();
+                }
             });
-            // якорные ссылки — плавно к цели
+
             document.querySelectorAll('a[href^="#"]').forEach(a => {
                 a.addEventListener('click', (e) => {
-                    const t = document.querySelector(a.getAttribute('href'));
+                    const href = a.getAttribute('href');
+                    if (!href || href === '#' || href === '#top') {
+                        e.preventDefault();
+                        smooth.target = 0;
+                        kick();
+                        return;
+                    }
+                    const t = document.querySelector(href);
                     if (!t) return;
                     e.preventDefault();
-                    const max = document.documentElement.scrollHeight - innerHeight;
-                    smooth.target = Math.max(0, Math.min(max, t.getBoundingClientRect().top + window.scrollY - 40));
+                    measureLayout();
+                    smooth.target = Math.max(0, Math.min(maxScroll, t.getBoundingClientRect().top + window.scrollY - 40));
                     kick();
                 });
             });
@@ -1733,7 +1952,7 @@
             return `
                 <button class="vod-card${activeCls}" type="button" data-vod-idx="${idx}">
                     <div class="vod-thumb">
-                        <img referrerpolicy="no-referrer" alt="" loading="lazy" data-vod-thumb style="display:none;">
+                        <img referrerpolicy="no-referrer" alt="" loading="lazy" decoding="async" data-vod-thumb style="display:none;">
                         <svg class="vod-curve" viewBox="0 0 400 54" preserveAspectRatio="none" aria-hidden="true">
                             <path d="M0,0 Q200,54 400,0 L400,54 L0,54 Z"/>
                         </svg>
@@ -2052,6 +2271,20 @@
                 </div>`;
         }
 
+        function chatItemHTML(m, animateItem) {
+            const color = userBadgeColor(m.user);
+            const ts = fmtChatClock(activeVod, m.t);
+            return `
+                <div class="w-chat-item${animateItem ? '' : ' no-anim'}">
+                    <div class="w-chat-meta">
+                        <span class="w-chat-badge" style="background:${color}; color:${color};"></span>
+                        <span class="w-chat-user">${escapeHTML(m.user)}</span>
+                        <button class="w-chat-ts" type="button" data-seek="${Number(m.t) || 0}">${escapeHTML(ts)}</button>
+                    </div>
+                    <div class="w-chat-text">${escapeHTML(m.msg)}</div>
+                </div>`;
+        }
+
         function renderChatAtTime(t) {
             if (!watchChatBody || !watchChatCount) return;
             const total = chatLines.length;
@@ -2068,6 +2301,7 @@
             }
             const shownTotal = lo;
             if (shownTotal === chatShown) return;
+            const prevShown = chatShown;
             chatShown = shownTotal;
             watchChatCount.textContent = `${shownTotal} / ${total} показано`;
 
@@ -2080,21 +2314,26 @@
                 return;
             }
 
+            // Инкрементальная дорисовка без пересборки всех элементов при обычном воспроизведении
+            const canAppend = prevShown > 0 && shownTotal > prevShown && (shownTotal - prevShown) <= 24
+                && !watchChatBody.querySelector('.w-chat-empty');
+            if (canAppend) {
+                let addHtml = '';
+                for (let i = prevShown; i < shownTotal; i++) {
+                    addHtml += chatItemHTML(chatLines[i], true);
+                }
+                watchChatBody.insertAdjacentHTML('beforeend', addHtml);
+                while (watchChatBody.children.length > 130) {
+                    watchChatBody.removeChild(watchChatBody.firstElementChild);
+                }
+                watchChatBody.scrollTop = watchChatBody.scrollHeight;
+                return;
+            }
+
             const startIdx = Math.max(0, shownTotal - 120);
             let html = '';
             for (let i = startIdx; i < shownTotal; i++) {
-                const m = chatLines[i];
-                const color = userBadgeColor(m.user);
-                const ts = fmtChatClock(activeVod, m.t);
-                html += `
-                    <div class="w-chat-item">
-                        <div class="w-chat-meta">
-                            <span class="w-chat-badge" style="background:${color}; color:${color};"></span>
-                            <span class="w-chat-user">${escapeHTML(m.user)}</span>
-                            <button class="w-chat-ts" type="button" data-seek="${Number(m.t) || 0}">${escapeHTML(ts)}</button>
-                        </div>
-                        <div class="w-chat-text">${escapeHTML(m.msg)}</div>
-                    </div>`;
+                html += chatItemHTML(chatLines[i], prevShown === 0 && shownTotal <= 4);
             }
             watchChatBody.innerHTML = html;
             watchChatBody.scrollTop = watchChatBody.scrollHeight;
@@ -2245,6 +2484,7 @@
             vodWatch.classList.remove('open');
             vodWatch.setAttribute('aria-hidden', 'true');
             syncBodyOverlayLock();
+            resumeRainLoop();
             if (document.fullscreenElement) {
                 document.exitFullscreen().catch(() => {});
             }
@@ -2522,6 +2762,7 @@
         }
 
         function init() {
+            initGrain();
             loadVods();
             renderSocialLinks();
             updateBirthdayWidget();
@@ -2530,6 +2771,7 @@
             initRain();
             initHeart();
             initSmooth();
+            initNavPrefetch();
             const saved = localStorage.getItem('danonsha-atmo');
             if (saved !== null) setAtmo(saved === '1', false);
             document.getElementById('atmo').addEventListener('click', () => {

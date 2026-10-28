@@ -31,17 +31,18 @@
             display: grid; grid-template-columns: 52px minmax(0, 1fr) auto;
             gap: 18px; align-items: flex-start;
             padding: 22px 24px;
-            background: var(--glass);
+            background: rgba(12, 12, 16, .78);
             border: 1px solid var(--glass-border);
             border-radius: 18px;
-            backdrop-filter: blur(14px);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+            backface-visibility: hidden;
             color: inherit; text-decoration: none;
-            transition: border-color .4s var(--ease), transform .4s var(--ease), box-shadow .4s var(--ease);
+            transition: border-color .38s var(--ease), transform .38s var(--ease), box-shadow .38s var(--ease);
         }
         .setup-card.interactive { cursor: pointer; }
         .setup-card.interactive:hover {
             border-color: rgba(163, 19, 19, .45);
-            transform: translateY(-4px);
+            transform: translate3d(0, -4px, 0);
             box-shadow: 0 24px 54px rgba(0, 0, 0, .72);
         }
         .hw-icon {
@@ -449,14 +450,14 @@
                     .sort((a, b) => Number(a.sort || 0) - Number(b.sort || 0) || String(a.category).localeCompare(String(b.category), 'ru'));
             }
 
-            function cardHTML(item) {
+            function cardHTML(item, idx) {
                 const url = safeUrl(item.link);
                 const interactive = admin.isAdmin() || Boolean(url);
                 const tag = !admin.isAdmin() && url ? 'a' : 'article';
                 const hrefAttr = !admin.isAdmin() && url ? `href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer"` : '';
                 const arrow = admin.isAdmin() ? '<span class="hw-arrow">✎</span>' : url ? '<span class="hw-arrow">↗</span>' : '<span></span>';
                 return `
-                    <${tag} class="setup-card ${interactive ? 'interactive' : ''}" data-id="${escapeHTML(item.id)}" ${hrefAttr}>
+                    <${tag} class="setup-card kf-stagger-item ${interactive ? 'interactive' : ''}" style="--i:${Math.min(idx || 0, 12)}" data-id="${escapeHTML(item.id)}" ${hrefAttr}>
                         <div class="hw-icon">${iconSVG(item.icon)}</div>
                         <div class="col">
                             <div class="hw-cat">${escapeHTML(item.category || 'Устройство')}</div>

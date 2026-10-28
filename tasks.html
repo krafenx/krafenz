@@ -753,11 +753,11 @@
 
             document.getElementById('visibility-tabs').addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-vis]');
-                if (!btn) return;
+                if (!btn || visFilter === btn.dataset.vis) return;
                 visFilter = btn.dataset.vis;
                 document.querySelectorAll('#visibility-tabs .filter-pill').forEach((b) => b.classList.remove('active'));
                 btn.classList.add('active');
-                renderTasks();
+                window.KrafenUI.smoothSwap(renderTasks);
             });
 
             document.getElementById('task-search').addEventListener('input', (e) => {
