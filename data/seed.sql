@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS collection_meta (
 INSERT OR REPLACE INTO "collection_meta" VALUES('watchlist',39,1793210776);
 INSERT OR REPLACE INTO "collection_meta" VALUES('gamelist',1,1793210776);
 INSERT OR REPLACE INTO "collection_meta" VALUES('setup',15,1793210776);
-INSERT OR REPLACE INTO "collection_meta" VALUES('wishlist',0,1793210776);
+INSERT OR REPLACE INTO "collection_meta" VALUES('wishlist',6,1793213606);
 CREATE TABLE IF NOT EXISTS drive_vods (
     id TEXT PRIMARY KEY,
     drive_id TEXT NOT NULL UNIQUE,
@@ -139,4 +139,8 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+INSERT OR REPLACE INTO "wishlist_items" VALUES(0,'wish_muacgd3h_wy1cmp','GIGABYTE GeForce RTX 5060 EAGLE ICE OC','hardware','want',2,52000.0,'RUB','','https://www.dns-shop.ru/product/6a1955092199d582/videokarta-gigabyte-geforce-rtx-5060-eagle-ice-oc-gv-n5060eagleoc-ice-8gd/','https://c.dns-shop.ru/thumb/st1/fit/wm/0/0/7c6e80025f340dd2ed7d0f85218f5810/3302542712a7786d42190b0164cce119a0751f2f3b8f6cd748b6a68910b2ef41.jpg.webp',1789940660813,1791578217948);
+INSERT OR REPLACE INTO "wishlist_items" VALUES(1,'wish_muacdsrs_39m0mb','1000 ГБ M.2 NVMe накопитель Kingston FURY Renegade','hardware','want',2,27000.0,'RUB','','https://www.dns-shop.ru/product/8bd59f9e81e4ed20/1000-gb-m2-nvme-nakopitel-kingston-fury-renegade-sfyrsk1000g/','https://c.dns-shop.ru/thumb/st1/fit/500/500/125bb3f7ebb70c3e55df05ee74b14c8f/6c07efc548daeef5e10c25348193c12ddc1d020ac29e9dec00a4d756a0e94aba.jpg.webp',1789940541160,1791578229140);
+INSERT OR REPLACE INTO "wishlist_items" VALUES(2,'wish_muaazsqr_jjsxh1','Джерси','other','want',2,4200.0,'RUB','','https://torch-fff.com/shop/lagoda-jersey/','https://torch-fff.com/upload/iblock/935/9352d21e6e68e87d5651dfff23507fd5.jpg',1789938208323,1789938208323);
+INSERT OR REPLACE INTO "wishlist_items" VALUES(3,'wish_muaaky3b_qu1aps','Футболка','other','want',2,3200.0,'RUB','хочу крутую футболку','https://torch-fff.com/shop/sakura/','https://torch-fff.com/upload/iblock/9a8/9a816980638edbb93e39d2b38000358f.jpg',1789937515415,1789937515415);
 COMMIT;

@@ -920,6 +920,18 @@ NORMALIZERS = {
 }
 
 
+DEFAULT_DRIVE_VODS = [
+    ("2026-09-03_17-56", "1_SRlYEQ9E0hF1dWmoS3segy5qSAV7rG3", "мама в 16 (я) ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "7.21 ГБ", "", "2026-09-03_17-56"),
+    ("2026-09-02_12-15", "1td-vOnVhyvsT6VjzROhhdIV7asxvJImR", "ну допустим мяу ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "12.32 ГБ", "", "2026-09-02_12-15"),
+    ("2026-08-31_13-44", "1u8ZrnJPIASjUEI5EeYS1v_X7C63YnDeJ", "ну допустим мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "7.48 ГБ", "", "2026-08-31_13-44"),
+    ("2026-08-30_13-04", "1igadvmUfhI_XOjcmGsE_2rMaxYB7_4Be", "мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "1.84 ГБ", "", "2026-08-30_13-04"),
+    ("2026-08-30_01-01", "1mLVCiVyC6yBVkX-E3YJafLY7EJhGeu-k", "мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "3.65 ГБ", "", "2026-08-30_01-01"),
+    ("2026-08-27_17-23", "1KyokELlAV_-f703pnSjEtRpaKyWDH2mk", "щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "7.5 ГБ", "", "2026-08-27_17-23"),
+    ("2026-08-25_14-52", "13maPLTBIWghOtGDDhdtG5iY9MUFdeXeE", "щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "13.25 ГБ", "эта запись лагающая — не исправить", "2026-08-25_14-52"),
+    ("2026-08-23_11-50", "1QPUp9NYaHEdvS8P-cndGpks1LivR-YkP", "щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб", "17.27 ГБ", "", "2026-08-23_11-50"),
+]
+
+
 def init_db() -> None:
     now = int(time.time())
     with _db_lock, db_connect() as conn:
@@ -930,6 +942,13 @@ def init_db() -> None:
 
         if meta_count == 0 and not has_legacy_json and SEED_SQL_PATH.is_file():
             conn.executescript(SEED_SQL_PATH.read_text(encoding="utf-8"))
+
+        drive_count = conn.execute("SELECT COUNT(*) AS cnt FROM drive_vods").fetchone()["cnt"]
+        if drive_count == 0 and GDRIVE_FOLDER_ID == "1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk":
+            conn.executemany(
+                "INSERT OR IGNORE INTO drive_vods (id, drive_id, title, size_label, note, sort_key) VALUES (?, ?, ?, ?, ?, ?)",
+                DEFAULT_DRIVE_VODS,
+            )
 
         for name, spec in LIST_SPECS.items():
             row = conn.execute("SELECT 1 FROM collection_meta WHERE name = ?", (name,)).fetchone()
@@ -1779,6 +1798,8 @@ def list_vods() -> list[dict[str, Any]]:
                 "title": r["title"],
                 "size_label": r["size_label"] or "",
                 "note": r["note"] or "",
+                "stream_url": f"/api/vods/{vid}/stream",
+                "download_url": f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t",
                 "embed_url": f"https://drive.google.com/file/d/{drive_id}/preview",
                 "view_url": f"https://drive.google.com/file/d/{drive_id}/view",
                 "thumb_url": f"https://drive.google.com/thumbnail?id={drive_id}&sz=w640",
@@ -1868,6 +1889,118 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
                 yield chunk
 
     return StreamingResponse(iterator(), status_code=status_code, media_type="video/mp4", headers=headers)
+
+
+_gdrive_uuid_cache: dict[str, tuple[float, str]] = {}
+_gdrive_uuid_lock = threading.Lock()
+
+
+def _resolve_drive_id(vod_id: str) -> str | None:
+    if not safe_name(vod_id):
+        return None
+    with _db_lock, db_connect() as conn:
+        row = conn.execute("SELECT drive_id FROM drive_vods WHERE id = ?", (vod_id,)).fetchone()
+        return str(row["drive_id"]) if row and row["drive_id"] else None
+
+
+@app.api_route("/api/vods/{vod_id}/stream", methods=["GET", "HEAD"])
+def vod_stream(vod_id: str, request: Request) -> Response:
+    folder = find_vod(vod_id)
+    if folder:
+        meta_path = folder / "meta.json"
+        video_name = "video.mp4"
+        if meta_path.is_file():
+            try:
+                meta_obj = json.loads(meta_path.read_text(encoding="utf-8"))
+                video_name = str(meta_obj.get("video_file") or "video.mp4")
+            except Exception:
+                pass
+        return vod_video(vod_id, video_name, request)
+
+    drive_id = _resolve_drive_id(vod_id)
+    if not drive_id:
+        return j({"error": "not found"}, 404)
+
+    now = time.time()
+    cached_uuid = ""
+    with _gdrive_uuid_lock:
+        entry = _gdrive_uuid_cache.get(drive_id)
+        if entry and entry[0] > now:
+            cached_uuid = entry[1]
+
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+    }
+    range_header = request.headers.get("range")
+    if range_header:
+        req_headers["Range"] = range_header
+
+    base_url = "https://drive.usercontent.google.com/download"
+    params: dict[str, str] = {"id": drive_id, "export": "download", "confirm": "t"}
+    if cached_uuid:
+        params["uuid"] = cached_uuid
+
+    session = requests.Session()
+    try:
+        upstream = session.request(
+            "GET" if request.method == "HEAD" and not cached_uuid else request.method,
+            base_url,
+            params=params,
+            headers=req_headers,
+            stream=True,
+            timeout=(4, 30),
+        )
+        ctype = (upstream.headers.get("content-type") or "").lower()
+        if "text/html" in ctype:
+            html_Sample = upstream.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+            upstream.close()
+            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', html_Sample)
+            if uuid_m:
+                found_uuid = uuid_m.group(1)
+                with _gdrive_uuid_lock:
+                    _gdrive_uuid_cache[drive_id] = (time.time() + 1200, found_uuid)
+                params["uuid"] = found_uuid
+                upstream = session.request(
+                    request.method,
+                    base_url,
+                    params=params,
+                    headers=req_headers,
+                    stream=True,
+                    timeout=(4, 30),
+                )
+                ctype = (upstream.headers.get("content-type") or "").lower()
+
+        if upstream.status_code >= 400 or "text/html" in ctype:
+            upstream.close()
+            session.close()
+            return j({"error": "upstream_unavailable"}, 502)
+    except requests.RequestException:
+        session.close()
+        return j({"error": "upstream_unreachable"}, 502)
+
+    out_headers: dict[str, str] = {"Accept-Ranges": "bytes"}
+    for h_name in ("Content-Length", "Content-Range"):
+        val = upstream.headers.get(h_name)
+        if val:
+            out_headers[h_name] = val
+    media_type = upstream.headers.get("Content-Type") or "video/mp4"
+    status_code = upstream.status_code if upstream.status_code in (200, 206) else 200
+
+    if request.method == "HEAD":
+        upstream.close()
+        session.close()
+        return Response(status_code=status_code, media_type=media_type, headers=out_headers)
+
+    def stream_chunks():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+            session.close()
+
+    return StreamingResponse(stream_chunks(), status_code=status_code, media_type=media_type, headers=out_headers)
 
 
 # ----------------------------- Статика -----------------------------
