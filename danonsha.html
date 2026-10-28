@@ -873,7 +873,7 @@
         <div class="watch-stage">
             <div class="watch-player-outer">
                 <div class="watch-player-inner" id="watch-stage-inner">
-                    <img class="watch-poster" id="watch-poster" src="/images/vod-cover-1.webp" alt="">
+                    <img class="watch-poster" id="watch-poster" referrerpolicy="no-referrer" alt="" style="display:none;">
                     <video class="watch-video" id="watch-video" playsinline preload="metadata"></video>
                     <iframe class="watch-drive-iframe" id="watch-drive-iframe" allow="autoplay; fullscreen" allowfullscreen title="Плеер записи стрима"></iframe>
                     <button class="watch-drive-close" id="watch-drive-close" type="button">✕ Скрыть плеер Drive</button>
@@ -1364,12 +1364,7 @@
 
         let chatLines = [], chatShown = -1, allVods = [], activeVod = null, activeVodId = null;
         let streamUnavailable = false, idleTimer = null, toastTimer = null;
-
-        const VOD_COVERS = [
-            '/images/vod-cover-1.webp',
-            '/images/vod-cover-2.webp',
-            '/images/vod-cover-3.webp'
-        ];
+        const frameDataUrlCache = new Map();
 
         const USER_BADGE_COLORS = ['#86efac', '#c4b5fd', '#fda4af', '#93c5fd', '#fcd34d', '#d8b4fe', '#e2e8f0'];
 
@@ -1387,7 +1382,12 @@
             stream_url: `/api/vods/${v.id}/stream`,
             download_url: `https://drive.usercontent.google.com/download?id=${v.drive_id}&export=download&confirm=t`,
             embed_url: `https://drive.google.com/file/d/${v.drive_id}/preview`,
-            view_url: `https://drive.google.com/file/d/${v.drive_id}/view`
+            view_url: `https://drive.google.com/file/d/${v.drive_id}/view`,
+            thumb_url: `/api/vods/${v.id}/thumb`,
+            thumb_fallbacks: [
+                `https://drive.google.com/thumbnail?id=${v.drive_id}&sz=w960`,
+                `https://lh3.googleusercontent.com/d/${v.drive_id}=w960`
+            ]
         }));
 
         const RU_MONTHS_SHORT = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
@@ -1428,9 +1428,93 @@
         function cleanVodTitle(raw) {
             return String(raw || 'Запись без названия').replace(/\s*｜\s*/g, ' | ').trim();
         }
-        function vodCoverSrc(v, idx) {
-            if (v && v.source === 'local' && v.has_thumb && v.thumb_url) return v.thumb_url;
-            return VOD_COVERS[idx % VOD_COVERS.length];
+        function vodStreamUrl(v) {
+            if (!v) return '';
+            if (v.source === 'local') {
+                return `/vods/${encodeURIComponent(v.id)}/${encodeURIComponent(v.video_file || 'video.mp4')}`;
+            }
+            return v.stream_url || `/api/vods/${encodeURIComponent(v.id)}/stream`;
+        }
+        function vodThumbCandidates(v) {
+            if (!v) return [];
+            const list = [];
+            if (frameDataUrlCache.has(v.id)) list.push(frameDataUrlCache.get(v.id));
+            if (v.thumb_url) list.push(v.thumb_url);
+            else list.push(`/api/vods/${encodeURIComponent(v.id)}/thumb`);
+            if (Array.isArray(v.thumb_fallbacks)) {
+                for (const u of v.thumb_fallbacks) if (u && !list.includes(u)) list.push(u);
+            } else if (v.drive_id) {
+                list.push(`https://drive.google.com/thumbnail?id=${encodeURIComponent(v.drive_id)}&sz=w960`);
+                list.push(`https://lh3.googleusercontent.com/d/${encodeURIComponent(v.drive_id)}=w960`);
+            }
+            return list;
+        }
+        function captureVideoFrameClientSide(v) {
+            if (!v) return Promise.resolve('');
+            if (frameDataUrlCache.has(v.id)) return Promise.resolve(frameDataUrlCache.get(v.id));
+            const src = vodStreamUrl(v);
+            if (!src) return Promise.resolve('');
+            return new Promise((resolve) => {
+                const vid = document.createElement('video');
+                let settled = false;
+                const finish = (dataUrl) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    try { vid.pause(); vid.removeAttribute('src'); vid.load(); } catch {}
+                    if (dataUrl) frameDataUrlCache.set(v.id, dataUrl);
+                    resolve(dataUrl || '');
+                };
+                const timer = setTimeout(() => finish(''), 9000);
+                vid.muted = true;
+                vid.playsInline = true;
+                vid.preload = 'metadata';
+                vid.addEventListener('loadedmetadata', () => {
+                    const dur = Number.isFinite(vid.duration) && vid.duration > 4 ? vid.duration : 10;
+                    vid.currentTime = Math.min(180, Math.max(2, dur * 0.1));
+                }, { once: true });
+                vid.addEventListener('seeked', () => {
+                    try {
+                        const w = Math.min(960, vid.videoWidth || 960);
+                        const h = Math.round(w * ((vid.videoHeight || 540) / (vid.videoWidth || 960)));
+                        const c = document.createElement('canvas');
+                        c.width = w;
+                        c.height = h;
+                        c.getContext('2d').drawImage(vid, 0, 0, w, h);
+                        finish(c.toDataURL('image/jpeg', 0.84));
+                    } catch {
+                        finish('');
+                    }
+                }, { once: true });
+                vid.addEventListener('error', () => finish(''), { once: true });
+                vid.src = src;
+            });
+        }
+        function attachVodFrameImage(img, vod) {
+            if (!img || !vod) return;
+            const candidates = vodThumbCandidates(vod);
+            let step = 0;
+            const tryNext = () => {
+                if (step < candidates.length) {
+                    const nextUrl = candidates[step++];
+                    img.style.display = '';
+                    img.src = nextUrl;
+                    return;
+                }
+                captureVideoFrameClientSide(vod).then((dataUrl) => {
+                    if (dataUrl) {
+                        img.style.display = '';
+                        img.src = dataUrl;
+                    } else {
+                        img.style.display = 'none';
+                    }
+                });
+            };
+            img.onerror = tryNext;
+            img.onload = () => {
+                if (img.naturalWidth > 0) img.style.display = '';
+            };
+            tryNext();
         }
         function userBadgeColor(name) {
             let h = 0;
@@ -1441,12 +1525,10 @@
 
         function renderVodCard(v, idx, showNote) {
             const activeCls = activeVodId && v.id === activeVodId ? ' active' : '';
-            const cover = vodCoverSrc(v, idx);
-            const fallbackCover = VOD_COVERS[idx % VOD_COVERS.length];
             return `
                 <button class="vod-card${activeCls}" type="button" data-vod-idx="${idx}">
                     <div class="vod-thumb">
-                        <img src="${escapeHTML(cover)}" data-fallback="${escapeHTML(fallbackCover)}" alt="" loading="lazy" data-vod-thumb>
+                        <img referrerpolicy="no-referrer" alt="" loading="lazy" data-vod-thumb style="display:none;">
                         <svg class="vod-curve" viewBox="0 0 400 54" preserveAspectRatio="none" aria-hidden="true">
                             <path d="M0,0 Q200,54 400,0 L400,54 L0,54 Z"/>
                         </svg>
@@ -1461,16 +1543,12 @@
 
         function bindVodContainer(container) {
             if (!container) return;
-            container.querySelectorAll('img[data-vod-thumb]').forEach(img => {
-                img.addEventListener('error', () => {
-                    const fb = img.getAttribute('data-fallback');
-                    if (fb && img.getAttribute('src') !== fb) img.src = fb;
-                }, { once: true });
-            });
             container.querySelectorAll('.vod-card').forEach(btn => {
+                const idx = +btn.dataset.vodIdx;
+                const v = allVods[idx];
+                const img = btn.querySelector('img[data-vod-thumb]');
+                if (img && v) attachVodFrameImage(img, v);
                 btn.addEventListener('click', () => {
-                    const idx = +btn.dataset.vodIdx;
-                    const v = allVods[idx];
                     if (!v) return;
                     closeScrollModal();
                     openVod(v, idx, true);
@@ -1656,7 +1734,8 @@
 
             hideDriveFallback();
             watchStageInner.classList.remove('has-frames', 'idle');
-            watchPoster.src = vodCoverSrc(vod, idx);
+            watchPoster.style.display = 'none';
+            attachVodFrameImage(watchPoster, vod);
             watchTitleEl.textContent = cleanVodTitle(vod.title);
 
             const dlHref = vod.source === 'local'

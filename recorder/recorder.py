@@ -328,6 +328,40 @@ def upload_to_telegram(folder: Path, meta: dict) -> bool:
         return False
 
 
+def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
+    """Извлекает кадр из записанного VOD с помощью ffmpeg."""
+    if not video.is_file() or not shutil.which("ffmpeg"):
+        return False
+    seek_candidates = [min(180, max(5, duration_s // 5)) if duration_s > 10 else 2, 1]
+    tmp = thumb.with_suffix(".tmp.jpg")
+    for ss in seek_candidates:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-ss", str(ss),
+                    "-i", str(video),
+                    "-frames:v", "1",
+                    "-vf", "scale=960:-2",
+                    "-q:v", "3",
+                    str(tmp),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=25,
+                check=False,
+            )
+            if tmp.is_file() and tmp.stat().st_size > 1024:
+                tmp.replace(thumb)
+                return True
+        except Exception:
+            pass
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+    return False
+
+
 def record_session(stream: dict) -> None:
     started_at = stream.get("started_at", datetime.now(timezone.utc).isoformat())
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -370,6 +404,8 @@ def record_session(stream: dict) -> None:
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
         started = datetime.fromisoformat(meta["record_started_at"].replace("Z", "+00:00"))
         meta["duration_s"] = round((datetime.now(timezone.utc) - started).total_seconds())
+        if extract_vod_thumbnail(video, folder / "thumb.jpg", meta["duration_s"]):
+            meta["thumb_file"] = "thumb.jpg"
         (folder / "meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
