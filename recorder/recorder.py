@@ -140,15 +140,25 @@ def app_access_token() -> str:
 def get_live_stream() -> dict | None:
     """Вернуть dict стрима из Helix или None если офлайн/ошибка."""
     try:
+        headers = {
+            "Client-ID": CLIENT_ID,
+            "Authorization": f"Bearer {app_access_token()}",
+        }
         r = requests.get(
             "https://api.twitch.tv/helix/streams",
             params={"user_login": CHANNEL},
-            headers={
-                "Client-ID": CLIENT_ID,
-                "Authorization": f"Bearer {app_access_token()}",
-            },
+            headers=headers,
             timeout=15,
         )
+        if r.status_code == 401:
+            _token_cache.clear()
+            headers["Authorization"] = f"Bearer {app_access_token()}"
+            r = requests.get(
+                "https://api.twitch.tv/helix/streams",
+                params={"user_login": CHANNEL},
+                headers=headers,
+                timeout=15,
+            )
         r.raise_for_status()
         data = r.json().get("data", [])
         return data[0] if data else None
@@ -158,6 +168,21 @@ def get_live_stream() -> dict | None:
 
 
 # ----------------------------- чат --------------------------------------
+
+_IRC_PRIVMSG_RE = re.compile(
+    r"^(?:@(\S+)\s+)?:([A-Za-z0-9_]+)!.*?\sPRIVMSG\s+#\S+\s+:(.*)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _unescape_irc_tag(val: str) -> str:
+    return (
+        val.replace(r"\s", " ")
+        .replace(r"\:", ";")
+        .replace(r"\r", "")
+        .replace(r"\n", "")
+        .replace(r"\\", "\\")
+    )
 
 
 class ChatRecorder(threading.Thread):
@@ -173,12 +198,19 @@ class ChatRecorder(threading.Thread):
         self.start_ts = time.time()
         self._stop = threading.Event()
         self._buffer: list[str] = []
+        self.ws = None
 
     def stop(self) -> None:
         self._stop.set()
+        ws = self.ws
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
 
     def _offset(self) -> float:
-        return round(time.time() - self.start_ts, 3)
+        return max(0.0, round(time.time() - self.start_ts, 3))
 
     def _flush(self) -> None:
         if not self._buffer:
@@ -187,17 +219,32 @@ class ChatRecorder(threading.Thread):
             fh.write("".join(self._buffer))
         self._buffer.clear()
 
-    def _handle(self, raw: str) -> None:
-        # PING/PONG — иначе Twitch отключит
-        if raw.startswith("PING"):
-            self.ws.send("PONG :tmi.twitch.tv")
+    def _handle_line(self, line: str) -> None:
+        if not line:
             return
-        m = re.match(
-            r"^:(\w+)!.*PRIVMSG #\w+ :(.*)$", raw, flags=re.IGNORECASE | re.DOTALL
-        )
+        # PING/PONG — иначе Twitch отключит
+        if line.startswith("PING"):
+            _, _, payload = line.partition(" ")
+            self.ws.send(f"PONG {payload or ':tmi.twitch.tv'}")
+            return
+        m = _IRC_PRIVMSG_RE.match(line)
         if not m:
             return
-        user, msg = m.group(1), m.group(2).rstrip("\r\n")
+        raw_tags, login_user, msg = m.group(1) or "", m.group(2), m.group(3)
+        user = login_user
+        if raw_tags:
+            for pair in raw_tags.split(";"):
+                if pair.startswith("display-name="):
+                    dn = _unescape_irc_tag(pair[13:]).strip()
+                    if dn:
+                        user = dn
+                    break
+        if msg.startswith("\x01ACTION ") and msg.endswith("\x01"):
+            msg = msg[8:-1].strip()
+        elif msg.startswith("\x01") and msg.endswith("\x01"):
+            return
+        if not msg:
+            return
         self._buffer.append(
             json.dumps({"t": self._offset(), "user": user, "msg": msg},
                        ensure_ascii=False)
@@ -206,13 +253,17 @@ class ChatRecorder(threading.Thread):
         if len(self._buffer) >= CHAT_FLUSH_EVERY:
             self._flush()
 
+    def _handle(self, raw: str) -> None:
+        for line in raw.splitlines():
+            self._handle_line(line.rstrip("\r\n"))
+
     def run(self) -> None:
         backoff = 5
         while not self._stop.is_set():
             try:
                 log("chat: подключение к IRC...")
                 self.ws = websocket.create_connection(
-                    IRC_URI, timeout=30,
+                    IRC_URI, timeout=10,
                     header=["Origin: https://www.twitch.tv"],
                 )
                 # анонимный вход: без регистрации приложения, только чтение
@@ -223,18 +274,31 @@ class ChatRecorder(threading.Thread):
                 log("chat: в канале, пишу сообщения")
                 while not self._stop.is_set():
                     try:
-                        self._handle(self.ws.recv())
+                        data = self.ws.recv()
+                        if not data:
+                            break
+                        self._handle(data)
                     except websocket.WebSocketTimeoutException:
-                        self.ws.send("PING :tmi.twitch.tv")
+                        if not self._stop.is_set():
+                            self.ws.send("PING :tmi.twitch.tv")
             except Exception as exc:  # noqa: BLE001 - переподключаемся всегда
+                if self._stop.is_set():
+                    break
                 log(f"chat: {exc} — повтор через {backoff}с")
-                time.sleep(backoff)
+                self._stop.wait(backoff)
                 backoff = min(backoff * 2, 120)
             finally:
                 try:
                     self._flush()
                 except Exception:
                     pass
+                ws = self.ws
+                self.ws = None
+                if ws is not None:
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
 
 
 # ----------------------------- запись -----------------------------------
@@ -347,6 +411,7 @@ def upload_to_telegram(folder: Path, meta: dict) -> bool:
                     parts = split_parts
                 else:
                     log("telegram: видео больше лимита, а ffmpeg не найден — пропускаю видео")
+                    parts = []
 
             try:
                 total = len(parts)
@@ -475,20 +540,31 @@ def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
     return False
 
 
+_active_proc: subprocess.Popen | None = None
+_stop_event = threading.Event()
+
+
 def record_session(stream: dict) -> None:
+    global _active_proc
     streamlink_exe = shutil.which(STREAMLINK_BIN)
     if not streamlink_exe:
         log(f"streamlink ({STREAMLINK_BIN}) не найден в PATH — установите: pip install streamlink")
-        time.sleep(POLL_INTERVAL)
+        _stop_event.wait(POLL_INTERVAL)
         return
 
     started_at = stream.get("started_at", datetime.now(timezone.utc).isoformat())
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    folder = RECORD_DIR / f"{stamp}_{slugify(stream.get('title', 'stream'))}"
+    base_name = f"{stamp}_{slugify(stream.get('title', 'stream'))}"
+    folder = RECORD_DIR / base_name
+    suffix = 2
+    while folder.exists() and (folder / "meta.json").exists():
+        folder = RECORD_DIR / f"{base_name}_{suffix}"
+        suffix += 1
     folder.mkdir(parents=True, exist_ok=True)
 
     video = folder / "video.mp4"
     chat_file = folder / "chat.jsonl"
+    sl_log = folder / "streamlink.log"
     meta = {
         "channel": CHANNEL,
         "title": stream.get("title"),
@@ -510,43 +586,61 @@ def record_session(stream: dict) -> None:
         "-o", str(video),
         "--force",
         "--twitch-disable-ads",
-        "--twitch-disable-hosting",
         *EXTRA_STREAMLINK_ARGS,
     ]
+    log_fh = sl_log.open("w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
+        stdout=log_fh,
         stderr=subprocess.STDOUT,
     )
+    _active_proc = proc
 
     try:
         proc.wait()
     finally:
+        _active_proc = None
+        log_fh.close()
         chat.stop()
         chat.join(timeout=10)
-        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
         started = datetime.fromisoformat(meta["record_started_at"].replace("Z", "+00:00"))
-        meta["duration_s"] = round((datetime.now(timezone.utc) - started).total_seconds())
-        if video.is_file():
+        duration_s = round((datetime.now(timezone.utc) - started).total_seconds())
+        has_video = video.is_file() and video.stat().st_size > 1024
+
+        if not has_video:
+            tail = ""
+            if sl_log.is_file():
+                try:
+                    tail = sl_log.read_text(encoding="utf-8", errors="replace").strip()[-400:]
+                except OSError:
+                    tail = ""
+            log(f"streamlink завершился без видео (код {proc.returncode})" + (f": {tail}" if tail else ""))
+            shutil.rmtree(folder, ignore_errors=True)
+            if not _stop_event.is_set():
+                _stop_event.wait(min(POLL_INTERVAL, 30))
+        else:
+            sl_log.unlink(missing_ok=True)
+            meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+            meta["duration_s"] = duration_s
             remux_mpegts_to_mp4(video)
             v_bytes = video.stat().st_size
             meta["size_bytes"] = v_bytes
             meta["size_label"] = _format_size(v_bytes)
-        if extract_vod_thumbnail(video, folder / "thumb.jpg", meta["duration_s"]):
-            meta["thumb_file"] = "thumb.jpg"
-        (folder / "meta.json").write_text(
-            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        log(f"запись завершена: {meta['duration_s']}с, чат: "
-            f"{chat_file.stat().st_size if chat_file.exists() else 0} байт")
+            if extract_vod_thumbnail(video, folder / "thumb.jpg", meta["duration_s"]):
+                meta["thumb_file"] = "thumb.jpg"
+            (folder / "meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            log(f"запись завершена: {meta['duration_s']}с, чат: "
+                f"{chat_file.stat().st_size if chat_file.exists() else 0} байт")
 
-        # 1) Telegram (нужен локальный файл) → 2) Drive (rclone move) → 3) ротация
-        if tg_configured():
-            upload_to_telegram(folder, meta)
-        if RCLONE_REMOTE:
-            upload_to_cloud(folder)
-        rotate_old_recordings()
+            # 1) Telegram (нужен локальный файл) → 2) Drive (rclone move) → 3) ротация
+            if tg_configured():
+                upload_to_telegram(folder, meta)
+            if RCLONE_REMOTE:
+                upload_to_cloud(folder)
+            rotate_old_recordings()
 
 
 # ----------------------------- главный цикл ----------------------------
@@ -557,6 +651,13 @@ _running = True
 def _sigterm(_sig, _frm):
     global _running
     _running = False
+    _stop_event.set()
+    proc = _active_proc
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
 
 
 def main() -> None:
@@ -568,7 +669,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _sigterm)
 
     log(f"слежу за twitch.tv/{CHANNEL}...")
-    while _running:
+    while _running and not _stop_event.is_set():
         stream = get_live_stream()
         if stream:
             rotate_old_recordings()
@@ -576,9 +677,9 @@ def main() -> None:
                 record_session(stream)
             except Exception as exc:  # noqa: BLE001
                 log(f"ошибка сессии: {exc}")
-                time.sleep(30)
+                _stop_event.wait(30)
         else:
-            time.sleep(POLL_INTERVAL)
+            _stop_event.wait(POLL_INTERVAL)
     log("остановлено")
 
 

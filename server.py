@@ -484,6 +484,9 @@ MIME = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
     ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
     ".jsonl": "application/x-ndjson; charset=utf-8",
 }
 
@@ -1085,7 +1088,12 @@ def cookie_header(request: Request, name: str, value: str, max_age: int, path: s
 
 
 def client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for") or ""
+    forwarded = (
+        request.headers.get("cf-connecting-ip")
+        or request.headers.get("x-real-ip")
+        or request.headers.get("x-forwarded-for")
+        or ""
+    )
     if forwarded:
         return forwarded.split(",")[0].strip()[:80]
     return request.client.host if request.client else "unknown"
@@ -1095,6 +1103,11 @@ def rate_limit(request: Request, name: str, limit: int = 60, period: int = 60) -
     key = f"{name}:{client_ip(request)}"
     now = time.time()
     with _rate_lock:
+        if len(_rate_buckets) > 2048:
+            cutoff = now - max(period, 300)
+            stale = [k for k, v in _rate_buckets.items() if not v or v[-1] <= cutoff]
+            for k in stale:
+                _rate_buckets.pop(k, None)
         bucket = [ts for ts in _rate_buckets.get(key, []) if ts > now - period]
         if len(bucket) >= limit:
             raise HTTPException(status_code=429, detail={"error": "rate_limited"})
@@ -1121,11 +1134,25 @@ def cached_api_get(key: str) -> tuple[int, dict[str, Any]] | None:
 
 
 def cached_api_set(key: str, ttl: float, status: int, payload: dict[str, Any]) -> None:
+    now = time.time()
     with _api_cache_lock:
-        _api_cache[key] = (time.time() + ttl, status, payload)
+        if len(_api_cache) > 512:
+            expired = [k for k, v in _api_cache.items() if v[0] <= now]
+            for k in expired:
+                _api_cache.pop(k, None)
+        _api_cache[key] = (now + ttl, status, payload)
 
 
 # ----------------------------- нормализация списков -----------------------------
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    if value is None or value == "" or isinstance(value, bool):
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 def clean_string_array(value: Any, max_items: int, max_text: int) -> list[str]:
@@ -1152,8 +1179,8 @@ def normalize_watchlist_item(item: Any) -> dict[str, Any] | None:
         "type": item_type,
         "status": status,
         "poster": clean_url(item.get("poster")),
-        "addedAt": int(item.get("addedAt") or now),
-        "updatedAt": int(item.get("updatedAt") or now),
+        "addedAt": _safe_int(item.get("addedAt"), now) or now,
+        "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
 
 
@@ -1181,9 +1208,9 @@ def normalize_gamelist_item(item: Any) -> dict[str, Any] | None:
         "cover": clean_url(item.get("cover")),
         "genres": clean_string_array(item.get("genres"), 5, 32),
         "platforms": clean_string_array(item.get("platforms"), 8, 32),
-        "category": int(item.get("category") or 0),
-        "addedAt": int(item.get("addedAt") or now),
-        "updatedAt": int(item.get("updatedAt") or now),
+        "category": max(0, _safe_int(item.get("category"), 0)),
+        "addedAt": _safe_int(item.get("addedAt"), now) or now,
+        "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
 
 
@@ -1212,8 +1239,8 @@ def normalize_setup_item(item: Any) -> dict[str, Any] | None:
         "note": text(item.get("note"), 300) or "",
         "link": clean_url(item.get("link")) or "",
         "sort": sort_value,
-        "addedAt": int(item.get("addedAt") or now),
-        "updatedAt": int(item.get("updatedAt") or now),
+        "addedAt": _safe_int(item.get("addedAt"), now) or now,
+        "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
 
 
@@ -1248,8 +1275,8 @@ def normalize_wishlist_item(item: Any) -> dict[str, Any] | None:
         "note": text(item.get("note"), 2000) or "",
         "link": clean_url(item.get("link")) or "",
         "image": clean_url(item.get("image")) or "",
-        "addedAt": int(item.get("addedAt") or now),
-        "updatedAt": int(item.get("updatedAt") or now),
+        "addedAt": _safe_int(item.get("addedAt"), now) or now,
+        "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
 
 
@@ -2047,13 +2074,20 @@ def discord_invite(request: Request, code: str = DISCORD_INVITE_CODE) -> JSONRes
 def safe_name(value: str) -> bool:
     if not value or len(value) > 200 or "\x00" in value:
         return False
-    if value in {".", ".."} or ".." in value or "/" in value or "\\" in value or value.startswith("."):
+    if (
+        value in {".", ".."}
+        or ".." in value
+        or "/" in value
+        or "\\" in value
+        or value.startswith((".", " "))
+        or value.endswith((".", " "))
+    ):
         return False
-    return re.fullmatch(r"[\w.-]+", value, flags=re.UNICODE) is not None
+    return re.fullmatch(r"[\w. -]+", value, flags=re.UNICODE) is not None
 
 
 def _vod_cache_stem(vod_id: str) -> str:
-    if re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", vod_id):
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", vod_id) and ".." not in vod_id:
         return vod_id
     prefix = re.sub(r"[^A-Za-z0-9_-]+", "_", vod_id)[:48].strip("_") or "vod"
     digest = hashlib.sha1(vod_id.encode("utf-8")).hexdigest()[:12]
@@ -2103,7 +2137,8 @@ def parse_drive_filename(raw_name: str, fallback_key: str) -> dict[str, str]:
     else:
         stamp_match = re.match(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})(?:[_-]+(.*))?$", clean)
         if stamp_match:
-            vod_id = re.sub(r"[^\w.-]+", "_", clean, flags=re.UNICODE).strip("._") or stamp_match.group(1)
+            sanitized = re.sub(r"\.{2,}", ".", re.sub(r"[^\w.-]+", "_", clean, flags=re.UNICODE)).strip("._ ")
+            vod_id = sanitized or stamp_match.group(1)
             slug_tail = (stamp_match.group(2) or "").replace("-", " ").replace("_", " ").strip()
             title = slug_tail or "Запись стрима"
         else:
@@ -2118,7 +2153,7 @@ def parse_drive_filename(raw_name: str, fallback_key: str) -> dict[str, str]:
 
 def parse_drive_folder_name(raw_folder_name: str, fallback_key: str) -> dict[str, str]:
     clean = html.unescape(raw_folder_name or "").strip()
-    sanitized_id = re.sub(r"[^\w.-]+", "_", clean, flags=re.UNICODE).strip("._")[:160]
+    sanitized_id = re.sub(r"\.{2,}", ".", re.sub(r"[^\w.-]+", "_", clean, flags=re.UNICODE)).strip("._ ")[:160]
     stamp_m = re.search(r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})", clean)
     if stamp_m:
         stamp = stamp_m.group(1)
@@ -2230,6 +2265,21 @@ def _list_gdrive_folder(folder_id: str) -> tuple[bool, list[dict[str, Any]]]:
         return False, []
 
 
+def _read_response_prefix(resp: requests.Response, max_bytes: int = 131072) -> str:
+    """Читает префикс тела ответа через iter_content (без необработанных urllib3-исключений)."""
+    buf = bytearray()
+    try:
+        for chunk in resp.iter_content(chunk_size=16384):
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            if len(buf) >= max_bytes:
+                break
+    except (requests.RequestException, OSError):
+        pass
+    return bytes(buf[:max_bytes]).decode("utf-8", errors="ignore")
+
+
 def _probe_gdrive_file_size(drive_id: str) -> int:
     """Определяет точный размер файла на Google Drive по 1-байтовому Range-запросу."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", drive_id):
@@ -2245,7 +2295,7 @@ def _probe_gdrive_file_size(drive_id: str) -> int:
         resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(3, 8))
         ctype = (resp.headers.get("content-type") or "").lower()
         if "text/html" in ctype:
-            sample = resp.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+            sample = _read_response_prefix(resp)
             resp.close()
             uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
             if not uuid_m:
@@ -2281,7 +2331,7 @@ def _download_gdrive_small_bytes(drive_id: str, max_bytes: int = 8 * 1024 * 1024
         resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(4, 15))
         ctype = (resp.headers.get("content-type") or "").lower()
         if "text/html" in ctype:
-            sample = resp.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+            sample = _read_response_prefix(resp)
             resp.close()
             uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
             if not uuid_m:
@@ -2306,7 +2356,7 @@ def _download_gdrive_small_bytes(drive_id: str, max_bytes: int = 8 * 1024 * 1024
             buf.write(chunk)
         resp.close()
         return buf.getvalue()
-    except requests.RequestException:
+    except (requests.RequestException, OSError):
         return None
     finally:
         session.close()
@@ -2377,9 +2427,8 @@ def _inspect_drive_vod_subfolder(
         not force
         and existing
         and existing.get("drive_id")
-        and existing.get("meta_drive_id")
-        and existing.get("chat_drive_id")
-        and existing.get("thumb_drive_id")
+        and existing.get("size_label")
+        and (existing.get("meta_drive_id") or existing.get("thumb_drive_id"))
     ):
         return None
 
@@ -2753,20 +2802,35 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
     if not video:
         return j({"error": "not found"}, 404)
     size = video.stat().st_size
+    media_type = MIME.get(video.suffix.lower(), "video/mp4")
     start, end = 0, max(0, size - 1)
-    range_header = request.headers.get("range")
+    range_header = (request.headers.get("range") or "").strip()
     status_code = 200
-    if range_header and size > 0:
-        try:
-            raw_range = range_header.replace("bytes=", "", 1)
-            start_s, _, end_s = raw_range.partition("-")
-            start = int(start_s) if start_s else 0
-            end = int(end_s) if end_s else size - 1
-        except Exception:
+    if range_header and range_header.lower().startswith("bytes="):
+        if size <= 0:
+            return j({"error": "range not satisfiable"}, 416, {"Content-Range": "bytes */0"})
+        raw_range = range_header[6:].strip()
+        if "," in raw_range or "-" not in raw_range:
             return j({"error": "bad range"}, 416, {"Content-Range": f"bytes */{size}"})
-        if start >= size or end < start:
-            return j({"error": "range not satisfiable"}, 416, {"Content-Range": f"bytes */{size}"})
-        end = min(end, size - 1)
+        start_s, _, end_s = raw_range.partition("-")
+        start_s, end_s = start_s.strip(), end_s.strip()
+        if not start_s and not end_s:
+            return j({"error": "bad range"}, 416, {"Content-Range": f"bytes */{size}"})
+        try:
+            if not start_s:
+                suffix_len = int(end_s)
+                if suffix_len <= 0:
+                    return j({"error": "range not satisfiable"}, 416, {"Content-Range": f"bytes */{size}"})
+                start = max(0, size - suffix_len)
+                end = size - 1
+            else:
+                start = int(start_s)
+                end = int(end_s) if end_s else size - 1
+                if start < 0 or start >= size or end < start:
+                    return j({"error": "range not satisfiable"}, 416, {"Content-Range": f"bytes */{size}"})
+                end = min(end, size - 1)
+        except ValueError:
+            return j({"error": "bad range"}, 416, {"Content-Range": f"bytes */{size}"})
         status_code = 206
     length = (end - start + 1) if size > 0 else 0
 
@@ -2775,7 +2839,7 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
 
     if request.method == "HEAD":
-        return Response(status_code=status_code, media_type="video/mp4", headers=headers)
+        return Response(status_code=status_code, media_type=media_type, headers=headers)
 
     def iterator():
         with video.open("rb") as fh:
@@ -2788,7 +2852,7 @@ def vod_video(vod_id: str, filename: str, request: Request) -> Response:
                 remaining -= len(chunk)
                 yield chunk
 
-    return StreamingResponse(iterator(), status_code=status_code, media_type="video/mp4", headers=headers)
+    return StreamingResponse(iterator(), status_code=status_code, media_type=media_type, headers=headers)
 
 
 _gdrive_uuid_cache: dict[str, tuple[float, str]] = {}
@@ -2879,7 +2943,7 @@ def _resolve_gdrive_direct_url(drive_id: str) -> str | None:
         with requests.get(base_url, params=params, headers=headers, stream=True, timeout=(3, 10)) as r:
             ctype = (r.headers.get("content-type") or "").lower()
             if "text/html" in ctype:
-                sample = r.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+                sample = _read_response_prefix(r)
                 uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
                 if uuid_m:
                     found_uuid = uuid_m.group(1)
@@ -2889,8 +2953,8 @@ def _resolve_gdrive_direct_url(drive_id: str) -> str | None:
                 return None
             if r.status_code in (200, 206):
                 return f"{base_url}?id={drive_id}&export=download&confirm=t"
-    except requests.RequestException:
-        _gdrive_unreachable_until = time.time() + 120
+    except (requests.RequestException, OSError):
+        _gdrive_unreachable_until = time.time() + 25
     return None
 
 
@@ -2976,9 +3040,8 @@ def vod_thumb(vod_id: str) -> Response:
                         if r.status_code == 200 and ctype.startswith("image/") and len(r.content) > 512:
                             if _atomic_write_bytes(cached_path, r.content):
                                 return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
-                    except requests.RequestException:
-                        _gdrive_unreachable_until = time.time() + 120
-                        break
+                    except (requests.RequestException, OSError):
+                        continue
 
     return j({"error": "thumb_unavailable"}, 404)
 
@@ -3072,9 +3135,19 @@ def vod_stream(vod_id: str, request: Request) -> Response:
         )
         ctype = (upstream.headers.get("content-type") or "").lower()
         if "text/html" in ctype:
-            html_Sample = upstream.raw.read(131072, decode_content=True).decode("utf-8", errors="ignore")
+            if cached_uuid:
+                with _gdrive_uuid_lock:
+                    _gdrive_uuid_cache.pop(drive_id, None)
+            html_sample = _read_response_prefix(upstream)
             upstream.close()
-            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', html_Sample)
+            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', html_sample)
+            if not uuid_m and request.method == "HEAD" and cached_uuid:
+                probe_params = {"id": drive_id, "export": "download", "confirm": "t"}
+                probe_headers = dict(req_headers)
+                probe_headers.setdefault("Range", "bytes=0-1023")
+                with session.get(base_url, params=probe_params, headers=probe_headers, stream=True, timeout=(4, 15)) as probe:
+                    if "text/html" in (probe.headers.get("content-type") or "").lower():
+                        uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', _read_response_prefix(probe))
             if uuid_m:
                 found_uuid = uuid_m.group(1)
                 with _gdrive_uuid_lock:
@@ -3094,7 +3167,7 @@ def vod_stream(vod_id: str, request: Request) -> Response:
             upstream.close()
             session.close()
             return j({"error": "upstream_unavailable"}, 502)
-    except requests.RequestException:
+    except (requests.RequestException, OSError):
         session.close()
         return j({"error": "upstream_unreachable"}, 502)
 
@@ -3127,7 +3200,10 @@ def vod_stream(vod_id: str, request: Request) -> Response:
 
 # ----------------------------- Статика -----------------------------
 
-STATIC_ALLOWED = {".html", ".css", ".js", ".xml", ".txt", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".mp4"}
+STATIC_ALLOWED = {
+    ".html", ".css", ".js", ".xml", ".txt", ".png", ".jpg", ".jpeg",
+    ".webp", ".svg", ".ico", ".mp4", ".webm", ".mkv", ".mov",
+}
 STATIC_EXACT_NAMES = {"CNAME"}
 STATIC_BLOCKED_ROOTS = {"data", "recorder", "vods", ".git", ".github", ".venv", "venv", "__pycache__"}
 
@@ -3136,8 +3212,20 @@ def resolve_static(full_path: str) -> Path | None:
     rel = (full_path or "").replace("\\", "/").lstrip("/")
     if not rel:
         rel = "index.html"
-    if rel.endswith("/"):
-        rel += "index.html"
+    elif rel.endswith("/"):
+        trimmed = rel.rstrip("/")
+        if trimmed and "." not in trimmed.split("/")[-1]:
+            candidate_html = (ROOT / (trimmed + ".html")).resolve()
+            try:
+                candidate_html.relative_to(ROOT)
+                if candidate_html.is_file():
+                    rel = trimmed + ".html"
+                else:
+                    rel += "index.html"
+            except Exception:
+                return None
+        else:
+            rel += "index.html"
     if not rel or rel.startswith("/") or ".." in rel.split("/"):
         return None
     parts = rel.split("/")
@@ -3161,8 +3249,8 @@ def resolve_static(full_path: str) -> Path | None:
     return path
 
 
-@app.get("/{full_path:path}")
-def static_file(full_path: str) -> Response:
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
+def static_file(full_path: str, request: Request) -> Response:
     path = resolve_static(full_path)
     if not path:
         return j({"error": "not found"}, 404)
@@ -3172,11 +3260,12 @@ def static_file(full_path: str) -> Response:
             body = path.read_text(encoding="utf-8").replace("__CSP_NONCE__", nonce)
         except UnicodeDecodeError:
             return FileResponse(path, media_type=MIME[".html"])
-        response = HTMLResponse(body)
-        response.headers["Cache-Control"] = "no-cache"
-        for key, value in security_headers(nonce).items():
-            response.headers[key] = value
-        return response
+        encoded = body.encode("utf-8")
+        headers = {"Cache-Control": "no-cache", "Content-Length": str(len(encoded))}
+        headers.update(security_headers(nonce))
+        if request.method == "HEAD":
+            return Response(status_code=200, media_type=MIME[".html"], headers=headers)
+        return Response(content=encoded, status_code=200, media_type=MIME[".html"], headers=headers)
     media_type = MIME.get(path.suffix.lower(), "text/plain; charset=utf-8")
     extra_headers = {"Cache-Control": "no-cache"} if path.suffix.lower() in {".css", ".js"} else None
     return FileResponse(path, media_type=media_type, headers=extra_headers)

@@ -102,7 +102,7 @@
                 return;
             }
             if (url.origin !== location.origin || url.pathname === location.pathname) return;
-            if (url.pathname.startsWith('/api/')) return;
+            if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/vods/')) return;
             const key = url.pathname + url.search;
             if (prefetchedUrls.has(key)) return;
             prefetchedUrls.add(key);
@@ -115,22 +115,36 @@
 
         document.addEventListener('pointerover', (e) => {
             const a = e.target.closest && e.target.closest('a[href]');
-            if (a && !a.target) prefetchHref(a.getAttribute('href'));
+            if (a && !a.target && !a.hasAttribute('download')) prefetchHref(a.getAttribute('href'));
         }, { passive: true });
         document.addEventListener('touchstart', (e) => {
             const a = e.target.closest && e.target.closest('a[href]');
-            if (a && !a.target) prefetchHref(a.getAttribute('href'));
+            if (a && !a.target && !a.hasAttribute('download')) prefetchHref(a.getAttribute('href'));
         }, { passive: true });
     }
 
     /* ---------- плавная смена фильтров / списков ---------- */
-    function smoothSwap(fn) {
+    function smoothSwap(targetOrFn, maybeFn) {
+        const fn = typeof targetOrFn === 'function' ? targetOrFn : maybeFn;
+        if (typeof fn !== 'function') return;
+        const explicitTarget = typeof targetOrFn === 'function' ? null : targetOrFn;
         const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (!reduced && typeof document.startViewTransition === 'function' && !document.hidden) {
+            const targetEl = explicitTarget || document.querySelector('#cards-grid, #game-list, #wish-list, #categories-container');
+            const root = document.documentElement;
+            root.classList.add('kf-swapping');
+            if (targetEl) targetEl.style.viewTransitionName = 'kf-swap-target';
             try {
-                document.startViewTransition(() => { fn(); });
+                const vt = document.startViewTransition(() => { fn(); });
+                Promise.resolve(vt.finished).catch(() => {}).finally(() => {
+                    root.classList.remove('kf-swapping');
+                    if (targetEl) targetEl.style.viewTransitionName = '';
+                });
                 return;
-            } catch {}
+            } catch {
+                root.classList.remove('kf-swapping');
+                if (targetEl) targetEl.style.viewTransitionName = '';
+            }
         }
         fn();
     }
@@ -325,6 +339,7 @@
         let vh = window.innerHeight || 1;
         let maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
         let ghostOffsets = [];
+        let kickFn = null;
 
         function measureLayout() {
             vh = window.innerHeight || 1;
@@ -334,7 +349,16 @@
                 const parent = el.parentElement;
                 return parent ? parent.getBoundingClientRect().top + sy : 0;
             });
-            if (smooth.target > maxScroll) smooth.target = maxScroll;
+            let clamped = false;
+            if (smooth.target > maxScroll) {
+                smooth.target = maxScroll;
+                clamped = true;
+            }
+            if (smooth.current > maxScroll) {
+                smooth.current = maxScroll;
+                clamped = true;
+            }
+            if (clamped && kickFn) kickFn();
         }
 
         if ('ResizeObserver' in window) {
@@ -361,9 +385,10 @@
             const upd = () => {
                 touchRaf = null;
                 const y = window.scrollY;
-                const rH = vh * 0.64;
-                if (railProgress) railProgress.style.transform = `translate3d(0, ${rH * (maxScroll > 0 ? y / maxScroll : 0)}px, 0)`;
+                const rH = Math.max(0, vh * 0.64 - 40);
+                if (railProgress) railProgress.style.transform = `translate3d(0, ${rH * (maxScroll > 0 ? Math.min(1, y / maxScroll) : 0)}px, 0)`;
             };
+            kickFn = upd;
             window.addEventListener('scroll', () => {
                 if (!touchRaf) touchRaf = requestAnimationFrame(upd);
             }, { passive: true });
@@ -429,6 +454,7 @@
                 raf = requestAnimationFrame(animate);
             }
         }
+        kickFn = kick;
 
         window.addEventListener('wheel', (e) => {
             if (e.ctrlKey || anyOverlayOpen()) return;
@@ -473,13 +499,20 @@
         document.querySelectorAll('a[href^="#"]').forEach((a) => {
             a.addEventListener('click', (e) => {
                 const href = a.getAttribute('href');
-                if (!href || href === '#' || href === '#top') {
+                if (!href || !href.startsWith('#')) return;
+                if (href === '#' || href === '#top') {
                     e.preventDefault();
                     smooth.target = 0;
                     kick();
                     return;
                 }
-                const targetEl = document.querySelector(href);
+                let targetEl = null;
+                try {
+                    targetEl = document.getElementById(decodeURIComponent(href.slice(1)));
+                } catch {}
+                if (!targetEl) {
+                    try { targetEl = document.querySelector(href); } catch {}
+                }
                 if (!targetEl) return;
                 e.preventDefault();
                 measureLayout();
@@ -544,8 +577,12 @@
         const errBox = document.getElementById('admin-login-error');
 
         function apply(next) {
+            const wasActive = active;
             active = Boolean(next);
             document.body.classList.toggle('is-admin', active);
+            if (!active && wasActive) {
+                ['modal-add', 'modal-game', 'modal-item', 'modal-wish'].forEach((id) => closeModal(id));
+            }
             if (lockBtn) {
                 lockBtn.classList.toggle('is-admin-active', active);
                 const label = active ? 'Выйти из режима администратора' : 'Войти в режим администратора';

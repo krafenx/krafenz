@@ -357,7 +357,7 @@
             function safeUrl(v) {
                 try {
                     const u = new URL(String(v || '').trim());
-                    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : '';
+                    return u.protocol === 'https:' ? u.toString() : '';
                 } catch {
                     return '';
                 }
@@ -382,7 +382,7 @@
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.error || 'fetch_failed');
                     listRevision = safeRevision(data.revision);
-                    list = Array.isArray(data.items) && data.items.length
+                    list = Array.isArray(data.items) && (data.items.length || listRevision > 0)
                         ? data.items
                         : DEFAULT_ITEMS.map((item) => ({ ...item }));
                 } catch {
@@ -416,6 +416,10 @@
                             if (res.status === 401) {
                                 admin.setAdmin(false);
                                 saveQueued = false;
+                                setSaveIndicator('error', 'сессия истекла');
+                                toast('Сессия администратора истекла — войдите снова', '#fca5a5');
+                                fetchSetup();
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
                                 return;
                             }
                             if (res.status === 409 && Array.isArray(data.items)) {
@@ -528,6 +532,7 @@
             }
 
             function saveItem() {
+                if (!admin.isAdmin()) return;
                 const name = document.getElementById('name-input').value.trim();
                 const category = document.getElementById('category-input').value.trim() || (ICONS[currentIcon]?.label || 'Устройство');
                 const rawLink = document.getElementById('link-input').value.trim();
@@ -563,6 +568,7 @@
             }
 
             function deleteItem() {
+                if (!admin.isAdmin()) return;
                 const item = list.find((i) => i.id === editingId);
                 if (!item) return;
                 if (!confirm(`Удалить «${item.name}»?`)) return;

@@ -22,7 +22,6 @@
     --font-mono: "JetBrains Mono", monospace;
     --ease: cubic-bezier(.16, 1, .3, 1);
     --ease-soft: cubic-bezier(.22, .8, .24, 1);
-    color-scheme: dark;
 }
 
 @view-transition {
@@ -41,6 +40,16 @@
 ::view-transition-new(root) {
     animation: kf-vt-in .32s cubic-bezier(.16, 1, .3, 1) both;
 }
+html.kf-swapping::view-transition-old(root),
+html.kf-swapping::view-transition-new(root) {
+    animation: none;
+}
+::view-transition-old(kf-swap-target) {
+    animation: kf-swap-out .15s cubic-bezier(.4, 0, .2, 1) both;
+}
+::view-transition-new(kf-swap-target) {
+    animation: kf-swap-in .22s cubic-bezier(.16, 1, .3, 1) both;
+}
 @keyframes kf-vt-out {
     from { opacity: 1; transform: translate3d(0, 0, 0); }
     to   { opacity: 0; transform: translate3d(0, -8px, 0); }
@@ -49,9 +58,19 @@
     from { opacity: 0; transform: translate3d(0, 10px, 0); }
     to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
+@keyframes kf-swap-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+@keyframes kf-swap-in {
+    from { opacity: 0; transform: translate3d(0, 5px, 0); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
 @media (prefers-reduced-motion: reduce) {
     ::view-transition-old(root),
-    ::view-transition-new(root) {
+    ::view-transition-new(root),
+    ::view-transition-old(kf-swap-target),
+    ::view-transition-new(kf-swap-target) {
         animation-duration: .01ms !important;
     }
 }

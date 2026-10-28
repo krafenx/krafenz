@@ -474,9 +474,13 @@
             const onlineCurrentBpEl = document.getElementById('online-current-bp');
             const onlineBpCounterEl = document.getElementById('online-bp-counter');
 
+            const VALID_TASK_IDS = new Set(TASKS_DATA.map((t) => t.id));
+
             function playNotificationSound() {
                 try {
-                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioCtx) return;
+                    const ctx = new AudioCtx();
                     const beep = (delay, freq, duration) => {
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
@@ -492,6 +496,9 @@
                     beep(0, 523.25, 0.5);
                     beep(0.2, 659.25, 0.5);
                     beep(0.4, 783.99, 0.8);
+                    setTimeout(() => {
+                        try { ctx.close(); } catch {}
+                    }, 1500);
                 } catch {}
             }
 
@@ -515,7 +522,10 @@
                     state.isVip = Boolean(parsed.isVip);
                     state.isX2 = Boolean(parsed.isX2);
                     state.onlineHours = Math.max(0, Math.min(24, Number(parsed.onlineHours) || 0));
-                    state.completedTasks = new Set(Array.isArray(parsed.completedTasks) ? parsed.completedTasks : []);
+                    const savedIds = Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [];
+                    state.completedTasks = new Set(
+                        savedIds.map((id) => Number(id)).filter((id) => VALID_TASK_IDS.has(id))
+                    );
 
                     if (parsed.timers && typeof parsed.timers === 'object') {
                         CLUBS_DATA.forEach((club) => {
