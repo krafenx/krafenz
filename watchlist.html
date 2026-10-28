@@ -4,1063 +4,650 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>krafen / watchlist</title>
-    <meta name="description" content="Список аниме, фильмов и сериалов krafen">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
+    <meta name="description" content="Список аниме, фильмов и сериалов krafen.">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
     <style nonce="__CSP_NONCE__">
-        :root {
-            --bg: #050505;
-            --card: rgba(20, 20, 20, 0.6);
-            --accent: #5b2333;
-            --accent-light: #f7f4f3;
-            --accent-gradient: linear-gradient(135deg, var(--accent-light), #5b2333);
-            --accent-soft: linear-gradient(135deg, rgba(247,244,243,0.12), rgba(91,35,51,0.28));
-            --border: rgba(255,255,255,0.05);
-        }
-
-        *, *::before, *::after { box-sizing: border-box; }
-        html { width: 100%; overflow-x: hidden; }
-        body {
-            background-color: var(--bg);
-            font-family: 'JetBrains Mono', monospace;
-            color: #efefef;
-            min-height: 100vh;
-            margin: 0;
-            overflow-x: hidden;
-        }
-        body > .max-w-6xl {
-            width: calc(100vw - 3rem);
-            max-width: 90rem;
-        }
-        @media (min-width: 768px) {
-            body > .max-w-6xl { width: calc(100vw - 6rem); }
-        }
-
-        .glass {
-            background: var(--card);
+        .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+        .stat-chip {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 7px 15px; border-radius: 999px;
+            background: var(--glass); border: 1px solid var(--glass-border);
             backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 1.5rem;
-            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--silver);
         }
-        .glass:hover {
-            border-color: var(--accent);
-            box-shadow: 0 0 30px rgba(91,35,51,0.25);
-        }
-        .bg-blue-500, .animate-pulse.bg-blue-500 { background: var(--accent-gradient) !important; }
-        .bg-blue-500\/10 { background: var(--accent-soft) !important; }
-        .hover\:bg-blue-500\/20:hover { background: linear-gradient(135deg,rgba(247,244,243,.18),rgba(91,35,51,.38)) !important; }
-        .text-blue-300, .text-blue-400, .text-blue-500 {
-            background: var(--accent-gradient);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent !important;
-        }
-        .bg-blue-500\/10.text-blue-300 {
-            background: var(--accent-soft) !important;
-            -webkit-background-clip: border-box;
-            background-clip: border-box;
-            color: var(--accent-light) !important;
-        }
-        .border-blue-500\/30, .hover\:border-blue-500\/30:hover {
-            border-color: rgba(91,35,51,0.7) !important;
-        }
+        .stat-chip strong { font-family: var(--font-mono); color: #fff; font-size: 12px; }
+        .stat-chip.watched { border-color: rgba(34, 197, 94, .32); color: #bbf7d0; }
+        .stat-chip.dropped { border-color: rgba(163, 19, 19, .45); color: #fecaca; }
 
-        .admin-only { display: none !important; }
-        body.is-admin .admin-only { display: flex !important; }
-        #admin-bar {
-            display: none;
-            align-items: center;
-            justify-content: flex-start;
-            flex-wrap: wrap;
-            gap: 0.5rem 1rem;
-            width: fit-content;
-            max-width: 100%;
-            margin: 0 auto 1rem;
-            padding: 0.4rem 0.7rem;
-            border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-            border-radius: 0.85rem;
-            background: var(--accent-soft);
-            color: var(--accent-light);
-            font-size: 10px;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
+        .filter-panel { padding: 22px 24px; margin-bottom: 28px; display: flex; flex-direction: column; gap: 16px; }
+        .filter-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+        .filter-label {
+            width: 68px; flex-shrink: 0;
+            font-size: 9px; letter-spacing: .26em; text-transform: uppercase; color: var(--silver-dim);
         }
-        body.is-admin #admin-bar { display: flex; }
-        .stat-pill-watched { color: #22c55e; border-color: rgba(34,197,94,0.3); }
-        .stat-pill-dropped { color: #ef4444; border-color: rgba(239,68,68,0.3); }
-
-        .filter-btn {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.18em;
-            padding: 0.3rem 0.8rem;
-            border-radius: 9999px;
-            border: 1px solid rgba(255,255,255,0.1);
-            background: transparent;
-            color: rgba(255,255,255,0.35);
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-        .filter-btn:hover { border-color: rgba(91,35,51,0.5); color: rgba(255,255,255,0.65); }
-        .filter-btn.active { background: var(--accent-soft); border-color: rgba(91,35,51,0.7); color: var(--accent-light); }
+        .filter-group { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
 
         .cards-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 1rem;
-        }
-        @media (max-width: 480px) {
-            .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            grid-template-columns: repeat(auto-fill, minmax(182px, 1fr));
+            gap: 18px;
         }
         .media-card {
-            background: var(--card);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 1rem;
+            position: relative;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
             overflow: hidden;
-            transition: all 0.3s ease;
+            backdrop-filter: blur(14px);
+            transition: border-color .4s var(--ease), transform .4s var(--ease), box-shadow .4s var(--ease);
         }
         .media-card:hover {
-            border-color: var(--accent);
-            box-shadow: 0 0 24px rgba(91,35,51,0.3);
-            transform: translateY(-2px);
+            border-color: rgba(163, 19, 19, .45);
+            transform: translateY(-4px);
+            box-shadow: 0 24px 56px rgba(0, 0, 0, .75);
         }
         .poster-wrap {
             position: relative;
             aspect-ratio: 2 / 3;
             overflow: hidden;
-            background: rgba(255,255,255,0.03);
+            background:
+                radial-gradient(60% 80% at 50% 100%, rgba(124, 10, 10, .2), transparent 70%),
+                linear-gradient(180deg, #0e0e12, #070709);
         }
         .poster-wrap img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-            transition: transform 0.4s ease;
+            width: 100%; height: 100%; object-fit: cover; display: block;
+            transition: transform .55s var(--ease);
         }
-        .media-card:hover .poster-wrap img { transform: scale(1.04); }
+        .media-card:hover .poster-wrap img { transform: scale(1.045); }
         .no-poster {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            opacity: 0.22;
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--font-display); font-size: 28px; letter-spacing: .08em;
+            color: rgba(160, 160, 160, .3); text-transform: uppercase;
         }
         .card-overlay {
-            position: absolute;
-            inset: 0;
-            background: color-mix(in srgb, var(--bg) 58%, transparent);
-            -webkit-backdrop-filter: blur(7px) saturate(0.82);
-            backdrop-filter: blur(7px) saturate(0.82);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            padding: 0.75rem;
-            opacity: 0;
-            transition: opacity 0.2s ease;
-            pointer-events: none;
+            position: absolute; inset: 0;
+            background: rgba(5, 5, 5, .82);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            display: flex; flex-direction: column; justify-content: center; gap: 7px;
+            padding: 14px;
+            opacity: 0; pointer-events: none;
+            transition: opacity .25s var(--ease);
         }
-        body.is-admin .media-card:hover .card-overlay {
-            opacity: 1;
-            pointer-events: all;
+        body.is-admin .media-card:hover .card-overlay,
+        body.is-admin .media-card:focus-within .card-overlay {
+            opacity: 1; pointer-events: auto;
         }
         .ov-btn {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            width: 100%;
-            padding: 6px 10px;
-            border-radius: 9999px;
-            border: 1px solid;
-            background: color-mix(in srgb, var(--bg) 68%, transparent);
-            -webkit-backdrop-filter: blur(4px);
-            backdrop-filter: blur(4px);
-            cursor: pointer;
-            transition: all 0.15s ease;
-            white-space: nowrap;
+            width: 100%; padding: 8px 10px; border-radius: 999px;
+            font-family: var(--font-sans); font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+            background: rgba(12, 12, 15, .85); border: 1px solid rgba(160, 160, 160, .24);
+            color: var(--silver-bright); cursor: pointer; transition: all .2s var(--ease);
         }
-        .ov-watched { color: #22c55e; border-color: rgba(34,197,94,0.4); }
-        .ov-watched:hover { background: rgba(34,197,94,0.15); }
-        .ov-planned { color: var(--accent-light); border-color: rgba(247,244,243,0.22); }
-        .ov-planned:hover { background: rgba(247,244,243,0.07); }
-        .ov-dropped { color: #ef4444; border-color: rgba(239,68,68,0.4); }
-        .ov-dropped:hover { background: rgba(239,68,68,0.15); }
-        .ov-remove { color: rgba(255,255,255,0.28); border-color: rgba(255,255,255,0.08); margin-top: 3px; }
-        .ov-remove:hover { color: #ef4444; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.1); }
+        .ov-btn.watched { color: #86efac; border-color: rgba(34, 197, 94, .4); }
+        .ov-btn.watched:hover { background: rgba(22, 163, 74, .22); color: #fff; }
+        .ov-btn.planned { color: var(--silver-bright); border-color: rgba(160, 160, 160, .35); }
+        .ov-btn.planned:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+        .ov-btn.dropped { color: #fca5a5; border-color: rgba(239, 68, 68, .4); }
+        .ov-btn.dropped:hover { background: rgba(124, 10, 10, .38); color: #fff; }
+        .ov-btn.remove { margin-top: 4px; color: var(--silver-dim); border-color: rgba(160, 160, 160, .14); }
+        .ov-btn.remove:hover { color: #fca5a5; border-color: rgba(239, 68, 68, .45); background: rgba(124, 10, 10, .28); }
 
-        .card-info { padding: 0.55rem 0.7rem 0.7rem; }
+        .card-info { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
         .card-title {
-            font-size: 11px;
-            font-weight: 700;
-            color: #efefef;
-            line-height: 1.35;
-            margin-bottom: 4px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            font-family: var(--font-heading); font-size: 17px; color: #fff; line-height: 1.28;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
-        .card-meta { display: flex; gap: 5px; align-items: center; margin-bottom: 5px; flex-wrap: wrap; }
-        .meta-year { font-size: 9px; opacity: 0.35; }
-        .meta-type {
-            font-size: 7.5px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            padding: 1px 6px;
-            border-radius: 9999px;
-            border: 1px solid rgba(255,255,255,0.08);
-            opacity: 0.45;
+        .card-meta {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--silver-dim);
         }
-        .status-badge {
-            font-size: 7.5px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            padding: 2px 8px;
-            border-radius: 9999px;
-            border: 1px solid;
-            display: inline-block;
-        }
-        .status-watched { color: #22c55e; border-color: rgba(34,197,94,0.35); }
-        .status-planned { color: var(--accent-light); border-color: rgba(247,244,243,0.22); }
-        .status-dropped { color: #ef4444; border-color: rgba(239,68,68,0.35); }
+        .card-meta .year { font-family: var(--font-mono); }
 
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(5,5,5,0.82);
-            backdrop-filter: blur(8px);
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.2s ease;
+        /* Результаты поиска */
+        .search-item {
+            display: grid; grid-template-columns: 46px minmax(0, 1fr) auto;
+            gap: 14px; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid var(--line);
         }
-        .modal-overlay.open { opacity: 1; pointer-events: all; }
-        .modal-box {
-            background: rgba(12,12,12,0.99);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 1.5rem;
-            width: 100%;
-            max-width: 560px;
-            max-height: 84vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            transform: scale(0.96) translateY(12px);
-            transition: transform 0.22s ease;
+        .search-item:last-child { border-bottom: none; }
+        .search-poster {
+            width: 46px; height: 68px; border-radius: 8px; overflow: hidden;
+            background: rgba(255, 255, 255, .04); border: 1px solid var(--glass-border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: var(--silver-dim);
         }
-        .modal-overlay.open .modal-box { transform: scale(1) translateY(0); }
-        .modal-header {
-            padding: 1.25rem 1.5rem 1rem;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 1rem;
-            flex-shrink: 0;
+        .search-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .search-title { font-family: var(--font-heading); font-size: 17px; color: #fff; line-height: 1.25; }
+        .search-sub { margin-top: 4px; font-size: 11px; color: var(--silver-dim); }
+        .search-actions { display: flex; flex-direction: column; gap: 5px; }
+        .add-mini {
+            padding: 5px 11px; border-radius: 999px;
+            font-family: var(--font-sans); font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+            background: transparent; border: 1px solid rgba(160, 160, 160, .24);
+            color: var(--silver-bright); cursor: pointer; transition: all .2s var(--ease);
         }
-        .modal-body { overflow-y: auto; flex: 1; padding: 1.1rem 1.5rem 1.5rem; }
-        .modal-close {
-            background: none;
-            border: none;
-            color: rgba(255,255,255,0.25);
-            cursor: pointer;
-            font-size: 16px;
-            font-family: 'JetBrains Mono', monospace;
-            padding: 0;
-            line-height: 1;
-            margin-top: 2px;
-            transition: color 0.15s ease;
-            flex-shrink: 0;
+        .add-mini.watched { color: #86efac; border-color: rgba(34, 197, 94, .4); }
+        .add-mini.watched:hover { background: rgba(22, 163, 74, .2); color: #fff; }
+        .add-mini.planned:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+        .add-mini.dropped { color: #fca5a5; border-color: rgba(239, 68, 68, .4); }
+        .add-mini.dropped:hover { background: rgba(124, 10, 10, .3); color: #fff; }
+
+        @media (max-width: 620px) {
+            .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .filter-label { width: 100%; }
         }
-        .modal-close:hover { color: #efefef; }
-        .kf-input {
-            width: 100%;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.09);
-            border-radius: 0.75rem;
-            padding: 0.6rem 1rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: #efefef;
-            outline: none;
-            transition: border-color 0.2s ease;
-        }
-        .kf-input::placeholder { color: rgba(255,255,255,0.2); }
-        .kf-input:focus { border-color: rgba(91,35,51,0.65); }
-        .search-result {
-            display: flex;
-            gap: 0.7rem;
-            align-items: center;
-            padding: 0.6rem 0;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-        .search-result:last-child { border-bottom: none; }
-        .result-poster {
-            width: 38px;
-            height: 57px;
-            flex-shrink: 0;
-            border-radius: 5px;
-            overflow: hidden;
-            background: rgba(255,255,255,0.04);
-        }
-        .result-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .result-no-poster {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 7px;
-            opacity: 0.25;
-        }
-        .result-info { flex: 1; min-width: 0; }
-        .result-title { font-size: 11px; font-weight: 700; line-height: 1.3; margin-bottom: 2px; color: #efefef; }
-        .result-orig, .result-year { font-size: 9px; opacity: 0.35; }
-        .result-actions { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
-        .add-btn {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 7.5px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            padding: 3px 9px;
-            border-radius: 9999px;
-            border: 1px solid;
-            background: transparent;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: all 0.15s ease;
-        }
-        .add-watched { color: #22c55e; border-color: rgba(34,197,94,0.38); }
-        .add-watched:hover { background: rgba(34,197,94,0.14); }
-        .add-planned { color: var(--accent-light); border-color: rgba(247,244,243,0.18); }
-        .add-planned:hover { background: rgba(247,244,243,0.06); }
-        .add-dropped { color: #ef4444; border-color: rgba(239,68,68,0.38); }
-        .add-dropped:hover { background: rgba(239,68,68,0.14); }
-        .info-box, .warn-box {
-            font-size: 10px;
-            line-height: 1.5;
-            border-radius: 0.75rem;
-            padding: 0.6rem 1rem;
-            margin-bottom: 0.75rem;
-        }
-        .info-box {
-            background: rgba(91,35,51,0.12);
-            border: 1px solid rgba(91,35,51,0.3);
-            color: rgba(247,244,243,0.65);
-        }
-        .warn-box {
-            background: rgba(239,68,68,0.06);
-            border: 1px solid rgba(239,68,68,0.18);
-            color: rgba(239,68,68,0.75);
-        }
-        .spinner {
-            width: 18px;
-            height: 18px;
-            border: 2px solid rgba(255,255,255,0.08);
-            border-top-color: var(--accent-light);
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-            margin: 1.25rem auto;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .skeleton-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 1rem;
-            overflow: hidden;
-        }
-        .skeleton-poster { aspect-ratio: 2 / 3; background: rgba(255,255,255,0.04); }
-        .skeleton-info { padding: 0.6rem 0.7rem 0.75rem; }
-        .skeleton-line {
-            height: 8px;
-            border-radius: 4px;
-            background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.07), rgba(255,255,255,0.04));
-            background-size: 200% 100%;
-            animation: shimmer 1.8s infinite;
-        }
-        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-        .empty-state { text-align: center; padding: 5rem 2rem; }
-        .empty-icon { font-size: 2.5rem; margin-bottom: 1rem; opacity: 0.45; }
-        .empty-text { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; opacity: 0.28; }
-        #lock-btn {
-            position: fixed;
-            bottom: 1.5rem;
-            right: 1.5rem;
-            z-index: 50;
-            width: 36px;
-            height: 36px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(255,255,255,0.45);
-            font-size: 14px;
-            opacity: 0.35;
-            transition: all 0.2s ease;
-        }
-        #lock-btn:hover { opacity: 0.75; border-color: rgba(91,35,51,0.5); background: rgba(91,35,51,0.12); }
-        body.is-admin #lock-btn { opacity: 0.75; border-color: rgba(91,35,51,0.5); }
-        .toast {
-            position: fixed;
-            bottom: 1.5rem;
-            left: 50%;
-            transform: translateX(-50%) translateY(16px);
-            background: rgba(12,12,12,0.97);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 0.75rem;
-            padding: 0.6rem 1.1rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            white-space: nowrap;
-            pointer-events: none;
-            opacity: 0;
-            transition: all 0.25s ease;
-            z-index: 200;
-        }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        #save-indicator {
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        #save-indicator.saving, #save-indicator.saved, #save-indicator.error { opacity: 0.75; }
-        #save-indicator.saving { color: var(--accent-light); }
-        #save-indicator.saved { color: #22c55e; }
-        #save-indicator.error { color: #ef4444; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(91,35,51,0.4); border-radius: 2px; }
     </style>
-    <link rel="stylesheet" href="/styles/themes.css?v=20261009-5">
-    <script nonce="__CSP_NONCE__" src="/styles/themes.js?v=20261009-3" defer></script>
-    <link rel="stylesheet" href="/styles/krafen-unified.css?v=20261028-1">
-    <script src="/styles/krafen-unified.js?v=20261028-1" defer></script>
+    <script nonce="__CSP_NONCE__" src="/app.js" defer></script>
 </head>
-<body class="p-6 md:p-12">
-    <div class="max-w-6xl mx-auto">
-        <div class="flex items-start justify-between gap-4 mb-8">
-            <div>
-                <a href="index.html" class="text-[10px] uppercase tracking-[0.22em] opacity-25 hover:opacity-60 transition-opacity">&larr; home</a>
-                <h1 class="text-4xl font-bold tracking-tighter text-white mt-2">watchlist</h1>
-                <p class="text-[10px] uppercase tracking-[0.22em] opacity-30 mt-1">аниме · фильмы · сериалы</p>
+<body>
+    <div id="glow"></div>
+    <canvas id="rain"></canvas>
+    <div class="fog"></div>
+    <div class="fog f2"></div>
+    <div id="flash"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+
+    <nav class="topnav" aria-label="Навигация по сайту">
+        <a class="brand" href="/">kra<em>fen</em></a>
+        <div class="links">
+            <a href="/">Главная</a>
+            <a class="active" href="/watchlist">Watchlist</a>
+            <a href="/gamelist">Gamelist</a>
+            <a href="/setup">Setup</a>
+            <a href="/wishlist">Wishlist</a>
+            <a href="/tasks">Tasks</a>
+            <a href="/danonsha">danonsha</a>
+        </div>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Меню</button>
+    </nav>
+
+    <div class="mobile-nav" id="mobile-nav" aria-label="Мобильное меню">
+        <button class="mobile-nav-close" type="button" aria-label="Закрыть меню">✕</button>
+        <a href="/">Главная</a>
+        <a class="active" href="/watchlist">Watchlist</a>
+        <a href="/gamelist">Gamelist</a>
+        <a href="/setup">Setup</a>
+        <a href="/wishlist">Wishlist</a>
+        <a href="/tasks">Tasks</a>
+        <a href="/danonsha">danonsha</a>
+    </div>
+
+    <main id="top">
+        <section class="page-section">
+            <div class="ghost">01</div>
+
+            <div class="page-header-row reveal">
+                <div>
+                    <div class="sec-eyebrow">01 / коллекция тайтлов</div>
+                    <h1 class="page-display">watch<span class="grad">list</span></h1>
+                    <p class="page-tagline">Аниме, фильмы и сериалы — <em>личный архив просмотренного</em> и отложенного на вечер.</p>
+                </div>
+                <div class="page-header-actions">
+                    <span id="save-indicator" class="save-indicator"></span>
+                    <button id="add-btn" class="btn-primary sm admin-only" type="button">+ Добавить тайтл</button>
+                </div>
             </div>
-            <div class="flex flex-col items-end gap-2 mt-7">
-                <button id="add-btn" class="admin-only flex-shrink-0 items-center gap-2 rounded-full bg-blue-500/10 px-4 py-2 text-[10px] uppercase tracking-[0.18em] text-blue-300 border border-blue-500/30 hover:bg-blue-500/20 transition-all">
-                    + добавить
-                </button>
-                <span id="save-indicator"></span>
+
+            <div class="admin-bar" id="admin-bar">
+                <span class="admin-dot"></span>
+                <span>режим администратора</span>
+                <a href="/api/spotify/auth" class="btn-action">подключить Spotify</a>
+                <button id="admin-logout-btn" class="btn-action" type="button">выйти</button>
             </div>
-        </div>
 
-        <div id="admin-bar">
-            <span>admin mode</span>
-            <a href="/api/spotify/auth" class="pill-btn">подключить Spotify</a>
-            <button id="admin-logout-btn" class="pill-btn" type="button">
-                выйти
-            </button>
-        </div>
+            <div id="setup-warn" class="warn-box hidden">
+                Не удалось загрузить данные с сервера. Проверьте работу <code>server.py</code>.
+            </div>
 
-        <div class="flex gap-2 flex-wrap mb-6" id="stats-row"></div>
+            <div class="stats-bar reveal" id="stats-row" style="--d:.06s;"></div>
 
-        <div id="setup-warn" class="warn-box hidden">
-            Cloudflare KV или переменные окружения пока не настроены.
-        </div>
-
-        <div class="glass p-4 mb-6">
-            <div class="flex flex-col gap-3">
-                <div class="flex items-center gap-3 flex-wrap">
-                    <span class="text-[10px] uppercase tracking-[0.2em] opacity-35 w-11 flex-shrink-0">тип</span>
-                    <div class="flex gap-2 flex-wrap" id="type-filters">
-                        <button class="filter-btn active" data-type="all">все</button>
-                        <button class="filter-btn" data-type="anime">аниме</button>
-                        <button class="filter-btn" data-type="movie">фильмы</button>
-                        <button class="filter-btn" data-type="series">сериалы</button>
+            <div class="glass no-lift filter-panel reveal" style="--d:.12s;">
+                <div class="filter-line">
+                    <span class="filter-label">Тип</span>
+                    <div class="filter-group" id="type-filters">
+                        <button class="filter-pill active" type="button" data-type="all">Все</button>
+                        <button class="filter-pill" type="button" data-type="anime">Аниме</button>
+                        <button class="filter-pill" type="button" data-type="movie">Фильмы</button>
+                        <button class="filter-pill" type="button" data-type="series">Сериалы</button>
                     </div>
                 </div>
-                <div class="flex items-center gap-3 flex-wrap">
-                    <span class="text-[10px] uppercase tracking-[0.2em] opacity-35 w-11 flex-shrink-0">статус</span>
-                    <div class="flex gap-2 flex-wrap" id="status-filters">
-                        <button class="filter-btn active" data-status="all">все</button>
-                        <button class="filter-btn" data-status="watched">просмотрено</button>
-                        <button class="filter-btn" data-status="planned">планирую</button>
-                        <button class="filter-btn" data-status="dropped">брошено</button>
+                <div class="filter-line">
+                    <span class="filter-label">Статус</span>
+                    <div class="filter-group" id="status-filters">
+                        <button class="filter-pill active" type="button" data-status="all">Все</button>
+                        <button class="filter-pill" type="button" data-status="watched">Просмотрено</button>
+                        <button class="filter-pill" type="button" data-status="planned">Планирую</button>
+                        <button class="filter-pill" type="button" data-status="dropped">Брошено</button>
+                    </div>
+                </div>
+                <div class="filter-line">
+                    <span class="filter-label">Поиск</span>
+                    <div class="filter-group">
+                        <input id="local-search" class="kf-input" type="search" placeholder="Фильтр по названию в списке…" autocomplete="off">
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div id="loading-state" class="cards-grid">
-            <div class="skeleton-card"><div class="skeleton-poster"></div><div class="skeleton-info"><div class="skeleton-line mb-2"></div><div class="skeleton-line w-1/2"></div></div></div>
-            <div class="skeleton-card"><div class="skeleton-poster"></div><div class="skeleton-info"><div class="skeleton-line mb-2"></div><div class="skeleton-line w-1/2"></div></div></div>
-            <div class="skeleton-card"><div class="skeleton-poster"></div><div class="skeleton-info"><div class="skeleton-line mb-2"></div><div class="skeleton-line w-1/2"></div></div></div>
-            <div class="skeleton-card"><div class="skeleton-poster"></div><div class="skeleton-info"><div class="skeleton-line mb-2"></div><div class="skeleton-line w-1/2"></div></div></div>
-        </div>
-
-        <div id="cards-grid" class="cards-grid hidden"></div>
-
-        <div id="empty-state" class="empty-state hidden">
-            <div class="empty-icon">...</div>
-            <div class="empty-text">список пуст</div>
-            <div id="empty-hint" class="text-[10px] uppercase tracking-[0.18em] opacity-20 mt-2">скоро появится что-нибудь интересное</div>
-        </div>
-    </div>
-
-    <button id="lock-btn" type="button" title="Войти в режим администратора" aria-label="Войти в режим администратора">
-        <svg class="admin-lock__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.75a4.5 4.5 0 0 1 9 0V10"/><rect x="5.25" y="10" width="13.5" height="10" rx="2.25"/><path d="M12 14.25v2.25"/></svg>
-    </button>
-
-    <div class="modal-overlay" id="modal-add">
-        <div class="modal-box">
-            <div class="modal-header">
-                <div>
-                    <div class="text-[10px] uppercase tracking-[0.22em] opacity-30 mb-1">add title</div>
-                    <h2 class="text-xl font-bold tracking-tight">добавить в список</h2>
-                </div>
-                <button class="modal-close" data-close-modal="modal-add">x</button>
+            <div id="loading-state" class="cards-grid">
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
             </div>
-            <div class="modal-body">
-                <div class="info-box">
-                    Фильмы и сериалы ищутся через серверный TMDB-прокси, аниме через Shikimori.
-                </div>
-                <div class="flex gap-2 mb-4 flex-wrap">
-                    <button class="filter-btn active" data-modal-type="movie">фильм</button>
-                    <button class="filter-btn" data-modal-type="series">сериал</button>
-                    <button class="filter-btn" data-modal-type="anime">аниме</button>
-                </div>
-                <input type="search" id="search-input" class="kf-input mb-3" placeholder="начни вводить название..." autocomplete="off">
-                <div id="search-results"></div>
-            </div>
-        </div>
-    </div>
 
-    <div class="modal-overlay" id="modal-admin">
-        <div class="modal-box">
-            <div class="modal-header">
-                <div>
-                    <div class="text-[10px] uppercase tracking-[0.22em] opacity-30 mb-1">admin panel</div>
-                    <h2 class="text-xl font-bold tracking-tight">вход</h2>
-                </div>
-                <button class="modal-close" data-close-modal="modal-admin">x</button>
+            <div id="cards-grid" class="cards-grid hidden"></div>
+
+            <div id="empty-state" class="empty-box hidden">
+                <div class="big">watchlist</div>
+                <p id="empty-hint">Список пока пуст — скоро здесь появятся любимые фильмы, сериалы и аниме.</p>
             </div>
-            <div class="modal-body">
-                <div class="info-box">
-                    Введи <b>admin пароль</b>.
-                </div>
-                <input type="password" id="admin-password-input" class="kf-input mb-3" placeholder="admin password" autocomplete="current-password">
-                <div id="admin-login-error" class="text-[10px] text-red-400 mb-3 hidden">Пароль не подошёл или API недоступен.</div>
-                <button id="login-btn" class="w-full rounded-full bg-blue-500/10 px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] text-blue-300 border border-blue-500/30 hover:bg-blue-500/20 transition-all">
-                    войти
+        </section>
+    </main>
+
+    <footer class="site">
+        <div class="foot-name">krafen</div>
+        <div>watchlist · аниме, фильмы и сериалы</div>
+    </footer>
+
+    <div class="dock">
+        <a class="dock-box" href="#top">↑ <span class="hide-m">Наверх</span></a>
+        <div class="dock-right">
+            <div class="dock-icons">
+                <button class="lock-dock-btn" id="lock-btn" type="button" title="Войти в режим администратора" aria-label="Войти в режим администратора">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.75a4.5 4.5 0 0 1 9 0V10"/><rect x="5.25" y="10" width="13.5" height="10" rx="2.25"/><path d="M12 14.25v2.25"/></svg>
                 </button>
+                <button class="heart-btn" id="heart" type="button" title="♥">♥</button>
             </div>
+            <button class="dock-box" id="atmo" type="button">★ <span class="hide-m">Атмосфера</span></button>
         </div>
     </div>
 
-    <div class="toast" id="toast"></div>
+    <!-- Модалка добавления -->
+    <div class="modal" id="modal-add">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow">поиск тайтлов</div>
+                    <h2 class="modal-title">Добавить в список</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-add" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="notice-box">
+                Фильмы и сериалы ищутся через серверный прокси TMDB, аниме — через Shikimori.
+            </div>
+            <div class="filter-group" style="margin-bottom:16px;">
+                <button class="filter-pill active" type="button" data-modal-type="anime">Аниме</button>
+                <button class="filter-pill" type="button" data-modal-type="movie">Фильм</button>
+                <button class="filter-pill" type="button" data-modal-type="series">Сериал</button>
+            </div>
+            <input type="search" id="search-input" class="kf-input" placeholder="Начни вводить название…" autocomplete="off">
+            <div id="search-results" style="margin-top:16px;"></div>
+        </div>
+    </div>
+
+    <!-- Модалка входа администратора -->
+    <div class="modal" id="modal-admin">
+        <div class="modal-box sm">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow">администрирование</div>
+                    <h2 class="modal-title">Вход</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-admin" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="field">
+                <label class="field-label" for="admin-password-input">Пароль администратора</label>
+                <input type="password" id="admin-password-input" class="kf-input" placeholder="Введите пароль…" autocomplete="current-password">
+            </div>
+            <div id="admin-login-error" class="warn-box hidden">Неверный пароль или сервер недоступен.</div>
+            <button id="login-btn" class="btn-primary sm" type="button" style="width:100%;">Войти</button>
+        </div>
+    </div>
 
     <script nonce="__CSP_NONCE__">
-        const API = {
-            list: '/api/watchlist',
-            admin: '/api/admin',
-            search: '/api/search',
-        };
-        const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
-        const STATUS_COLORS = { watched: '#22c55e', planned: '#f7f4f3', dropped: '#ef4444' };
-        const TYPE_LABEL = { movie: 'фильм', series: 'сериал', anime: 'аниме' };
+        document.addEventListener('DOMContentLoaded', () => {
+            const { escapeHTML, toast, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
 
-        let list = [];
-        let typeFilter = 'all';
-        let statusFilter = 'all';
-        let modalType = 'movie';
-        let searchTimeout = null;
-        let searchCache = [];
-        let adminSessionActive = false;
-        let listRevision = 0;
-        let saveInFlight = false;
-        let saveQueued = false;
+            const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
+            const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };
+            const TYPE_LABEL = { movie: 'Фильм', series: 'Сериал', anime: 'Аниме' };
 
-        function isAdmin() { return adminSessionActive; }
+            let list = [];
+            let listRevision = 0;
+            let typeFilter = 'all';
+            let statusFilter = 'all';
+            let localQuery = '';
+            let modalType = 'anime';
+            let searchTimeout = null;
+            let searchCache = [];
+            let saveInFlight = false;
+            let saveQueued = false;
 
-        function safeRevision(value) {
-            const revision = Number(value);
-            return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
-        }
-
-        function cloneList() {
-            return JSON.parse(JSON.stringify(list));
-        }
-
-        async function checkAdminSession() {
-            try {
-                const res = await fetch(API.admin, {
-                    headers: { 'Accept': 'application/json' },
-                    credentials: 'same-origin',
-                });
-                const data = await res.json().catch(() => ({}));
-                adminSessionActive = Boolean(res.ok && data.ok);
-            } catch {
-                adminSessionActive = false;
+            const saveInd = document.getElementById('save-indicator');
+            function setSaveIndicator(cls, text) {
+                saveInd.className = `save-indicator ${cls}`.trim();
+                saveInd.textContent = text;
             }
-            setAdminMode(adminSessionActive);
-        }
 
-        async function fetchList() {
-            try {
-                const res = await fetch(API.list, { headers: { 'Accept': 'application/json' } });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.error || 'fetch_failed');
-                list = Array.isArray(data.items) ? data.items : [];
-                listRevision = safeRevision(data.revision);
-            } catch (e) {
-                list = [];
-                listRevision = 0;
-                document.getElementById('setup-warn').classList.remove('hidden');
-                showToast('не удалось загрузить список', '#ef4444');
+            const admin = createAdminController({
+                onChange: (on) => {
+                    if (!on) setSaveIndicator('', '');
+                    render();
+                }
+            });
+
+            function safeRevision(v) {
+                const n = Number(v);
+                return Number.isSafeInteger(n) && n >= 0 ? n : 0;
             }
-            document.getElementById('loading-state').classList.add('hidden');
-            document.getElementById('cards-grid').classList.remove('hidden');
-            render();
-        }
 
-        async function saveToCloud() {
-            if (!isAdmin()) return;
-            saveQueued = true;
-            if (saveInFlight) return;
-
-            saveInFlight = true;
-            try {
-                while (saveQueued && isAdmin()) {
-                    saveQueued = false;
-                    const snapshot = cloneList();
-                    const revision = listRevision;
-                    setSaveIndicator('saving', 'сохранение...');
-
-                    const res = await fetch(API.list, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        credentials: 'same-origin',
-                        body: JSON.stringify({ items: snapshot, revision }),
-                    });
+            async function fetchList() {
+                try {
+                    const res = await fetch('/api/watchlist', { headers: { Accept: 'application/json' } });
                     const data = await res.json().catch(() => ({}));
-
-                    if (!res.ok) {
-                        if (res.status === 401) {
-                            adminSessionActive = false;
-                            setAdminMode(false);
-                            saveQueued = false;
-                            return;
-                        }
-
-                        if (res.status === 409 && Array.isArray(data.items)) {
-                            list = data.items;
-                            listRevision = safeRevision(data.revision);
-                            saveQueued = false;
-                            render();
-                            setSaveIndicator('error', 'список обновлён в другой вкладке');
-                            showToast('список обновлён в другой вкладке', '#ef4444');
-                            setTimeout(() => setSaveIndicator('', ''), 3000);
-                            return;
-                        }
-
-                        throw new Error(data.error || 'save_failed');
-                    }
-
+                    if (!res.ok) throw new Error(data.error || 'fetch_failed');
+                    list = Array.isArray(data.items) ? data.items : [];
                     listRevision = safeRevision(data.revision);
-                    setSaveIndicator('saved', 'сохранено');
-                    setTimeout(() => setSaveIndicator('', ''), 1800);
+                } catch {
+                    list = [];
+                    listRevision = 0;
+                    document.getElementById('setup-warn').classList.remove('hidden');
+                    toast('Не удалось загрузить список', '#fca5a5');
                 }
-            } catch {
-                setSaveIndicator('error', 'ошибка сохранения');
-                setTimeout(() => setSaveIndicator('', ''), 3000);
-            } finally {
-                saveInFlight = false;
-            }
-        }
-
-        function setSaveIndicator(cls, text) {
-            const el = document.getElementById('save-indicator');
-            el.className = cls;
-            el.textContent = text;
-        }
-
-        function openAdminModal() {
-            if (isAdmin()) {
-                if (confirm('Выйти из режима администратора?')) adminLogout();
-                return;
-            }
-            openModal('modal-admin');
-            setTimeout(() => document.getElementById('admin-password-input').focus(), 120);
-        }
-
-        async function submitAdminLogin() {
-            const password = document.getElementById('admin-password-input').value.trim();
-            const btn = document.getElementById('login-btn');
-            const errEl = document.getElementById('admin-login-error');
-            if (!password) return;
-
-            btn.textContent = 'проверка...';
-            btn.disabled = true;
-            errEl.classList.add('hidden');
-
-            try {
-                const res = await fetch(API.admin, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ password }),
-                });
-                if (!res.ok) throw new Error('invalid_password');
-                adminSessionActive = true;
-                setAdminMode(true);
-                closeModal('modal-admin');
-                document.getElementById('admin-password-input').value = '';
-                showToast('admin mode активен', '#f7f4f3');
-            } catch {
-                errEl.classList.remove('hidden');
+                document.getElementById('loading-state').classList.add('hidden');
+                document.getElementById('cards-grid').classList.remove('hidden');
+                render();
             }
 
-            btn.textContent = 'войти';
-            btn.disabled = false;
-        }
+            async function saveToServer() {
+                if (!admin.isAdmin()) return;
+                saveQueued = true;
+                if (saveInFlight) return;
+                saveInFlight = true;
+                try {
+                    while (saveQueued && admin.isAdmin()) {
+                        saveQueued = false;
+                        const snapshot = JSON.parse(JSON.stringify(list));
+                        const revision = listRevision;
+                        setSaveIndicator('saving', 'сохранение…');
 
-        async function adminLogout() {
-            await fetch(API.admin, {
-                method: 'DELETE',
-                credentials: 'same-origin',
-            }).catch(() => {});
-            adminSessionActive = false;
-            setAdminMode(false);
-            showToast('вышел из admin mode', 'rgba(255,255,255,0.55)');
-        }
-
-        function setAdminMode(on) {
-            document.body.classList.toggle('is-admin', on);
-            const lockButton = document.getElementById('lock-btn');
-            lockButton.classList.toggle('is-admin-active', on);
-            lockButton.title = on ? 'Выйти из режима администратора' : 'Войти в режим администратора';
-            lockButton.setAttribute('aria-label', lockButton.title);
-            if (!on) setSaveIndicator('', '');
-        }
-
-        function addItem(item, status) {
-            if (!isAdmin()) return;
-            const existing = list.find(i => i.id === item.id);
-            if (existing) {
-                existing.status = status;
-                existing.updatedAt = Date.now();
-            } else {
-                list.unshift({ ...item, status, addedAt: Date.now(), updatedAt: Date.now() });
-            }
-            render();
-            saveToCloud();
-            showToast(`${item.titleRu || item.title} -> ${STATUS_LABEL[status]}`, STATUS_COLORS[status]);
-        }
-
-        function removeItem(id) {
-            if (!isAdmin()) return;
-            list = list.filter(i => i.id !== id);
-            render();
-            saveToCloud();
-        }
-
-        function changeStatus(id, status) {
-            if (!isAdmin()) return;
-            const item = list.find(i => i.id === id);
-            if (!item) return;
-            item.status = status;
-            item.updatedAt = Date.now();
-            render();
-            saveToCloud();
-            showToast(`${item.titleRu || item.title} -> ${STATUS_LABEL[status]}`, STATUS_COLORS[status]);
-        }
-
-        async function performSearch(query) {
-            const el = document.getElementById('search-results');
-            el.innerHTML = '<div class="spinner"></div>';
-            searchCache = [];
-
-            try {
-                const url = `${API.search}?type=${encodeURIComponent(modalType)}&q=${encodeURIComponent(query)}`;
-                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                const result = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                    if (result.error === 'tmdb_key_missing') {
-                        el.innerHTML = '<div class="warn-box">TMDB ключ не настроен в Cloudflare Pages: добавь секрет TMDB_ACCESS_TOKEN или переменную TMDB_API_KEY.</div>';
-                        return;
+                        const res = await fetch('/api/watchlist', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ items: snapshot, revision }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                            if (res.status === 401) {
+                                admin.setAdmin(false);
+                                saveQueued = false;
+                                return;
+                            }
+                            if (res.status === 409 && Array.isArray(data.items)) {
+                                list = data.items;
+                                listRevision = safeRevision(data.revision);
+                                saveQueued = false;
+                                render();
+                                setSaveIndicator('error', 'обновлено в другой вкладке');
+                                toast('Список обновлён в другой вкладке', '#fca5a5');
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
+                                return;
+                            }
+                            throw new Error(data.error || 'save_failed');
+                        }
+                        listRevision = safeRevision(data.revision);
+                        setSaveIndicator('saved', 'сохранено');
+                        setTimeout(() => setSaveIndicator('', ''), 1800);
                     }
-                    throw new Error(result.error || 'search_failed');
+                } catch {
+                    setSaveIndicator('error', 'ошибка сохранения');
+                    toast('Ошибка сохранения', '#fca5a5');
+                    setTimeout(() => setSaveIndicator('', ''), 3000);
+                } finally {
+                    saveInFlight = false;
                 }
-                if (!result.results?.length) {
-                    el.innerHTML = '<div class="text-[10px] opacity-35 text-center py-4">ничего не найдено</div>';
+            }
+
+            function updateStats() {
+                const total = list.length;
+                const watched = list.filter((i) => i.status === 'watched').length;
+                const planned = list.filter((i) => i.status === 'planned').length;
+                const dropped = list.filter((i) => i.status === 'dropped').length;
+                document.getElementById('stats-row').innerHTML = `
+                    <span class="stat-chip"><strong>${total}</strong> всего</span>
+                    <span class="stat-chip watched"><strong>${watched}</strong> просмотрено</span>
+                    <span class="stat-chip"><strong>${planned}</strong> планирую</span>
+                    <span class="stat-chip dropped"><strong>${dropped}</strong> брошено</span>
+                `;
+            }
+
+            function cardHTML(item) {
+                const title = escapeHTML(item.titleRu || item.title);
+                const id = escapeHTML(item.id);
+                const typeL = escapeHTML(TYPE_LABEL[item.type] || item.type);
+                const statL = escapeHTML(STATUS_LABEL[item.status] || item.status);
+                const badgeCls = STATUS_BADGE[item.status] || 'muted';
+                return `
+                    <article class="media-card">
+                        <div class="poster-wrap">
+                            ${item.poster
+                                ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" data-fallback-text="${typeL}">`
+                                : `<div class="no-poster">${typeL}</div>`}
+                            <div class="card-overlay">
+                                <button class="ov-btn watched" type="button" data-card-action="status" data-id="${id}" data-status="watched">Просмотрено</button>
+                                <button class="ov-btn planned" type="button" data-card-action="status" data-id="${id}" data-status="planned">Планирую</button>
+                                <button class="ov-btn dropped" type="button" data-card-action="status" data-id="${id}" data-status="dropped">Брошено</button>
+                                <button class="ov-btn remove" type="button" data-card-action="remove" data-id="${id}">Удалить</button>
+                            </div>
+                        </div>
+                        <div class="card-info">
+                            <h3 class="card-title">${title}</h3>
+                            <div class="card-meta">
+                                <span class="year">${escapeHTML(item.year || '—')}</span>
+                                <span>${typeL}</span>
+                            </div>
+                            <div><span class="status-badge ${badgeCls}"><span class="dot"></span>${statL}</span></div>
+                        </div>
+                    </article>`;
+            }
+
+            function render() {
+                updateStats();
+                const q = localQuery.toLowerCase();
+                const filtered = list.filter((i) => {
+                    if (typeFilter !== 'all' && i.type !== typeFilter) return false;
+                    if (statusFilter !== 'all' && i.status !== statusFilter) return false;
+                    if (q && !`${i.title || ''} ${i.titleRu || ''} ${i.year || ''}`.toLowerCase().includes(q)) return false;
+                    return true;
+                });
+
+                const grid = document.getElementById('cards-grid');
+                const empty = document.getElementById('empty-state');
+                if (!filtered.length) {
+                    grid.innerHTML = '';
+                    empty.classList.remove('hidden');
+                    document.getElementById('empty-hint').textContent = admin.isAdmin()
+                        ? 'Ничего не найдено — нажми «+ Добавить тайтл», чтобы пополнить коллекцию.'
+                        : 'В этой выборке пока пусто.';
                     return;
                 }
-                searchCache = result.results;
-                el.innerHTML = result.results.map((item, idx) => searchResultHTML(item, idx)).join('');
-            } catch {
-                el.innerHTML = '<div class="text-[10px] opacity-35 text-center py-4">ошибка загрузки, попробуй ещё раз</div>';
+                empty.classList.add('hidden');
+                grid.innerHTML = filtered.map(cardHTML).join('');
             }
-        }
 
-        function escapeHTML(str) {
-            return String(str ?? '').replace(/[&<>"']/g, c => (
-                {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
-            ));
-        }
-
-        function render() {
-            updateStats();
-            const filtered = list.filter(i => {
-                if (typeFilter !== 'all' && i.type !== typeFilter) return false;
-                if (statusFilter !== 'all' && i.status !== statusFilter) return false;
-                return true;
-            });
-
-            const grid = document.getElementById('cards-grid');
-            const empty = document.getElementById('empty-state');
-
-            if (filtered.length === 0) {
-                grid.innerHTML = '';
-                empty.classList.remove('hidden');
-                document.getElementById('empty-hint').textContent = isAdmin()
-                    ? 'нажми + добавить'
-                    : 'скоро появится что-нибудь интересное';
-                return;
+            function addItem(item, status) {
+                if (!admin.isAdmin()) return;
+                const existing = list.find((i) => i.id === item.id);
+                if (existing) {
+                    existing.status = status;
+                    existing.updatedAt = Date.now();
+                } else {
+                    list.unshift({ ...item, status, addedAt: Date.now(), updatedAt: Date.now() });
+                }
+                render();
+                saveToServer();
+                toast(`${item.titleRu || item.title} → ${STATUS_LABEL[status]}`);
             }
-            empty.classList.add('hidden');
-            grid.innerHTML = filtered.map(cardHTML).join('');
-        }
 
-        function cardHTML(item) {
-            const title = escapeHTML(item.titleRu || item.title);
-            const id = escapeHTML(item.id);
-            const typeL = escapeHTML(TYPE_LABEL[item.type] || item.type);
-            const statL = escapeHTML(STATUS_LABEL[item.status] || item.status);
-            return `
-                <div class="media-card">
-                    <div class="poster-wrap">
-                        ${item.poster
-                            ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" data-fallback-class="no-poster" data-fallback-text="${typeL}">`
-                            : `<div class="no-poster">${typeL}</div>`
-                        }
-                        <div class="card-overlay">
-                            <button class="ov-btn ov-watched" data-card-action="status" data-id="${id}" data-status="watched">просмотрено</button>
-                            <button class="ov-btn ov-planned" data-card-action="status" data-id="${id}" data-status="planned">планирую</button>
-                            <button class="ov-btn ov-dropped" data-card-action="status" data-id="${id}" data-status="dropped">брошено</button>
-                            <button class="ov-btn ov-remove" data-card-action="remove" data-id="${id}">удалить</button>
-                        </div>
-                    </div>
-                    <div class="card-info">
-                        <div class="card-title">${title}</div>
-                        <div class="card-meta">
-                            <span class="meta-year">${escapeHTML(item.year || '-')}</span>
-                            <span class="meta-type">${typeL}</span>
-                        </div>
-                        <span class="status-badge status-${escapeHTML(item.status)}">${statL}</span>
-                    </div>
-                </div>`;
-        }
+            function changeStatus(id, status) {
+                if (!admin.isAdmin()) return;
+                const item = list.find((i) => i.id === id);
+                if (!item) return;
+                item.status = status;
+                item.updatedAt = Date.now();
+                render();
+                saveToServer();
+                toast(`${item.titleRu || item.title} → ${STATUS_LABEL[status]}`);
+            }
 
-        function updateStats() {
-            const total = list.length;
-            const watched = list.filter(i => i.status === 'watched').length;
-            const planned = list.filter(i => i.status === 'planned').length;
-            const dropped = list.filter(i => i.status === 'dropped').length;
-            document.getElementById('stats-row').innerHTML = `
-                <span class="text-[10px] border border-white/10 px-3 py-1 rounded-full opacity-40">${total} всего</span>
-                <span class="text-[10px] border px-3 py-1 rounded-full stat-pill-watched">${watched} просмотрено</span>
-                <span class="text-[10px] border border-white/10 px-3 py-1 rounded-full opacity-40">${planned} планирую</span>
-                <span class="text-[10px] border px-3 py-1 rounded-full stat-pill-dropped">${dropped} брошено</span>
-            `;
-        }
+            function removeItem(id) {
+                if (!admin.isAdmin()) return;
+                list = list.filter((i) => i.id !== id);
+                render();
+                saveToServer();
+                toast('Удалено из списка');
+            }
 
-        function openModal(id) {
-            document.getElementById(id).classList.add('open');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('open');
-            document.body.style.overflow = '';
-            if (id === 'modal-add') {
-                document.getElementById('search-input').value = '';
-                document.getElementById('search-results').innerHTML = '';
+            async function performSearch(query) {
+                const el = document.getElementById('search-results');
+                el.innerHTML = '<div class="spinner"></div>';
                 searchCache = [];
+                try {
+                    const url = `/api/search?type=${encodeURIComponent(modalType)}&q=${encodeURIComponent(query)}`;
+                    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        if (data.error === 'tmdb_key_missing') {
+                            el.innerHTML = '<div class="warn-box">Не задан ключ TMDB на сервере: укажите <code>TMDB_ACCESS_TOKEN</code> или <code>TMDB_API_KEY</code> в файле <code>.env</code>.</div>';
+                            return;
+                        }
+                        throw new Error(data.error || 'search_failed');
+                    }
+                    if (!data.results?.length) {
+                        el.innerHTML = '<div class="notice-box" style="text-align:center;">Ничего не найдено</div>';
+                        return;
+                    }
+                    searchCache = data.results;
+                    el.innerHTML = data.results.map((item, idx) => {
+                        const title = escapeHTML(item.titleRu || item.title);
+                        const orig = item.titleRu && item.title ? escapeHTML(item.title) : '';
+                        return `
+                            <div class="search-item">
+                                <div class="search-poster">
+                                    ${item.poster ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy">` : '—'}
+                                </div>
+                                <div class="col">
+                                    <div class="search-title">${title}</div>
+                                    <div class="search-sub">${orig ? `${orig} · ` : ''}${escapeHTML(item.year || '—')}</div>
+                                </div>
+                                <div class="search-actions">
+                                    <button class="add-mini watched" type="button" data-search-index="${idx}" data-status="watched">Смотрел</button>
+                                    <button class="add-mini planned" type="button" data-search-index="${idx}" data-status="planned">Планирую</button>
+                                    <button class="add-mini dropped" type="button" data-search-index="${idx}" data-status="dropped">Брошено</button>
+                                </div>
+                            </div>`;
+                    }).join('');
+                } catch {
+                    el.innerHTML = '<div class="warn-box">Ошибка поиска — попробуйте ещё раз.</div>';
+                }
             }
-            if (id === 'modal-admin') {
-                document.getElementById('admin-password-input').value = '';
-                document.getElementById('admin-login-error').classList.add('hidden');
-            }
-        }
 
-        ['modal-add', 'modal-admin'].forEach(id => {
-            document.getElementById(id).addEventListener('click', e => {
-                if (e.target === document.getElementById(id)) closeModal(id);
-            });
-        });
-
-        document.getElementById('add-btn').addEventListener('click', () => {
-            if (!isAdmin()) return;
-            openModal('modal-add');
-            setTimeout(() => document.getElementById('search-input').focus(), 120);
-        });
-
-        document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') {
-                closeModal('modal-add');
-                closeModal('modal-admin');
-            }
-        });
-
-        document.querySelectorAll('[data-modal-type]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                modalType = btn.dataset.modalType;
-                document.querySelectorAll('[data-modal-type]').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                const q = document.getElementById('search-input').value.trim();
-                if (q.length >= 2) performSearch(q);
-                else {
+            bindModalDismiss((id) => {
+                if (id === 'modal-add') {
+                    document.getElementById('search-input').value = '';
                     document.getElementById('search-results').innerHTML = '';
                     searchCache = [];
                 }
             });
-        });
 
-        document.getElementById('search-input').addEventListener('input', e => {
-            const q = e.target.value.trim();
-            clearTimeout(searchTimeout);
-            if (q.length < 2) {
-                document.getElementById('search-results').innerHTML = '';
-                searchCache = [];
-                return;
-            }
-            searchTimeout = setTimeout(() => performSearch(q), 380);
-        });
+            document.getElementById('add-btn').addEventListener('click', () => {
+                if (!admin.isAdmin()) return;
+                openModal('modal-add');
+                setTimeout(() => document.getElementById('search-input').focus(), 100);
+            });
 
-        function searchResultHTML(item, idx) {
-            const title = escapeHTML(item.titleRu || item.title);
-            const orig = (item.titleRu && item.title) ? escapeHTML(item.title) : '';
-            return `
-                <div class="search-result">
-                    <div class="result-poster">
-                        ${item.poster
-                            ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" data-fallback-class="result-no-poster" data-fallback-text="-">`
-                            : '<div class="result-no-poster">-</div>'
-                        }
-                    </div>
-                    <div class="result-info">
-                        <div class="result-title">${title}</div>
-                        ${orig ? `<div class="result-orig">${orig}</div>` : ''}
-                        <div class="result-year">${escapeHTML(item.year || '-')}</div>
-                    </div>
-                    <div class="result-actions">
-                        <button class="add-btn add-watched" data-search-index="${idx}" data-status="watched">смотрел</button>
-                        <button class="add-btn add-planned" data-search-index="${idx}" data-status="planned">планирую</button>
-                        <button class="add-btn add-dropped" data-search-index="${idx}" data-status="dropped">брошено</button>
-                    </div>
-                </div>`;
-        }
+            document.querySelectorAll('#type-filters .filter-pill').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    typeFilter = btn.dataset.type;
+                    document.querySelectorAll('#type-filters .filter-pill').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    render();
+                });
+            });
 
-        function addFromCache(idx, status) {
-            const item = searchCache[idx];
-            if (item) addItem(item, status);
-        }
+            document.querySelectorAll('#status-filters .filter-pill').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    statusFilter = btn.dataset.status;
+                    document.querySelectorAll('#status-filters .filter-pill').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    render();
+                });
+            });
 
-        document.querySelectorAll('[data-close-modal]').forEach(btn => {
-            btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
-        });
-
-        document.getElementById('lock-btn').addEventListener('click', openAdminModal);
-        document.getElementById('admin-logout-btn').addEventListener('click', adminLogout);
-        document.getElementById('login-btn').addEventListener('click', submitAdminLogin);
-        document.getElementById('admin-password-input').addEventListener('keydown', e => {
-            if (e.key === 'Enter') submitAdminLogin();
-        });
-
-        document.getElementById('cards-grid').addEventListener('click', e => {
-            const btn = e.target.closest('[data-card-action]');
-            if (!btn) return;
-
-            if (btn.dataset.cardAction === 'remove') {
-                removeItem(btn.dataset.id);
-                return;
-            }
-
-            if (btn.dataset.cardAction === 'status') {
-                changeStatus(btn.dataset.id, btn.dataset.status);
-            }
-        });
-
-        document.getElementById('search-results').addEventListener('click', e => {
-            const btn = e.target.closest('[data-search-index]');
-            if (!btn) return;
-            addFromCache(Number(btn.dataset.searchIndex), btn.dataset.status);
-        });
-
-        document.addEventListener('error', e => {
-            const img = e.target;
-            if (!(img instanceof HTMLImageElement) || !img.dataset.fallbackClass) return;
-
-            const fallback = document.createElement('div');
-            fallback.className = img.dataset.fallbackClass;
-            fallback.textContent = img.dataset.fallbackText || '-';
-            img.replaceWith(fallback);
-        }, true);
-
-        document.querySelectorAll('#type-filters .filter-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                typeFilter = btn.dataset.type;
-                document.querySelectorAll('#type-filters .filter-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+            document.getElementById('local-search').addEventListener('input', (e) => {
+                localQuery = e.target.value.trim();
                 render();
             });
-        });
 
-        document.querySelectorAll('#status-filters .filter-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                statusFilter = btn.dataset.status;
-                document.querySelectorAll('#status-filters .filter-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                render();
+            document.querySelectorAll('[data-modal-type]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    modalType = btn.dataset.modalType;
+                    document.querySelectorAll('[data-modal-type]').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    const q = document.getElementById('search-input').value.trim();
+                    if (q.length >= 2) performSearch(q);
+                    else {
+                        document.getElementById('search-results').innerHTML = '';
+                        searchCache = [];
+                    }
+                });
             });
+
+            document.getElementById('search-input').addEventListener('input', (e) => {
+                const q = e.target.value.trim();
+                clearTimeout(searchTimeout);
+                if (q.length < 2) {
+                    document.getElementById('search-results').innerHTML = '';
+                    searchCache = [];
+                    return;
+                }
+                searchTimeout = setTimeout(() => performSearch(q), 360);
+            });
+
+            document.getElementById('search-results').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-search-index]');
+                if (!btn) return;
+                const item = searchCache[Number(btn.dataset.searchIndex)];
+                if (item) addItem(item, btn.dataset.status);
+            });
+
+            document.getElementById('cards-grid').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-card-action]');
+                if (!btn) return;
+                if (btn.dataset.cardAction === 'remove') removeItem(btn.dataset.id);
+                else if (btn.dataset.cardAction === 'status') changeStatus(btn.dataset.id, btn.dataset.status);
+            });
+
+            document.addEventListener('error', (e) => {
+                const img = e.target;
+                if (!(img instanceof HTMLImageElement) || !img.dataset.fallbackText) return;
+                const fallback = document.createElement('div');
+                fallback.className = 'no-poster';
+                fallback.textContent = img.dataset.fallbackText;
+                img.replaceWith(fallback);
+            }, true);
+
+            admin.check();
+            fetchList();
         });
-
-        let toastTimer = null;
-        function showToast(msg, color) {
-            const el = document.getElementById('toast');
-            el.textContent = msg;
-            el.style.color = color || '#efefef';
-            el.style.borderColor = color ? `${color}22` : 'rgba(255,255,255,0.07)';
-            clearTimeout(toastTimer);
-            el.classList.add('show');
-            toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
-        }
-
-        checkAdminSession();
-        fetchList();
     </script>
 </body>
 </html>
-

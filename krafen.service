@@ -1,16 +1,19 @@
 [Unit]
 Description=Krafen FastAPI server
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/krafen
-EnvironmentFile=/opt/krafen/.env
-ExecStart=/opt/krafen/venv/bin/python /opt/krafen/server.py
+EnvironmentFile=-/opt/krafen/.env
+ExecStart=/opt/krafen/.venv/bin/python /opt/krafen/server.py
 Restart=always
 RestartSec=5
-User=www-data
-Group=www-data
+User=krafen
+Group=krafen
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

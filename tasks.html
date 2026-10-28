@@ -4,706 +4,763 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>krafen / tasks</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
+    <meta name="description" content="Калькулятор заданий Battle Pass и таймеры клубных квестов.">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
     <style nonce="__CSP_NONCE__">
-        :root {
-            --bg: #050505;
-            --card: rgba(20, 20, 20, 0.6);
-            --accent: #5b2333;
-            --accent-light: #f7f4f3;
-            --accent-dark: #5b2333;
-            --accent-gradient: linear-gradient(135deg, var(--accent-light), var(--accent-dark));
-            --accent-soft: linear-gradient(135deg, rgba(247, 244, 243, 0.12), rgba(91, 35, 51, 0.28));
-            --border: rgba(255, 255, 255, 0.05);
+        .bp-dashboard {
+            display: grid;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
         }
-        body {
-            background-color: var(--bg);
-            font-family: 'JetBrains Mono', monospace;
-            color: #efefef;
-            min-height: 100vh;
-            margin: 0;
-            overflow-x: hidden;
+        .bp-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-top: 20px;
         }
-        .glass {
-            background: var(--card);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 1.5rem;
-            transition: all 0.3s ease;
+        .bp-stat-box {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, .025);
+            border: 1px solid rgba(255, 255, 255, .07);
         }
-        .glass:hover {
-            border-color: rgba(255, 255, 255, 0.1);
+        .bp-stat-box span {
+            display: block;
+            font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--silver-dim);
+        }
+        .bp-stat-box strong {
+            display: block; margin-top: 8px;
+            font-family: var(--font-mono); font-size: 24px; color: #fff; line-height: 1;
+        }
+        .bp-stat-box.earned strong { color: #fff; text-shadow: 0 0 22px rgba(163, 19, 19, .5); }
+
+        .bp-progress-wrap { margin-top: 20px; }
+        .bp-progress-head {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--silver);
+            margin-bottom: 8px;
+        }
+        .bp-progress-bar {
+            height: 6px; border-radius: 999px;
+            background: rgba(255, 255, 255, .08);
+            overflow: hidden;
+        }
+        .bp-progress-fill {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, var(--crimson), var(--crimson-bright), #ff9e9e);
+            border-radius: inherit;
+            box-shadow: 0 0 14px rgba(163, 19, 19, .75);
+            transition: width .4s var(--ease);
+        }
+
+        .controls-stack { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
+        .mult-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .online-box {
+            display: flex; align-items: center; justify-content: space-between; gap: 14px;
+            padding: 15px 18px; border-radius: 14px;
+            background: rgba(255, 255, 255, .025);
+            border: 1px solid rgba(255, 255, 255, .07);
+        }
+        .stepper { display: inline-flex; align-items: center; gap: 10px; }
+        .step-btn {
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 1px solid rgba(160, 160, 160, .24);
+            background: rgba(255, 255, 255, .04);
+            color: #fff; font-family: var(--font-mono); font-size: 16px;
+            cursor: pointer; transition: all .2s var(--ease);
+        }
+        .step-btn:hover { border-color: rgba(163, 19, 19, .6); background: rgba(124, 10, 10, .28); }
+        .online-hours { font-family: var(--font-mono); font-size: 18px; font-weight: 700; min-width: 44px; text-align: center; color: #fff; }
+
+        /* Клубные таймеры */
+        .timers-section { margin: 38px 0; }
+        .timers-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+        .timer-card {
+            padding: 18px 16px;
+            display: flex; flex-direction: column; justify-content: space-between;
+            align-items: center; text-align: center; gap: 14px;
+        }
+        .timer-card.running {
+            border-color: rgba(163, 19, 19, .55);
+            box-shadow: 0 18px 46px rgba(0, 0, 0, .72), 0 0 26px rgba(163, 19, 19, .18);
+        }
+        .timer-name {
+            font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+            color: var(--silver); min-height: 28px; display: flex; align-items: center;
+        }
+        .timer-display {
+            font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: #fff;
+            letter-spacing: .04em;
+        }
+        .timer-actions { display: flex; gap: 6px; width: 100%; }
+        .timer-btn {
+            flex: 1; padding: 8px 10px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .22);
+            background: rgba(255, 255, 255, .03);
+            color: var(--silver-bright); font-family: var(--font-sans);
+            font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+            cursor: pointer; transition: all .25s var(--ease);
+        }
+        .timer-btn:hover { color: #fff; border-color: rgba(163, 19, 19, .55); }
+        .timer-btn.active-timer {
+            color: #fff; border-color: rgba(163, 19, 19, .65);
+            background: linear-gradient(180deg, rgba(163, 19, 19, .38), rgba(90, 8, 8, .44));
+        }
+        .timer-reset {
+            width: 32px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .16);
+            background: transparent; color: var(--silver-dim);
+            cursor: pointer; transition: all .2s var(--ease);
+        }
+        .timer-reset:hover { color: #fca5a5; border-color: rgba(239, 68, 68, .45); background: rgba(124, 10, 10, .2); }
+
+        /* Секции заданий */
+        .tasks-toolbar {
+            padding: 16px 20px; margin-bottom: 28px;
+            display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+        }
+        .cat-block { margin-bottom: 34px; }
+        .cat-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 12px; margin-bottom: 14px; padding-bottom: 10px;
+            border-bottom: 1px solid var(--line);
+        }
+        .cat-title { font-family: var(--font-heading); font-weight: 400; font-size: 24px; color: #fff; }
+        .cat-count { font-family: var(--font-mono); font-size: 11px; color: var(--silver-dim); letter-spacing: .12em; }
+
+        .tasks-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
         }
         .task-card {
-            transition: all 0.2s ease;
-            cursor: pointer;
+            display: flex; align-items: center; justify-content: space-between; gap: 14px;
+            padding: 15px 18px;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 15px;
+            backdrop-filter: blur(12px);
+            cursor: pointer; user-select: none;
+            transition: border-color .28s var(--ease), background .28s var(--ease), transform .28s var(--ease);
         }
         .task-card:hover {
-            border-color: var(--accent);
-            background: rgba(91, 35, 51, 0.05);
+            border-color: rgba(163, 19, 19, .42);
+            transform: translateY(-2px);
         }
         .task-card.active {
-            border-color: rgba(91, 35, 51, 0.8);
-            background: rgba(91, 35, 51, 0.15);
-            box-shadow: 0 0 20px rgba(91, 35, 51, 0.15);
+            border-color: rgba(163, 19, 19, .62);
+            background: linear-gradient(135deg, rgba(124, 10, 10, .22), rgba(14, 14, 18, .75));
         }
-        .custom-checkbox {
-            appearance: none;
-            width: 1.25rem;
-            height: 1.25rem;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 0.375rem;
-            outline: none;
-            transition: all 0.2s ease;
-            cursor: pointer;
-            position: relative;
+        .task-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .task-check {
+            width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0;
+            border: 1px solid rgba(160, 160, 160, .3);
+            background: rgba(255, 255, 255, .02);
+            display: flex; align-items: center; justify-content: center;
+            color: transparent; font-size: 12px;
+            transition: all .22s var(--ease);
         }
-        .custom-checkbox:checked {
-            background: linear-gradient(135deg, #f7f4f3, #5b2333);
-            border-color: transparent;
+        .task-card.active .task-check {
+            border-color: var(--crimson-bright);
+            background: var(--crimson);
+            color: #fff;
+            box-shadow: 0 0 12px rgba(163, 19, 19, .65);
         }
-        .custom-checkbox:checked::after {
-            content: '✓';
-            position: absolute;
-            color: #050505;
-            font-size: 0.75rem;
-            font-weight: bold;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-        .toggle-btn {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.4);
-            transition: all 0.2s ease;
-        }
-        .toggle-btn.active[data-type="vip"] {
-            background: rgba(247, 244, 243, 0.1);
-            border-color: rgba(247, 244, 243, 0.4);
+        .task-name { font-size: 13px; color: var(--silver-bright); line-height: 1.45; }
+        .task-card.active .task-name { color: rgba(232, 232, 236, .6); text-decoration: line-through; }
+        .bp-badge {
+            flex-shrink: 0;
+            padding: 5px 10px; border-radius: 999px;
+            font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+            background: rgba(255, 255, 255, .04);
+            border: 1px solid rgba(255, 255, 255, .1);
             color: #fff;
         }
-        .toggle-btn.active[data-type="x2"] {
-            background: rgba(91, 35, 51, 0.3);
-            border-color: #5b2333;
-            color: #ffcbd1;
+        .task-card.active .bp-badge {
+            border-color: rgba(163, 19, 19, .55);
+            color: #fecaca;
         }
-        .toggle-btn.active-timer {
-            background: rgba(91, 35, 51, 0.25);
-            border-color: rgba(161, 61, 86, 0.5);
-            color: #ffcbd1;
+
+        @media (max-width: 1020px) {
+            .bp-dashboard { grid-template-columns: 1fr; }
+            .timers-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .tasks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
-        .progress-bar-fill {
-            background: linear-gradient(90deg, #5b2333, #a13d56);
-            box-shadow: 0 0 10px rgba(161, 61, 86, 0.5);
-            transition: width 0.3s ease;
-        }
-        .top-nav {
-            width: calc(100vw - 3rem);
-            max-width: 90rem;
-            margin: 0 auto 1.4rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        main.max-w-6xl {
-            width: calc(100vw - 3rem);
-            max-width: 90rem;
-        }
-        @media (min-width: 768px) {
-            .top-nav, main.max-w-6xl { width: calc(100vw - 6rem); }
+        @media (max-width: 640px) {
+            .bp-stat-grid { grid-template-columns: 1fr; }
+            .timers-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .tasks-grid { grid-template-columns: 1fr; }
         }
     </style>
-    <link rel="stylesheet" href="/styles/themes.css?v=20261009-5">
-    <script nonce="__CSP_NONCE__" src="/styles/themes.js?v=20261009-3" defer></script>
-    <link rel="stylesheet" href="/styles/krafen-unified.css?v=20261028-1">
-    <script src="/styles/krafen-unified.js?v=20261028-1" defer></script>
+    <script nonce="__CSP_NONCE__" src="/app.js" defer></script>
 </head>
-<body class="p-6 md:p-12">
+<body>
+    <div id="glow"></div>
+    <canvas id="rain"></canvas>
+    <div class="fog"></div>
+    <div class="fog f2"></div>
+    <div id="flash"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
 
-    <nav class="top-nav" aria-label="site sections">
-        <a class="text-[10px] text-white/30 uppercase tracking-widest hover:text-white/70 transition" href="/">&larr; Главная</a>
-        <div class="flex gap-2">
-            <button id="btn-vip" data-type="vip" class="toggle-btn text-[10px] uppercase tracking-widest px-4 py-2 rounded-full font-bold">Platinum VIP</button>
-            <button id="btn-x2" data-type="x2" class="toggle-btn text-[10px] uppercase tracking-widest px-4 py-2 rounded-full font-bold">Акция X2</button>
-            <button id="btn-reset" class="text-[10px] text-white/30 uppercase tracking-widest px-4 py-2 rounded-full border border-white/5 hover:border-white/20 hover:text-white/80 transition">Сбросить всё</button>
+    <nav class="topnav" aria-label="Навигация по сайту">
+        <a class="brand" href="/">kra<em>fen</em></a>
+        <div class="links">
+            <a href="/">Главная</a>
+            <a href="/watchlist">Watchlist</a>
+            <a href="/gamelist">Gamelist</a>
+            <a href="/setup">Setup</a>
+            <a href="/wishlist">Wishlist</a>
+            <a class="active" href="/tasks">Tasks</a>
+            <a href="/danonsha">danonsha</a>
         </div>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Меню</button>
     </nav>
 
-    <main class="max-w-6xl mx-auto space-y-6">
-        
-        <div class="text-left mb-4">
-            <p class="text-[10px] uppercase tracking-[0.2em] opacity-30">Калькулятор прогресса</p>
-            <h1 class="text-3xl font-bold tracking-tighter text-white uppercase">Выполнение заданий BP</h1>
-        </div>
+    <div class="mobile-nav" id="mobile-nav" aria-label="Мобильное меню">
+        <button class="mobile-nav-close" type="button" aria-label="Закрыть меню">✕</button>
+        <a href="/">Главная</a>
+        <a href="/watchlist">Watchlist</a>
+        <a href="/gamelist">Gamelist</a>
+        <a href="/setup">Setup</a>
+        <a href="/wishlist">Wishlist</a>
+        <a class="active" href="/tasks">Tasks</a>
+        <a href="/danonsha">danonsha</a>
+    </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
-            
-            <div class="glass col-span-12 md:col-span-5 p-6 flex flex-col justify-between">
-                <div class="flex justify-between items-center mb-4">
-                    <span class="text-[10px] uppercase tracking-widest opacity-40">Онлайн</span>
-                    <span class="text-[10px] text-white/60 font-bold">+ <span id="online-bp-counter">0</span> BP</span>
-                </div>
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <button id="online-minus" class="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 active:scale-95 transition">-</button>
-                        <span id="online-hours" class="text-2xl font-bold text-white tracking-tight">0ч</span>
-                        <button id="online-plus" class="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 active:scale-95 transition">+</button>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-[28px] font-bold text-white tracking-tight"><span id="online-current-bp">0</span> <span class="text-sm text-white/40">BP</span></div>
-                    </div>
-                </div>
-            </div>
+    <main id="top">
+        <section class="page-section">
+            <div class="ghost">05</div>
 
-            <div class="glass col-span-12 sm:col-span-6 md:col-span-3 p-6 flex flex-col justify-between">
-                <div class="text-[10px] uppercase tracking-widest opacity-40 mb-2">Набрано</div>
+            <div class="page-header-row reveal">
                 <div>
-                    <div class="text-3xl font-bold text-white tracking-tight"><span id="stat-earned">0</span> <span class="text-lg font-normal opacity-50">BP</span></div>
-                    <div class="text-[9px] opacity-30 uppercase tracking-wider mt-1">за всё отмеченное</div>
+                    <div class="sec-eyebrow">05 / калькулятор и таймеры</div>
+                    <h1 class="page-display">tas<span class="grad">ks</span></h1>
+                    <p class="page-tagline">Учёт ежедневных заданий Battle Pass, <em>множители VIP / X2</em> и отсчёт клубных квестов.</p>
+                </div>
+                <div class="page-header-actions">
+                    <button id="btn-reset" class="btn-ghost sm danger" type="button">Сбросить день</button>
                 </div>
             </div>
 
-            <div class="glass col-span-12 sm:col-span-6 md:col-span-4 p-6 flex flex-col justify-between">
-                <div class="flex justify-between items-center mb-2">
-                    <span class="text-[10px] uppercase tracking-widest opacity-40">Осталось</span>
-                    <span id="stat-percent" class="text-[10px] opacity-50">0%</span>
+            <!-- Сводка и модификаторы -->
+            <div class="bp-dashboard reveal" style="--d:.06s;">
+                <div class="glass no-lift pad-card">
+                    <div class="sec-eyebrow" style="margin-bottom:6px;">прогресс за день</div>
+                    <h2 style="font-family:var(--font-heading);font-weight:400;font-size:26px;color:#fff;">Очки Battle Pass</h2>
+                    <div class="bp-stat-grid">
+                        <div class="bp-stat-box earned">
+                            <span>Заработано</span>
+                            <strong id="stat-earned">0</strong>
+                        </div>
+                        <div class="bp-stat-box">
+                            <span>Осталось</span>
+                            <strong id="stat-left">0</strong>
+                        </div>
+                        <div class="bp-stat-box">
+                            <span>Заданий закрыто</span>
+                            <strong><span id="stat-tasks-count">0</span> / 59</strong>
+                        </div>
+                    </div>
+                    <div class="bp-progress-wrap">
+                        <div class="bp-progress-head">
+                            <span>Заполнение лимита</span>
+                            <span id="stat-percent" class="mono">0%</span>
+                        </div>
+                        <div class="bp-progress-bar">
+                            <div id="progress-fill" class="bp-progress-fill"></div>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <div class="text-3xl font-bold text-white tracking-tight mb-3"><span id="stat-left">0</span> <span class="text-lg font-normal opacity-50">BP</span></div>
-                    <div class="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                        <div id="progress-fill" class="progress-bar-fill h-full w-0"></div>
+
+                <div class="glass no-lift pad-card controls-stack">
+                    <div>
+                        <div class="sec-eyebrow" style="margin-bottom:10px;">множители опыта</div>
+                        <div class="mult-row">
+                            <button id="btn-vip" class="filter-pill" type="button">Platinum VIP (×2)</button>
+                            <button id="btn-x2" class="filter-pill" type="button">Акция X2 на сервере</button>
+                        </div>
+                    </div>
+
+                    <div class="online-box">
+                        <div>
+                            <div style="font-size:13px;font-weight:500;color:#fff;">Отыграно часов</div>
+                            <div style="margin-top:4px;font-size:11px;color:var(--silver-dim);">
+                                +<span id="online-bp-counter">2</span> BP за каждые 3 часа · сейчас <strong style="color:#fff;" id="online-current-bp">0</strong> BP
+                            </div>
+                        </div>
+                        <div class="stepper">
+                            <button id="online-minus" class="step-btn" type="button" aria-label="Минус час">−</button>
+                            <span id="online-hours" class="online-hours">0ч</span>
+                            <button id="online-plus" class="step-btn" type="button" aria-label="Плюс час">+</button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="glass col-span-12 p-4 px-6 flex items-center justify-between">
-                <div class="text-[10px] uppercase tracking-widest opacity-40">Выполнено заданий</div>
-                <div class="text-xl font-bold text-white"><span id="stat-tasks-count">0</span> <span class="text-xs opacity-30 font-normal">из 59</span></div>
+            <!-- Таймеры клубов -->
+            <div class="timers-section reveal" style="--d:.12s;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;">
+                    <div>
+                        <div class="sec-eyebrow" style="margin-bottom:4px;">откат 2 часа</div>
+                        <h2 style="font-family:var(--font-heading);font-weight:400;font-size:28px;color:#fff;">Таймеры клубов</h2>
+                    </div>
+                    <span style="font-size:11px;color:var(--silver-dim);">По окончании таймера прозвучит мягкий звуковой сигнал</span>
+                </div>
+                <div id="timers-container" class="timers-grid"></div>
             </div>
 
-        </div>
+            <!-- Фильтр заданий -->
+            <div class="glass no-lift tasks-toolbar reveal" style="--d:.16s;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;" id="visibility-tabs">
+                    <button class="filter-pill active" type="button" data-vis="all">Все задания</button>
+                    <button class="filter-pill" type="button" data-vis="todo">Осталось</button>
+                    <button class="filter-pill" type="button" data-vis="done">Выполнено</button>
+                </div>
+                <input id="task-search" class="kf-input" type="search" placeholder="Быстрый поиск по заданиям…" style="flex:1;min-width:220px;" autocomplete="off">
+            </div>
 
-        <div class="space-y-3 pt-4">
-            <h3 class="text-xs font-bold uppercase opacity-40 tracking-[0.15em] mb-2 pl-1">Клубные квесты (Кулдаун 2ч)</h3>
-            <div id="timers-container" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"></div>
-        </div>
-
-        <div id="categories-container" class="space-y-10 pt-4"></div>
-
-        <footer class="mt-20 mb-10 text-center">
-            <p class="text-[10px] uppercase tracking-[0.2em] text-white/20">
-                сделано с 🤍 by krafen
-            </p>
-        </footer>
-
+            <div id="categories-container"></div>
+        </section>
     </main>
 
+    <footer class="site">
+        <div class="foot-name">krafen</div>
+        <div>tasks · калькулятор bp и клубные таймеры</div>
+    </footer>
+
+    <div class="dock">
+        <a class="dock-box" href="#top">↑ <span class="hide-m">Наверх</span></a>
+        <div class="dock-right">
+            <button class="heart-btn" id="heart" type="button" title="♥">♥</button>
+            <button class="dock-box" id="atmo" type="button">★ <span class="hide-m">Атмосфера</span></button>
+        </div>
+    </div>
+
     <script nonce="__CSP_NONCE__">
-        const TASKS_DATA = [
-            // ЛЕГКИЕ (Быстро или в один клик)
-            { id: 1, name: "Купить лотерейный билет", baseBp: 1, category: "easy" },
-            { id: 2, name: "Посетить любой сайт в браузере", baseBp: 1, category: "easy" },
-            { id: 3, name: "Поставить лайк любой анкете в Match", baseBp: 1, category: "easy" },
-            { id: 4, name: "Зайти в любой канал в Brawl", baseBp: 1, category: "easy" },
-            { id: 5, name: "Добавить 5 видео в кинотеатре", baseBp: 1, category: "easy" },
-            { id: 6, name: "Арендовать киностудию", baseBp: 2, category: "easy" },
-            { id: 8, name: "Починить деталь в автосервисе", baseBp: 1, category: "easy" },
-            { id: 9, name: "Успешная тренировка в тире", baseBp: 1, category: "easy" },
-            { id: 10, name: "Поиграть 1 минуту в настольный теннис", baseBp: 1, category: "easy" },
-            { id: 13, name: "Ставка межсерверное колесо", baseBp: 3, category: "easy" },
-            { id: 15, name: "Поиграть 1 минуту в большой теннис", baseBp: 1, category: "easy" },
-            { id: 18, name: "Сделать платёж по лизингу", baseBp: 1, category: "easy" },
-            { id: 24, name: "Проехать 1 станцию на метро", baseBp: 2, category: "easy" },
-            { id: 28, name: "20 подходов в тренажерном зале", baseBp: 1, category: "easy" },
-            { id: 29, name: "Выкопать 1 сокровище", baseBp: 1, category: "easy" },
-            { id: 41, name: "Прокрутить за DP серебряный или золотой кейс", baseBp: 10, category: "easy" },
-            { id: 42, name: "Заказ материалов для бизнеса вручную (просто прожать вкл/выкл)", baseBp: 1, category: "easy" },
+        document.addEventListener('DOMContentLoaded', () => {
+            const { escapeHTML, toast } = window.KrafenUI;
 
-            // СРЕДНИЕ (Требуют немного времени или гринда)
-            { id: 7, name: "Забить 2 гола в футболе", baseBp: 1, category: "medium" },
-            { id: 11, name: "10 действий на ферме", baseBp: 1, category: "medium" },
-            { id: 14, name: "Забросить 2 мяча в баскетболе", baseBp: 1, category: "medium" },
-            { id: 19, name: "25 действий на стройке", baseBp: 2, category: "medium" },
-            { id: 20, name: "25 действий в порту", baseBp: 2, category: "medium" },
-            { id: 21, name: "25 действий в шахте", baseBp: 2, category: "medium" },
-            { id: 22, name: "2 круга на любом маршруте автобусника", baseBp: 2, category: "medium" },
-            { id: 26, name: "Кинуть мяч питомцу 15 раз", baseBp: 2, category: "medium" },
-            { id: 27, name: "15 выполненных питомцем команд", baseBp: 2, category: "medium" },
-            { id: 30, name: "5 раз снять 100% шкуру с животных", baseBp: 2, category: "medium" },
-            { id: 31, name: "Выполнить 3 заказа дальнобойщиком", baseBp: 2, category: "medium" },
-            { id: 34, name: "Проехать 1 уличную гонку (через тлф. ставка от 1000$)", baseBp: 1, category: "medium" },
-            { id: 40, name: "10 посылок на почте", baseBp: 1, category: "medium" },
-            { id: 44, name: "Два раза оплатить смену внешности у хирурга в EMS", baseBp: 2, category: "medium" },
+            const TASKS_DATA = [
+                // ЛЕГКИЕ
+                { id: 1, name: "Купить лотерейный билет", baseBp: 1, category: "easy" },
+                { id: 2, name: "Посетить любой сайт в браузере", baseBp: 1, category: "easy" },
+                { id: 3, name: "Поставить лайк любой анкете в Match", baseBp: 1, category: "easy" },
+                { id: 4, name: "Зайти в любой канал в Brawl", baseBp: 1, category: "easy" },
+                { id: 5, name: "Добавить 5 видео в кинотеатре", baseBp: 1, category: "easy" },
+                { id: 6, name: "Арендовать киностудию", baseBp: 2, category: "easy" },
+                { id: 8, name: "Починить деталь в автосервисе", baseBp: 1, category: "easy" },
+                { id: 9, name: "Успешная тренировка в тире", baseBp: 1, category: "easy" },
+                { id: 10, name: "Поиграть 1 минуту в настольный теннис", baseBp: 1, category: "easy" },
+                { id: 13, name: "Ставка межсерверное колесо", baseBp: 3, category: "easy" },
+                { id: 15, name: "Поиграть 1 минуту в большой теннис", baseBp: 1, category: "easy" },
+                { id: 18, name: "Сделать платёж по лизингу", baseBp: 1, category: "easy" },
+                { id: 24, name: "Проехать 1 станцию на метро", baseBp: 2, category: "easy" },
+                { id: 28, name: "20 подходов в тренажерном зале", baseBp: 1, category: "easy" },
+                { id: 29, name: "Выкопать 1 сокровище", baseBp: 1, category: "easy" },
+                { id: 41, name: "Прокрутить за DP серебряный или золотой кейс", baseBp: 10, category: "easy" },
+                { id: 42, name: "Заказ материалов для бизнеса вручную (просто прожать вкл/выкл)", baseBp: 1, category: "easy" },
 
-            // СОВМЕСТНЫЕ (С другими игроками или в мини-играх)
-            { id: 16, name: "Победить в дартс", baseBp: 1, category: "coop" },
-            { id: 17, name: "Забить 10 голов в волейболе", baseBp: 1, category: "coop" },
-            { id: 23, name: "Выполнить 2 квеста любых клубов", baseBp: 4, category: "coop" },
-            { id: 32, name: "Сыграть в мафию в казино", baseBp: 3, category: "coop" },
-            { id: 33, name: "Выиграть гонку в картинге", baseBp: 1, category: "coop" },
-            { id: 35, name: "Выиграть 5 игр в тренировочном комплексе со ставкой (от 100$)", baseBp: 1, category: "coop" },
-            { id: 36, name: "Выиграть 3 любых игры на arena со ставкой (от 100$)", baseBp: 1, category: "coop" },
-            { id: 37, name: "3 победы в Дэнс Баттлах", baseBp: 2, category: "coop" },
-            { id: 38, name: "Победить в армрестлинге", baseBp: 1, category: "coop" },
-            { id: 39, name: "Починка авто другому игроку", baseBp: 2, category: "coop" },
+                // СРЕДНИЕ
+                { id: 7, name: "Забить 2 гола в футболе", baseBp: 1, category: "medium" },
+                { id: 11, name: "10 действий на ферме", baseBp: 1, category: "medium" },
+                { id: 14, name: "Забросить 2 мяча в баскетболе", baseBp: 1, category: "medium" },
+                { id: 19, name: "25 действий на стройке", baseBp: 2, category: "medium" },
+                { id: 20, name: "25 действий в порту", baseBp: 2, category: "medium" },
+                { id: 21, name: "25 действий в шахте", baseBp: 2, category: "medium" },
+                { id: 22, name: "2 круга на любом маршруте автобусника", baseBp: 2, category: "medium" },
+                { id: 26, name: "Кинуть мяч питомцу 15 раз", baseBp: 2, category: "medium" },
+                { id: 27, name: "15 выполненных питомцем команд", baseBp: 2, category: "medium" },
+                { id: 30, name: "5 раз снять 100% шкуру с животных", baseBp: 2, category: "medium" },
+                { id: 31, name: "Выполнить 3 заказа дальнобойщиком", baseBp: 2, category: "medium" },
+                { id: 34, name: "Проехать 1 уличную гонку (через тлф. ставка от 1000$)", baseBp: 1, category: "medium" },
+                { id: 40, name: "10 посылок на почте", baseBp: 1, category: "medium" },
+                { id: 44, name: "Два раза оплатить смену внешности у хирурга в EMS", baseBp: 2, category: "medium" },
 
-            // ФРАКЦИОННЫЕ (Гос, Мафии, Гетто, EMS, WN)
-            { id: 45, name: "Принять участие в двух аирдропах", baseBp: 4, category: "fraction" },
-            { id: 46, name: "7 закрашенных граффити", baseBp: 1, category: "fraction" },
-            { id: 47, name: "Сдать 5 контрабанды", baseBp: 2, category: "fraction" },
-            { id: 48, name: "Участие в каптах/бизварах", baseBp: 1, category: "fraction" },
-            { id: 49, name: "Сдать Хаммер с ВЗХ", baseBp: 3, category: "fraction" },
-            { id: 50, name: "5 выданных медкарт в EMS", baseBp: 2, category: "fraction" },
-            { id: 51, name: "Закрыть 15 вызовов в EMS", baseBp: 2, category: "fraction" },
-            { id: 52, name: "Отредактировать 40 объявлений в WN", baseBp: 2, category: "fraction" },
-            { id: 53, name: "Взломать 15 замков на ограбах домов или автоугонах", baseBp: 2, category: "fraction" },
-            { id: 54, name: "Закрыть 5 кодов в силовых структурах", baseBp: 2, category: "fraction" },
-            { id: 55, name: "Поставить на учет 2 автомобиля (для LSPD)", baseBp: 1, category: "fraction" },
-            { id: 56, name: "Произвести 1 арест в КПЗ", baseBp: 1, category: "fraction" },
-            { id: 57, name: "Выкупить двух человек из КПЗ", baseBp: 2, category: "fraction" },
-            { id: 58, name: "Посадить траву в теплице", baseBp: 4, category: "fraction" },
-            { id: 59, name: "Запустить переработку обезболивающих в лаборатории", baseBp: 4, category: "fraction" },
+                // СОВМЕСТНЫЕ
+                { id: 16, name: "Победить в дартс", baseBp: 1, category: "coop" },
+                { id: 17, name: "Забить 10 голов в волейболе", baseBp: 1, category: "coop" },
+                { id: 23, name: "Выполнить 2 квеста любых клубов", baseBp: 4, category: "coop" },
+                { id: 32, name: "Сыграть в мафию в казино", baseBp: 3, category: "coop" },
+                { id: 33, name: "Выиграть гонку в картинге", baseBp: 1, category: "coop" },
+                { id: 35, name: "Выиграть 5 игр в тренировочном комплексе со ставкой (от 100$)", baseBp: 1, category: "coop" },
+                { id: 36, name: "Выиграть 3 любых игры на arena со ставкой (от 100$)", baseBp: 1, category: "coop" },
+                { id: 37, name: "3 победы в Дэнс Баттлах", baseBp: 2, category: "coop" },
+                { id: 38, name: "Победить в армрестлинге", baseBp: 1, category: "coop" },
+                { id: 39, name: "Починка авто другому игроку", baseBp: 2, category: "coop" },
 
-            // НЕ ХОЧЕТСЯ ДЕЛАТЬ (Душные, долгие или рандомные задания)
-            { id: 12, name: "Нули в казино", baseBp: 2, category: "skip" },
-            { id: 25, name: "Поймать 20 рыб", baseBp: 4, category: "skip" },
-            { id: 43, name: "Потушить 25 «огоньков» пожарным", baseBp: 1, category: "skip" }
-        ];
+                // ФРАКЦИОННЫЕ
+                { id: 45, name: "Принять участие в двух аирдропах", baseBp: 4, category: "fraction" },
+                { id: 46, name: "7 закрашенных граффити", baseBp: 1, category: "fraction" },
+                { id: 47, name: "Сдать 5 контрабанды", baseBp: 2, category: "fraction" },
+                { id: 48, name: "Участие в каптах/бизварах", baseBp: 1, category: "fraction" },
+                { id: 49, name: "Сдать Хаммер с ВЗХ", baseBp: 3, category: "fraction" },
+                { id: 50, name: "5 выданных медкарт в EMS", baseBp: 2, category: "fraction" },
+                { id: 51, name: "Закрыть 15 вызовов в EMS", baseBp: 2, category: "fraction" },
+                { id: 52, name: "Отредактировать 40 объявлений в WN", baseBp: 2, category: "fraction" },
+                { id: 53, name: "Взломать 15 замков на ограбах домов или автоугонах", baseBp: 2, category: "fraction" },
+                { id: 54, name: "Закрыть 5 кодов в силовых структурах", baseBp: 2, category: "fraction" },
+                { id: 55, name: "Поставить на учет 2 автомобиля (для LSPD)", baseBp: 1, category: "fraction" },
+                { id: 56, name: "Произвести 1 арест в КПЗ", baseBp: 1, category: "fraction" },
+                { id: 57, name: "Выкупить двух человек из КПЗ", baseBp: 2, category: "fraction" },
+                { id: 58, name: "Посадить траву в теплице", baseBp: 4, category: "fraction" },
+                { id: 59, name: "Запустить переработку обезболивающих в лаборатории", baseBp: 4, category: "fraction" },
 
-        const CATEGORIES_NAMES = {
-            easy: "Легкие задания",
-            medium: "Средние задания",
-            coop: "Совместные задания / Мини-игры",
-            fraction: "Фракционные задания",
-            skip: "Не хочется делать (Душные / Долгие)"
-        };
+                // НЕ ХОЧЕТСЯ ДЕЛАТЬ
+                { id: 12, name: "Нули в казино", baseBp: 2, category: "skip" },
+                { id: 25, name: "Поймать 20 рыб", baseBp: 4, category: "skip" },
+                { id: 43, name: "Потушить 25 «огоньков» пожарным", baseBp: 1, category: "skip" }
+            ];
 
-        const CLUBS_DATA = [
-            { id: "epsilon", name: "Epsilon Programs" },
-            { id: "merryweather", name: "Merryweather" },
-            { id: "rednecks", name: "Rednecks" },
-            { id: "carmeet", name: "Carmeet" },
-            { id: "lost", name: "Lost MC" }
-        ];
-
-        const TIMER_DURATION = 2 * 60 * 60; // 2 часа в секундах
-
-        // Глобальное состояние приложения
-        let state = {
-            isVip: false,
-            isX2: false,
-            onlineHours: 0,
-            completedTasks: new Set(),
-            timers: {} // Будет хранить { id: { endTime: timestamp/null, timeLeft: seconds, running: bool } }
-        };
-
-        // Инициализация дефолтных таймеров в стейте
-        CLUBS_DATA.forEach(club => {
-            state.timers[club.id] = { endTime: null, timeLeft: TIMER_DURATION, running: false };
-        });
-
-        // Ключ для хранения в localStorage
-        const STORAGE_KEY = 'krafen_bp_calculator_state';
-
-        // DOM элементы
-        const categoriesContainer = document.getElementById('categories-container');
-        const timersContainer = document.getElementById('timers-container');
-        const btnVip = document.getElementById('btn-vip');
-        const btnX2 = document.getElementById('btn-x2');
-        const btnReset = document.getElementById('btn-reset');
-        
-        const onlineHoursEl = document.getElementById('online-hours');
-        const onlineCurrentBpEl = document.getElementById('online-current-bp');
-        const onlineBpCounterEl = document.getElementById('online-bp-counter');
-        const onlineMinusBtn = document.getElementById('online-minus');
-        const onlinePlusBtn = document.getElementById('online-plus');
-
-        const statEarnedEl = document.getElementById('stat-earned');
-        const statLeftEl = document.getElementById('stat-left');
-        const statPercentEl = document.getElementById('stat-percent');
-        const progressFill = document.getElementById('progress-fill');
-        const statTasksCountEl = document.getElementById('stat-tasks-count');
-
-        // Звуковое оповещение через встроенный Web Audio API (без внешних зависимостей)
-        function playNotificationSound() {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                function beep(delay, freq, duration) {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    
-                    // 'triangle' вместо 'sine' делает звук более заметным и глубоким
-                    osc.type = 'triangle'; 
-                    osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
-                    
-                    // Повысили базовую громкость до 0.6 (было 0.15)
-                    gain.gain.setValueAtTime(0.6, ctx.currentTime + delay);
-                    // Плавное затухание к концу ноты
-                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + duration);
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    osc.start(ctx.currentTime + delay);
-                    osc.stop(ctx.currentTime + delay + duration);
-                }
-                
-                // Размеренный мажорный аккорд — ноты длятся дольше и перетекают друг в друга
-                beep(0, 523.25, 0.5);    // Нота 1 (длительность 0.5 сек)
-                beep(0.2, 659.25, 0.5);   // Нота 2 (вступает через 0.2 сек)
-                beep(0.4, 783.99, 0.8);   // Нота 3 (вступает через 0.4 сек, финал)
-            } catch (e) {
-                console.error("Audio playback error:", e);
-            }
-        }
-
-        // Сохранение в localStorage
-        function saveState() {
-            const dataToSave = {
-                isVip: state.isVip,
-                isX2: state.isX2,
-                onlineHours: state.onlineHours,
-                completedTasks: Array.from(state.completedTasks),
-                timers: state.timers
+            const CATEGORIES_NAMES = {
+                easy: "Лёгкие задания",
+                medium: "Средние задания",
+                coop: "Совместные задания и мини-игры",
+                fraction: "Фракционные задания",
+                skip: "Долгие / рандомные задания"
             };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-        }
 
-        // Загрузка из localStorage
-        function loadState() {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (!saved) return;
-            try {
-                const parsed = JSON.parse(saved);
-                state.isVip = parsed.isVip || false;
-                state.isX2 = parsed.isX2 || false;
-                state.onlineHours = parsed.onlineHours || 0;
-                state.completedTasks = new Set(parsed.completedTasks || []);
-                
-                if (parsed.timers) {
-                    Object.keys(parsed.timers).forEach(id => {
-                        if (state.timers[id]) {
-                            state.timers[id] = parsed.timers[id];
-                            // Если таймер был запущен, пересчитываем оставшееся время на основе сохраненного метки конца
-                            if (state.timers[id].running && state.timers[id].endTime) {
-                                let rem = Math.ceil((state.timers[id].endTime - Date.now()) / 1000);
+            const CLUBS_DATA = [
+                { id: "epsilon", name: "Epsilon Program" },
+                { id: "merryweather", name: "Merryweather" },
+                { id: "rednecks", name: "Rednecks" },
+                { id: "carmeet", name: "Carmeet" },
+                { id: "lost", name: "Lost MC" }
+            ];
+
+            const TIMER_DURATION = 2 * 60 * 60;
+            const STORAGE_KEY = 'krafen_bp_calculator_state';
+
+            let visFilter = 'all';
+            let searchQuery = '';
+
+            const state = {
+                isVip: false,
+                isX2: false,
+                onlineHours: 0,
+                completedTasks: new Set(),
+                timers: {}
+            };
+
+            CLUBS_DATA.forEach((club) => {
+                state.timers[club.id] = { endTime: null, timeLeft: TIMER_DURATION, running: false };
+            });
+
+            const categoriesContainer = document.getElementById('categories-container');
+            const timersContainer = document.getElementById('timers-container');
+            const btnVip = document.getElementById('btn-vip');
+            const btnX2 = document.getElementById('btn-x2');
+            const btnReset = document.getElementById('btn-reset');
+            const onlineHoursEl = document.getElementById('online-hours');
+            const onlineCurrentBpEl = document.getElementById('online-current-bp');
+            const onlineBpCounterEl = document.getElementById('online-bp-counter');
+
+            function playNotificationSound() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const beep = (delay, freq, duration) => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+                        gain.gain.setValueAtTime(0.45, ctx.currentTime + delay);
+                        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + duration);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(ctx.currentTime + delay);
+                        osc.stop(ctx.currentTime + delay + duration);
+                    };
+                    beep(0, 523.25, 0.5);
+                    beep(0.2, 659.25, 0.5);
+                    beep(0.4, 783.99, 0.8);
+                } catch {}
+            }
+
+            function saveState() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                        isVip: state.isVip,
+                        isX2: state.isX2,
+                        onlineHours: state.onlineHours,
+                        completedTasks: Array.from(state.completedTasks),
+                        timers: state.timers
+                    }));
+                } catch {}
+            }
+
+            function loadState() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (!raw) return;
+                    const parsed = JSON.parse(raw);
+                    state.isVip = Boolean(parsed.isVip);
+                    state.isX2 = Boolean(parsed.isX2);
+                    state.onlineHours = Math.max(0, Math.min(24, Number(parsed.onlineHours) || 0));
+                    state.completedTasks = new Set(Array.isArray(parsed.completedTasks) ? parsed.completedTasks : []);
+
+                    if (parsed.timers && typeof parsed.timers === 'object') {
+                        CLUBS_DATA.forEach((club) => {
+                            const savedTimer = parsed.timers[club.id];
+                            if (!savedTimer) return;
+                            state.timers[club.id] = {
+                                endTime: savedTimer.endTime || null,
+                                timeLeft: Number(savedTimer.timeLeft) || TIMER_DURATION,
+                                running: Boolean(savedTimer.running)
+                            };
+                            if (state.timers[club.id].running && state.timers[club.id].endTime) {
+                                const rem = Math.ceil((state.timers[club.id].endTime - Date.now()) / 1000);
                                 if (rem <= 0) {
-                                    state.timers[id].running = false;
-                                    state.timers[id].endTime = null;
-                                    state.timers[id].timeLeft = TIMER_DURATION;
+                                    state.timers[club.id] = { endTime: null, timeLeft: TIMER_DURATION, running: false };
                                 } else {
-                                    state.timers[id].timeLeft = rem;
+                                    state.timers[club.id].timeLeft = rem;
                                 }
                             }
-                        }
-                    });
-                }
+                        });
+                    }
+                } catch {}
+            }
 
-                // Синхронизируем визуальное состояние системных кнопок и онлайна
+            function getMultiplier() {
+                return (state.isVip ? 2 : 1) * (state.isX2 ? 2 : 1);
+            }
+
+            function calculateTaskBp(baseBp) {
+                return baseBp * getMultiplier();
+            }
+
+            function calculateOnlineBp() {
+                return Math.floor(state.onlineHours / 3) * 2 * getMultiplier();
+            }
+
+            function calculateMaxPossibleBp() {
+                const totalBase = TASKS_DATA.reduce((sum, t) => sum + t.baseBp, 0);
+                return (totalBase + 16) * getMultiplier();
+            }
+
+            function formatTime(totalSeconds) {
+                const s = Math.max(0, Math.floor(totalSeconds));
+                const hrs = Math.floor(s / 3600);
+                const mins = Math.floor((s % 3600) / 60);
+                const secs = s % 60;
+                return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            }
+
+            function updateStatistics() {
+                let earnedTasks = 0;
+                TASKS_DATA.forEach((t) => {
+                    if (state.completedTasks.has(t.id)) earnedTasks += calculateTaskBp(t.baseBp);
+                });
+                const onlineEarned = calculateOnlineBp();
+                const totalEarned = earnedTasks + onlineEarned;
+                const maxPossible = calculateMaxPossibleBp();
+                const leftBp = Math.max(0, maxPossible - totalEarned);
+                const percent = maxPossible > 0 ? Math.min(100, Math.round((totalEarned / maxPossible) * 100)) : 0;
+
+                document.getElementById('stat-earned').textContent = totalEarned;
+                document.getElementById('stat-left').textContent = leftBp;
+                document.getElementById('stat-percent').textContent = `${percent}%`;
+                document.getElementById('progress-fill').style.width = `${percent}%`;
+                document.getElementById('stat-tasks-count').textContent = state.completedTasks.size;
+
+                onlineHoursEl.textContent = `${state.onlineHours}ч`;
+                onlineCurrentBpEl.textContent = onlineEarned;
+                onlineBpCounterEl.textContent = 2 * getMultiplier();
+
                 btnVip.classList.toggle('active', state.isVip);
                 btnX2.classList.toggle('active', state.isX2);
-                onlineHoursEl.textContent = `${state.onlineHours}ч`;
-            } catch (e) {
-                console.error("Ошибка загрузки данных из localStorage", e);
             }
-        }
 
-        function getMultiplier() {
-            let mult = 1;
-            if (state.isVip) mult *= 2;
-            if (state.isX2) mult *= 2;
-            return mult;
-        }
+            function renderTimers() {
+                timersContainer.innerHTML = CLUBS_DATA.map((club) => {
+                    const t = state.timers[club.id];
+                    return `
+                        <div class="glass no-lift timer-card ${t.running ? 'running' : ''}" id="timer-card-${club.id}">
+                            <div class="timer-name">${escapeHTML(club.name)}</div>
+                            <div class="timer-display" id="display-${club.id}">${formatTime(t.timeLeft)}</div>
+                            <div class="timer-actions">
+                                <button class="timer-btn ${t.running ? 'active-timer' : ''}" type="button" data-timer-toggle="${club.id}" id="btn-start-${club.id}">
+                                    ${t.running ? 'Пауза' : 'Старт'}
+                                </button>
+                                <button class="timer-reset" type="button" data-timer-reset="${club.id}" title="Сбросить">✕</button>
+                            </div>
+                        </div>`;
+                }).join('');
+            }
 
-        function calculateTaskBp(baseBp) {
-            return baseBp * getMultiplier();
-        }
+            function renderTasks() {
+                const q = searchQuery.toLowerCase();
+                const html = Object.keys(CATEGORIES_NAMES).map((catKey) => {
+                    const allCat = TASKS_DATA.filter((t) => t.category === catKey);
+                    const doneCount = allCat.filter((t) => state.completedTasks.has(t.id)).length;
+                    const visible = allCat.filter((t) => {
+                        const checked = state.completedTasks.has(t.id);
+                        if (visFilter === 'done' && !checked) return false;
+                        if (visFilter === 'todo' && checked) return false;
+                        if (q && !t.name.toLowerCase().includes(q)) return false;
+                        return true;
+                    });
+                    if (!visible.length) return '';
+                    return `
+                        <div class="cat-block">
+                            <div class="cat-head">
+                                <h3 class="cat-title">${escapeHTML(CATEGORIES_NAMES[catKey])}</h3>
+                                <span class="cat-count">${doneCount} / ${allCat.length}</span>
+                            </div>
+                            <div class="tasks-grid">
+                                ${visible.map((t) => {
+                                    const checked = state.completedTasks.has(t.id);
+                                    return `
+                                        <div class="task-card ${checked ? 'active' : ''}" data-task-id="${t.id}">
+                                            <div class="task-left">
+                                                <span class="task-check">✓</span>
+                                                <span class="task-name">${escapeHTML(t.name)}</span>
+                                            </div>
+                                            <span class="bp-badge" id="bp-badge-${t.id}">${calculateTaskBp(t.baseBp)} BP</span>
+                                        </div>`;
+                                }).join('')}
+                            </div>
+                        </div>`;
+                }).join('');
 
-        function calculateOnlineBp() {
-            const steps = Math.floor(state.onlineHours / 3);
-            const baseOnlineStepBp = 2;
-            return steps * baseOnlineStepBp * getMultiplier();
-        }
+                categoriesContainer.innerHTML = html || `
+                    <div class="empty-box">
+                        <div class="big">tasks</div>
+                        <p>По выбранному фильтру заданий не найдено.</p>
+                    </div>`;
+            }
 
-        function calculateMaxPossibleBp() {
-            let totalTasksBase = TASKS_DATA.reduce((sum, t) => sum + t.baseBp, 0);
-            let maxOnlineBase = 16;
-            return (totalTasksBase + maxOnlineBase) * getMultiplier();
-        }
-
-        function updateStatistics() {
-            let earnedFromTasks = 0;
-            TASKS_DATA.forEach(task => {
-                if (state.completedTasks.has(task.id)) {
-                    earnedFromTasks += calculateTaskBp(task.baseBp);
-                }
-            });
-
-            const onlineEarned = calculateOnlineBp();
-            const totalEarned = earnedFromTasks + onlineEarned;
-            const maxPossible = calculateMaxPossibleBp();
-            const leftBp = Math.max(0, maxPossible - totalEarned);
-            
-            const percent = maxPossible > 0 ? Math.min(100, Math.round((totalEarned / maxPossible) * 100)) : 0;
-
-            statEarnedEl.textContent = totalEarned;
-            statLeftEl.textContent = leftBp;
-            statPercentEl.textContent = `${percent}%`;
-            progressFill.style.width = `${percent}%`;
-            statTasksCountEl.textContent = state.completedTasks.size;
-
-            onlineCurrentBpEl.textContent = onlineEarned;
-            onlineBpCounterEl.textContent = 2 * getMultiplier();
-
-            TASKS_DATA.forEach(task => {
-                const badge = document.getElementById(`bp-badge-${task.id}`);
-                if (badge) {
-                    badge.textContent = `${calculateTaskBp(task.baseBp)} BP`;
-                }
-            });
-        }
-
-        // Форматирование секунд в 00:00:00
-        function formatTime(totalSeconds) {
-            const hrs = Math.floor(totalSeconds / 3600);
-            const mins = Math.floor((totalSeconds % 3600) / 60);
-            const secs = totalSeconds % 60;
-            return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-        }
-
-        // Рендер клубных таймеров
-        function renderTimers() {
-            timersContainer.innerHTML = '';
-            CLUBS_DATA.forEach(club => {
-                const timerState = state.timers[club.id];
-                const card = document.createElement('div');
-                card.className = "glass p-4 flex flex-col justify-between items-center text-center space-y-3";
-                card.id = `timer-card-${club.id}`;
-
-                card.innerHTML = `
-                    <div class="text-[10px] uppercase tracking-wider text-white/50 font-bold leading-tight min-h-[20px] flex items-center justify-center">
-                        ${club.name}
-                    </div>
-                    <div id="display-${club.id}" class="text-xl font-bold tracking-tight text-white select-none">
-                        ${formatTime(timerState.timeLeft)}
-                    </div>
-                    <div class="flex gap-1.5 w-full">
-                        <button id="btn-start-${club.id}" class="toggle-btn text-[9px] uppercase tracking-widest py-1.5 flex-1 rounded-md font-bold transition">
-                            ${timerState.running ? 'Пауза' : 'Старт'}
-                        </button>
-                        <button id="btn-reset-${club.id}" class="text-[9px] text-white/30 uppercase tracking-widest py-1.5 px-2 rounded-md border border-white/5 hover:border-white/20 hover:text-white/80 transition">
-                            ✕
-                        </button>
-                    </div>
-                `;
-
-                const startBtn = card.querySelector(`#btn-start-${club.id}`);
-                const resetBtn = card.querySelector(`#btn-reset-${club.id}`);
-
-                if (timerState.running) startBtn.classList.add('active-timer');
-
-                startBtn.addEventListener('click', () => {
-                    if (timerState.running) {
-                        // Пауза
-                        timerState.running = false;
-                        timerState.timeLeft = Math.max(0, Math.ceil((timerState.endTime - Date.now()) / 1000));
-                        timerState.endTime = null;
-                        startBtn.textContent = 'Старт';
-                        startBtn.classList.remove('active-timer');
+            timersContainer.addEventListener('click', (e) => {
+                const toggleBtn = e.target.closest('[data-timer-toggle]');
+                if (toggleBtn) {
+                    const id = toggleBtn.dataset.timerToggle;
+                    const t = state.timers[id];
+                    if (!t) return;
+                    if (t.running) {
+                        t.running = false;
+                        t.timeLeft = Math.max(0, Math.ceil((t.endTime - Date.now()) / 1000));
+                        t.endTime = null;
                     } else {
-                        // Старт
-                        timerState.running = true;
-                        timerState.endTime = Date.now() + (timerState.timeLeft * 1000);
-                        startBtn.textContent = 'Пауза';
-                        startBtn.classList.add('active-timer');
+                        t.running = true;
+                        t.endTime = Date.now() + t.timeLeft * 1000;
                     }
                     saveState();
-                });
-
-                resetBtn.addEventListener('click', () => {
-                    timerState.running = false;
-                    timerState.endTime = null;
-                    timerState.timeLeft = TIMER_DURATION;
-                    startBtn.textContent = 'Старт';
-                    startBtn.classList.remove('active-timer');
-                    document.getElementById(`display-${club.id}`).textContent = formatTime(TIMER_DURATION);
+                    renderTimers();
+                    return;
+                }
+                const resetBtn = e.target.closest('[data-timer-reset]');
+                if (resetBtn) {
+                    const id = resetBtn.dataset.timerReset;
+                    state.timers[id] = { running: false, endTime: null, timeLeft: TIMER_DURATION };
                     saveState();
-                });
-
-                timersContainer.appendChild(card);
+                    renderTimers();
+                }
             });
-        }
 
-        // Единый интервал для обработки тиков всех таймеров (1 раз в секунду)
-        setInterval(() => {
-            let stateChanged = false;
-            CLUBS_DATA.forEach(club => {
-                const timerState = state.timers[club.id];
-                if (timerState.running && timerState.endTime) {
-                    let rem = Math.ceil((timerState.endTime - Date.now()) / 1000);
+            setInterval(() => {
+                let changed = false;
+                CLUBS_DATA.forEach((club) => {
+                    const t = state.timers[club.id];
+                    if (!t.running || !t.endTime) return;
+                    const rem = Math.ceil((t.endTime - Date.now()) / 1000);
                     if (rem <= 0) {
-                        // Таймер завершился
-                        timerState.running = false;
-                        timerState.endTime = null;
-                        timerState.timeLeft = TIMER_DURATION;
-                        
-                        const display = document.getElementById(`display-${club.id}`);
-                        if (display) display.textContent = formatTime(TIMER_DURATION);
-                        
-                        const startBtn = document.getElementById(`btn-start-${club.id}`);
-                        if (startBtn) {
-                            startBtn.textContent = 'Старт';
-                            startBtn.classList.remove('active-timer');
-                        }
-                        
+                        t.running = false;
+                        t.endTime = null;
+                        t.timeLeft = TIMER_DURATION;
                         playNotificationSound();
-                        stateChanged = true;
+                        toast(`Клуб «${club.name}» снова доступен!`, '#86efac');
+                        changed = true;
                     } else {
-                        timerState.timeLeft = rem;
+                        t.timeLeft = rem;
                         const display = document.getElementById(`display-${club.id}`);
                         if (display) display.textContent = formatTime(rem);
                     }
+                });
+                if (changed) {
+                    saveState();
+                    renderTimers();
+                }
+            }, 1000);
+
+            categoriesContainer.addEventListener('click', (e) => {
+                const card = e.target.closest('[data-task-id]');
+                if (!card) return;
+                const id = Number(card.dataset.taskId);
+                if (state.completedTasks.has(id)) state.completedTasks.delete(id);
+                else state.completedTasks.add(id);
+                saveState();
+                updateStatistics();
+                renderTasks();
+            });
+
+            btnVip.addEventListener('click', () => {
+                state.isVip = !state.isVip;
+                saveState();
+                updateStatistics();
+                renderTasks();
+            });
+
+            btnX2.addEventListener('click', () => {
+                state.isX2 = !state.isX2;
+                saveState();
+                updateStatistics();
+                renderTasks();
+            });
+
+            document.getElementById('online-minus').addEventListener('click', () => {
+                if (state.onlineHours > 0) {
+                    state.onlineHours -= 1;
+                    saveState();
+                    updateStatistics();
                 }
             });
-            if (stateChanged) saveState();
-        }, 1000);
 
-        // Рендерим задания секциями на основе заданных категорий
-        function renderTasks() {
-            categoriesContainer.innerHTML = '';
-
-            Object.keys(CATEGORIES_NAMES).forEach(categoryKey => {
-                const filteredTasks = TASKS_DATA.filter(t => t.category === categoryKey);
-                if (filteredTasks.length === 0) return;
-
-                const section = document.createElement('div');
-                section.className = "space-y-3";
-
-                const title = document.createElement('h3');
-                title.className = "text-xs font-bold uppercase opacity-40 tracking-[0.15em] mb-2 pl-1";
-                title.textContent = CATEGORIES_NAMES[categoryKey];
-                section.appendChild(title);
-
-                const grid = document.createElement('div');
-                grid.className = "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4";
-
-                filteredTasks.forEach(task => {
-                    const isChecked = state.completedTasks.has(task.id);
-                    
-                    const card = document.createElement('div');
-                    card.className = `glass task-card p-4 flex items-center justify-between gap-4 ${isChecked ? 'active' : ''}`;
-                    card.setAttribute('data-id', task.id);
-
-                    card.innerHTML = `
-                        <div class="flex items-center gap-3 min-w-0 select-none">
-                            <input type="checkbox" class="custom-checkbox flex-shrink-0" ${isChecked ? 'checked' : ''}>
-                            <span class="text-xs font-medium text-gray-200 leading-snug truncate md:whitespace-normal">${task.name}</span>
-                        </div>
-                        <span id="bp-badge-${task.id}" class="flex-shrink-0 text-[10px] font-bold border border-white/10 px-2.5 py-1 rounded-full text-white bg-white/5">
-                            ${calculateTaskBp(task.baseBp)} BP
-                        </span>
-                    `;
-
-                    const checkbox = card.querySelector('.custom-checkbox');
-                    
-                    const toggleTask = () => {
-                        if (state.completedTasks.has(task.id)) {
-                            state.completedTasks.delete(task.id);
-                            card.classList.remove('active');
-                            checkbox.checked = false;
-                        } else {
-                            state.completedTasks.add(task.id);
-                            card.classList.add('active');
-                            checkbox.checked = true;
-                        }
-                        updateStatistics();
-                        saveState(); 
-                    };
-
-                    card.addEventListener('click', (e) => {
-                        if(e.target !== checkbox) toggleTask();
-                    });
-                    checkbox.addEventListener('change', () => {
-                        toggleTask();
-                    });
-
-                    grid.appendChild(card);
-                });
-
-                section.appendChild(grid);
-                categoriesContainer.appendChild(section);
+            document.getElementById('online-plus').addEventListener('click', () => {
+                if (state.onlineHours < 24) {
+                    state.onlineHours += 1;
+                    saveState();
+                    updateStatistics();
+                }
             });
-        }
 
-        // Логика кликов для карточки онлайн-прогресса
-        onlineMinusBtn.addEventListener('click', () => {
-            if (state.onlineHours >= 3) {
-                state.onlineHours -= 3;
-                onlineHoursEl.textContent = `${state.onlineHours}ч`;
+            btnReset.addEventListener('click', () => {
+                if (!confirm('Сбросить выполненные задания и часы онлайна за сегодня?')) return;
+                state.completedTasks.clear();
+                state.onlineHours = 0;
+                saveState();
                 updateStatistics();
-                saveState(); 
-            }
-        });
-
-        onlinePlusBtn.addEventListener('click', () => {
-            if (state.onlineHours < 24) {
-                state.onlineHours += 3;
-                onlineHoursEl.textContent = `${state.onlineHours}ч`;
-                updateStatistics();
-                saveState(); 
-            }
-        });
-
-        // Слушатели системных переключателей (VIP / X2 / Сброс)
-        btnVip.addEventListener('click', () => {
-            state.isVip = !state.isVip;
-            btnVip.classList.toggle('active', state.isVip);
-            updateStatistics();
-            saveState(); 
-        });
-
-        btnX2.addEventListener('click', () => {
-            state.isX2 = !state.isX2;
-            btnX2.classList.toggle('active', state.isX2);
-            updateStatistics();
-            saveState(); 
-        });
-
-        btnReset.addEventListener('click', () => {
-            state.completedTasks.clear();
-            state.onlineHours = 0;
-            state.isVip = false;
-            state.isX2 = false;
-            
-            // Сброс таймеров
-            CLUBS_DATA.forEach(club => {
-                state.timers[club.id] = { endTime: null, timeLeft: TIMER_DURATION, running: false };
+                renderTasks();
+                toast('Прогресс за день сброшен');
             });
-            
-            btnVip.classList.remove('active');
-            btnX2.classList.remove('active');
-            onlineHoursEl.textContent = '0ч';
-            
-            document.querySelectorAll('.task-card').forEach(card => {
-                card.classList.remove('active');
-                card.querySelector('.custom-checkbox').checked = false;
+
+            document.getElementById('visibility-tabs').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-vis]');
+                if (!btn) return;
+                visFilter = btn.dataset.vis;
+                document.querySelectorAll('#visibility-tabs .filter-pill').forEach((b) => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderTasks();
             });
-            
+
+            document.getElementById('task-search').addEventListener('input', (e) => {
+                searchQuery = e.target.value.trim();
+                renderTasks();
+            });
+
+            loadState();
+            updateStatistics();
             renderTimers();
-            updateStatistics();
-            localStorage.removeItem(STORAGE_KEY); 
+            renderTasks();
         });
-
-        // Порядок запуска:
-        loadState();        // 1. Сначала подтягиваем кэш
-        renderTimers();     // 2. Строим блок таймеров
-        renderTasks();      // 3. Строим карточки заданий
-        updateStatistics(); // 4. Считаем циферки
     </script>
 </body>
 </html>
-
