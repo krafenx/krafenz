@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>danonsha</title>
     <meta name="description" content="danonsha — стримы, записи и ссылки.">
-    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" crossorigin>
     <style nonce="__CSP_NONCE__">
         :root {
             --void: #050505;
@@ -160,8 +160,39 @@
         .reveal.visible { opacity: 1; filter: blur(0); transform: none; }
 
         /* ---------- hero ---------- */
-        .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+        .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
         .hero-inner { will-change: transform, opacity; }
+        .hero-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(280px, .65fr);
+            align-items: center;
+            gap: clamp(28px, 5vw, 72px);
+        }
+        .hero-copy { position: relative; z-index: 2; }
+        .hero-portrait {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 714 / 1280;
+            margin: 0;
+            isolation: isolate;
+            border: 1px solid rgba(160,160,160,.2);
+            box-shadow: 0 24px 70px rgba(0,0,0,.35);
+        }
+        .hero-portrait::before {
+            content: "";
+            position: absolute;
+            z-index: -1;
+            inset: 12px -12px -12px 12px;
+            border: 1px solid rgba(163,19,19,.38);
+            pointer-events: none;
+        }
+        .hero-portrait img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
         .hero-status {
             display: inline-flex; align-items: center; gap: 9px; width: fit-content;
             padding: 8px 16px; margin-bottom: 34px;
@@ -176,7 +207,7 @@
         .hero-eyebrow { font-size: 11px; letter-spacing: .35em; text-transform: uppercase; color: var(--silver-dim); margin-bottom: 22px; }
         .hero-name {
             font-family: var(--font-display);
-            font-size: clamp(110px, 16vw, 240px); line-height: .88; letter-spacing: .005em;
+            font-size: clamp(96px, 11vw, 168px); line-height: .88; letter-spacing: .005em;
             color: var(--silver-bright);
             text-shadow: 0 0 80px rgba(224, 224, 224, .12);
         }
@@ -279,9 +310,11 @@
         .social-card:hover .chev { color: #fff; transform: translateX(4px); }
 
         /* ---------- архив VOD ---------- */
-        .player-wrap { display: none; border-radius: 18px; overflow: hidden; background: var(--glass); border: 1px solid var(--glass-border); backdrop-filter: blur(16px); }
+        .archive-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+        .player-wrap { display: none; border-radius: 18px; overflow: hidden; background: var(--glass); border: 1px solid var(--glass-border); backdrop-filter: blur(16px); margin-bottom: 24px; }
         .player-box { position: relative; background: #000; }
         .player-box video { display: block; width: 100%; max-height: 60vh; }
+        .player-box .drive-iframe { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh; border: 0; background: #000; }
         .chat {
             position: absolute; right: 0; top: 0; bottom: 0; width: min(330px, 44%);
             display: flex; flex-direction: column;
@@ -295,11 +328,12 @@
         @keyframes chatin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
         .meta-bar { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 16px 22px; flex-wrap: wrap; }
         .meta-bar .title { font-family: var(--font-serif); font-style: italic; font-size: 16px; color: var(--silver-bright); }
+        .meta-bar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
         .meta-bar .info { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--silver-dim); }
 
         .vod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 20px; }
         .vod-card {
-            position: relative; text-align: left; cursor: pointer; border-radius: 18px; overflow: hidden;
+            position: relative; display: flex; flex-direction: column; text-align: left; cursor: pointer; border-radius: 18px; overflow: hidden;
             background: rgba(12,12,15,.6); border: 1px solid var(--glass-border);
             color: inherit; font-family: inherit;
             transition: border-color .4s var(--ease), transform .4s var(--ease), box-shadow .4s var(--ease);
@@ -307,20 +341,41 @@
         .vod-card:hover { border-color: rgba(160,160,160,.3); transform: translateY(-4px); box-shadow: 0 22px 50px rgba(0,0,0,.7); }
         .vod-card.active { border-color: rgba(163,19,19,.55); box-shadow: 0 0 26px rgba(124,10,10,.22); }
         .vod-thumb {
-            height: 150px;
+            position: relative; overflow: hidden;
+            height: 164px;
             background:
                 radial-gradient(60% 90% at 50% 110%, rgba(124,10,10,.2), transparent 70%),
                 linear-gradient(180deg, #0d0d10, #070708);
             display: flex; align-items: center; justify-content: center;
-            color: rgba(160,160,160,.4); font-size: 26px;
+            color: rgba(224,224,224,.7); font-size: 24px;
             border-bottom: 1px solid var(--glass-border);
             transition: color .4s var(--ease);
         }
-        .vod-card:hover .vod-thumb { color: rgba(224,224,224,.75); }
-        .vod-info { padding: 18px 20px 20px; }
+        .vod-thumb img {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; opacity: .58;
+            transition: transform .5s var(--ease), opacity .4s var(--ease);
+        }
+        .vod-card:hover .vod-thumb img { transform: scale(1.04); opacity: .78; }
+        .vod-play {
+            position: relative; z-index: 1;
+            width: 46px; height: 46px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(5,5,5,.68); border: 1px solid rgba(255,255,255,.18);
+            backdrop-filter: blur(8px); font-size: 15px; padding-left: 3px;
+            transition: transform .35s var(--ease), border-color .35s var(--ease), background .35s var(--ease);
+        }
+        .vod-card:hover .vod-play { transform: scale(1.08); border-color: rgba(163,19,19,.65); background: rgba(124,10,10,.45); color: #fff; }
+        .vod-info { padding: 18px 20px 20px; display: flex; flex-direction: column; flex: 1; }
         .vod-info .date { font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: var(--silver-dim); }
         .vod-info .title { margin-top: 9px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #fff; line-height: 1.5; }
-        .vod-info .meta { margin-top: 7px; font-size: 10px; color: var(--silver-dim); }
+        .vod-note {
+            margin-top: 8px; display: inline-block; width: fit-content;
+            padding: 3px 9px; border-radius: 999px;
+            font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+            color: #fca5a5; background: rgba(124,10,10,.24); border: 1px solid rgba(163,19,19,.45);
+        }
+        .vod-info .meta { margin-top: auto; padding-top: 10px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--silver-dim); }
 
         .empty-vods { display: none; text-align: center; padding: 60px 24px; border: 1px dashed rgba(160,160,160,.2); border-radius: 18px; color: var(--silver-dim); }
         .empty-vods .big { font-family: var(--font-display); font-size: 42px; color: rgba(160,160,160,.35); letter-spacing: .06em; margin-bottom: 12px; }
@@ -371,11 +426,18 @@
             .section { padding: 100px 26px; }
             .topnav { padding: 18px 22px; }
             .topnav .links { display: none; }
+            .hero-layout { display: flex; flex-direction: column; align-items: stretch; gap: 30px; }
+            .hero-portrait { width: min(48%, 390px); margin: 0 14px 14px auto; }
+            .hero-name { font-size: clamp(88px, 13vw, 148px); }
+            .hero-tagline, .hero-actions { max-width: 100%; }
         }
         @media (max-width: 620px) {
             .social-grid, .vod-grid { grid-template-columns: 1fr; }
             .dock { padding: 0 16px 18px; }
             .dock .hide-m { display: none; }
+            .hero-portrait { width: min(72%, 360px); margin-top: 4px; }
+            .hero-name { font-size: clamp(76px, 16vw, 112px); }
+            .hero-tagline, .hero-actions { max-width: 100%; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -417,19 +479,24 @@
     <main>
         <section class="hero section" id="hero">
             <div class="ghost">01</div>
-            <div class="hero-inner">
-                <span class="hero-status" id="hero-status"><span class="dot"></span>проверяю эфир…</span>
-                <div class="hero-eyebrow">streams · moments · connection</div>
-                <h1 class="hero-name">danon<span class="grad">sha</span></h1>
-                <p class="hero-tagline">Стримы про игры, кино и ночные разговоры.<br>
-                <em>Каждый эфир остаётся в архиве</em> — с чатом и молниями за окном.</p>
-                <div class="hero-actions">
-                    <a class="btn-primary" href="#archive">▶ Смотреть записи</a>
-                    <a class="btn-ghost" href="https://twitch.tv/danonsha" target="_blank" rel="noopener noreferrer">
-                        <svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 2 2.5 6v14h5v3h3l3-3h4l5-5V2H4zm17.5 12.5-3 3H13l-3 3v-3H6V4h15.5v10.5zM17 7h-2v5h2V7zm-5 0h-2v5h2V7z"/></svg>
-                        Twitch
-                    </a>
+            <div class="hero-layout">
+                <div class="hero-inner hero-copy">
+                    <span class="hero-status" id="hero-status"><span class="dot"></span>проверяю эфир…</span>
+                    <div class="hero-eyebrow">streams · moments · connection</div>
+                    <h1 class="hero-name">danon<span class="grad">sha</span></h1>
+                    <p class="hero-tagline">Стримы про игры, кино и ночные разговоры.<br>
+                    <em>Каждый эфир остаётся в архиве</em> — с чатом и молниями за окном.</p>
+                    <div class="hero-actions">
+                        <a class="btn-primary" href="#archive">▶ Смотреть записи</a>
+                        <a class="btn-ghost" href="https://twitch.tv/danonsha" target="_blank" rel="noopener noreferrer">
+                            <svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 2 2.5 6v14h5v3h3l3-3h4l5-5V2H4zm17.5 12.5-3 3H13l-3 3v-3H6V4h15.5v10.5zM17 7h-2v5h2V7zm-5 0h-2v5h2V7z"/></svg>
+                            Twitch
+                        </a>
+                    </div>
                 </div>
+                <figure class="hero-portrait">
+                    <img src="/images/danonsha-portrait.webp" alt="danonsha" fetchpriority="high">
+                </figure>
             </div>
             <div class="scroll-cue"><div class="wheel"></div>листай</div>
         </section>
@@ -462,15 +529,21 @@
 
         <section class="section" id="archive">
             <div class="ghost">03</div>
-            <div class="reveal">
-                <div class="sec-eyebrow">02 / автозапись</div>
-                <h2>Записи стримов</h2>
-                <p class="sub">Автозаписи эфиров с чатом — появляются сразу после стрима.</p>
+            <div class="reveal archive-head">
+                <div>
+                    <div class="sec-eyebrow">02 / архив эфиров</div>
+                    <h2>Записи стримов</h2>
+                    <p class="sub">Записи прошедших эфиров из облачного архива и локального рекордера.</p>
+                </div>
+                <a class="btn-ghost" id="drive-folder-link" href="https://drive.google.com/drive/folders/1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk" target="_blank" rel="noopener noreferrer">
+                    Google Drive ↗
+                </a>
             </div>
             <div style="margin-top:36px;">
                 <div class="player-wrap" id="player-wrap">
                     <div class="player-box">
                         <video id="player" controls></video>
+                        <iframe id="drive-player" class="drive-iframe" allow="autoplay; fullscreen" allowfullscreen title="Плеер записи стрима" style="display:none;"></iframe>
                         <div class="chat" id="chat" style="display:none;">
                             <div class="chat-head">чат записи</div>
                             <div class="chat-body" id="chat-body"></div>
@@ -478,7 +551,10 @@
                     </div>
                     <div class="meta-bar">
                         <div class="title" id="m-title"></div>
-                        <div class="info" id="m-info"></div>
+                        <div class="meta-bar-right">
+                            <div class="info" id="m-info"></div>
+                            <a class="btn-action" id="m-drive-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">Открыть на Drive ↗</a>
+                        </div>
                     </div>
                 </div>
                 <div class="vod-grid" id="vod-grid"></div>
@@ -910,6 +986,9 @@
         const playerWrap = document.getElementById('player-wrap');
         const emptyVods = document.getElementById('empty-vods');
         const player = document.getElementById('player');
+        const drivePlayer = document.getElementById('drive-player');
+        const driveFolderLink = document.getElementById('drive-folder-link');
+        const metaDriveLink = document.getElementById('m-drive-link');
         const chatEl = document.getElementById('chat');
         const chatBody = document.getElementById('chat-body');
         let chatLines = [], chatShown = 0;
@@ -923,25 +1002,49 @@
             const m = (id || '').match(/(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})/);
             return m ? `${m[3]}.${m[2]}.${m[1]} · ${m[4]}:${m[5]}` : (id || '').slice(0, 16);
         }
+        function vodMetaLine(v) {
+            if (v.source === 'gdrive') {
+                const parts = [];
+                if (v.size_label) parts.push(v.size_label);
+                parts.push('Google Drive');
+                return parts.join(' · ');
+            }
+            const parts = [];
+            if (v.game) parts.push(v.game);
+            if (v.duration_s) parts.push(fmtDur(v.duration_s));
+            if (v.has_chat) parts.push('с чатом');
+            return parts.join(' · ') || 'Локальная запись';
+        }
 
         async function loadVods() {
             if (!vodGrid) return;
             let vods = [];
             try {
                 const res = await fetch('/api/vods');
-                vods = (await res.json()).vods || [];
+                const data = await res.json();
+                vods = data.vods || [];
+                if (data.folder_url && driveFolderLink) driveFolderLink.href = data.folder_url;
             } catch (e) {}
             if (!vods.length) { emptyVods.style.display = ''; return; }
+            emptyVods.style.display = 'none';
 
             vodGrid.innerHTML = vods.map((v, i) => `
-                <button class="vod-card" data-i="${i}" style="--d:${0.05 * i}s;">
-                    <div class="vod-thumb">▶</div>
+                <button class="vod-card" type="button" data-i="${i}" style="--d:${0.05 * i}s;">
+                    <div class="vod-thumb">
+                        ${v.thumb_url ? `<img src="${escapeHTML(v.thumb_url)}" alt="" loading="lazy" data-vod-thumb>` : ''}
+                        <span class="vod-play">▶</span>
+                    </div>
                     <div class="vod-info">
                         <div class="date">${escapeHTML(fmtDate(v.id))}</div>
                         <div class="title">${escapeHTML(v.title || 'Запись без названия')}</div>
-                        <div class="meta">${escapeHTML(v.game || '')}${v.game ? ' · ' : ''}${fmtDur(v.duration_s)}${v.has_chat ? ' · с чатом' : ''}</div>
+                        ${v.note ? `<span class="vod-note">${escapeHTML(v.note)}</span>` : ''}
+                        <div class="meta">${escapeHTML(vodMetaLine(v))}</div>
                     </div>
                 </button>`).join('');
+
+            vodGrid.querySelectorAll('img[data-vod-thumb]').forEach(img => {
+                img.addEventListener('error', () => { img.remove(); }, { once: true });
+            });
 
             vodGrid.querySelectorAll('.vod-card').forEach(btn => {
                 btn.addEventListener('click', () => openVod(vods[+btn.dataset.i], btn));
@@ -955,12 +1058,35 @@
             playerWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             document.getElementById('m-title').textContent = vod.title || 'Запись';
             document.getElementById('m-info').textContent =
-                `${vod.game || ''} · ${fmtDur(vod.duration_s)} · ${fmtDate(vod.id)}`;
+                `${vodMetaLine(vod)} · ${fmtDate(vod.id)}`;
 
+            chatLines = []; chatShown = 0; chatBody.innerHTML = '';
+
+            if (vod.source === 'gdrive' && vod.embed_url) {
+                try { player.pause(); } catch {}
+                player.removeAttribute('src');
+                player.load();
+                player.style.display = 'none';
+                chatEl.style.display = 'none';
+
+                drivePlayer.style.display = 'block';
+                drivePlayer.src = vod.embed_url;
+                if (metaDriveLink && vod.view_url) {
+                    metaDriveLink.href = vod.view_url;
+                    metaDriveLink.style.display = '';
+                }
+                return;
+            }
+
+            if (drivePlayer) {
+                drivePlayer.src = 'about:blank';
+                drivePlayer.style.display = 'none';
+            }
+            if (metaDriveLink) metaDriveLink.style.display = 'none';
+            player.style.display = 'block';
             player.src = `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`;
             player.load();
 
-            chatLines = []; chatShown = 0; chatBody.innerHTML = '';
             if (vod.has_chat) {
                 try {
                     const res = await fetch(`/api/vods/${encodeURIComponent(vod.id)}/chat`);
