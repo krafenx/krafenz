@@ -400,6 +400,10 @@
                             if (res.status === 401) {
                                 admin.setAdmin(false);
                                 saveQueued = false;
+                                setSaveIndicator('error', 'сессия истекла');
+                                toast('Сессия администратора истекла — войдите снова', '#fca5a5');
+                                fetchList();
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
                                 return;
                             }
                             if (res.status === 409 && Array.isArray(data.items)) {
@@ -553,7 +557,7 @@
                         return `
                             <div class="search-item">
                                 <div class="search-poster">
-                                    ${item.poster ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy">` : '—'}
+                                    ${item.poster ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" data-fallback-search="1">` : '—'}
                                 </div>
                                 <div class="col">
                                     <div class="search-title">${title}</div>
@@ -659,9 +663,20 @@
                 }
             });
 
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.media-card')) {
+                    document.querySelectorAll('.media-card.touch-open').forEach((c) => c.classList.remove('touch-open'));
+                }
+            });
+
             document.addEventListener('error', (e) => {
                 const img = e.target;
-                if (!(img instanceof HTMLImageElement) || !img.dataset.fallbackText) return;
+                if (!(img instanceof HTMLImageElement)) return;
+                if (img.dataset.fallbackSearch) {
+                    img.replaceWith(document.createTextNode('—'));
+                    return;
+                }
+                if (!img.dataset.fallbackText) return;
                 const fallback = document.createElement('div');
                 fallback.className = 'no-poster';
                 fallback.textContent = img.dataset.fallbackText;

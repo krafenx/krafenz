@@ -625,14 +625,27 @@
                         timelineEl.hidden = true;
                         spotifyTimeline = null;
                         blurBg.style.backgroundImage = 'none';
+                        artContainer.dataset.imgSrc = '';
                         artContainer.textContent = '—';
                         return;
                     }
 
                     if (track.image) {
-                        artContainer.innerHTML = `<img src="${escapeHTML(track.image)}" alt="Обложка" decoding="async">`;
-                        blurBg.style.backgroundImage = `url(${JSON.stringify(track.image)})`;
+                        if (artContainer.dataset.imgSrc !== track.image) {
+                            artContainer.dataset.imgSrc = track.image;
+                            artContainer.innerHTML = `<img src="${escapeHTML(track.image)}" alt="Обложка" decoding="async">`;
+                            const artImg = artContainer.querySelector('img');
+                            if (artImg) {
+                                artImg.addEventListener('error', () => {
+                                    artContainer.dataset.imgSrc = '';
+                                    artContainer.textContent = '♪';
+                                    blurBg.style.backgroundImage = 'none';
+                                }, { once: true });
+                            }
+                            blurBg.style.backgroundImage = `url(${JSON.stringify(track.image)})`;
+                        }
                     } else {
+                        artContainer.dataset.imgSrc = '';
                         artContainer.textContent = '♪';
                         blurBg.style.backgroundImage = 'none';
                     }
@@ -675,6 +688,7 @@
                     timelineEl.hidden = true;
                     spotifyTimeline = null;
                     blurBg.style.backgroundImage = 'none';
+                    artContainer.dataset.imgSrc = '';
                     artContainer.textContent = '♪';
                 } finally {
                     musicFetchInProgress = false;
@@ -754,6 +768,14 @@
                                 ${live ? 'Смотреть стрим ↗' : 'Открыть канал ↗'}
                             </a>
                         </div>`;
+                    const avatarImg = card.querySelector('img.avatar');
+                    if (avatarImg) {
+                        avatarImg.addEventListener('error', () => {
+                            const ph = document.createElement('div');
+                            ph.className = 'avatar';
+                            avatarImg.replaceWith(ph);
+                        }, { once: true });
+                    }
                 } catch {
                     setHeroStatus(false, 'krafen · online');
                     renderTwitchFallback('Канал Twitch');
@@ -862,15 +884,16 @@
 
             function initDonationCopy() {
                 document.querySelectorAll('[data-copy]').forEach((btn) => {
+                    const defaultLabel = btn.textContent;
                     btn.addEventListener('click', async () => {
                         const val = btn.dataset.copy;
                         if (!val) return;
                         try {
                             await copyText(val);
-                            const prev = btn.textContent;
                             btn.textContent = 'Скопировано';
                             toast(`Скопировано: ${val}`);
-                            setTimeout(() => { btn.textContent = prev; }, 1400);
+                            clearTimeout(btn._copyTimer);
+                            btn._copyTimer = setTimeout(() => { btn.textContent = defaultLabel; }, 1400);
                         } catch {
                             toast('Не удалось скопировать', '#fca5a5');
                         }

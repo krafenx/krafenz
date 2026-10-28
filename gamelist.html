@@ -349,9 +349,10 @@
 
             function coverHTML(item, cls = 'cover') {
                 const title = escapeHTML(item.title);
+                const fbCls = cls === 'cover' ? 'cover-empty' : 'search-cover';
                 return item.cover
-                    ? `<img class="${cls}" src="${escapeHTML(item.cover)}" alt="${title}" loading="lazy" decoding="async">`
-                    : `<div class="${cls === 'cover' ? 'cover-empty' : 'search-cover'}">GL</div>`;
+                    ? `<img class="${cls}" src="${escapeHTML(item.cover)}" alt="${title}" loading="lazy" decoding="async" data-fallback-cover="${fbCls}">`
+                    : `<div class="${fbCls}">GL</div>`;
             }
 
             function metaText(item) {
@@ -400,6 +401,10 @@
                             if (res.status === 401) {
                                 admin.setAdmin(false);
                                 saveQueued = false;
+                                setSaveIndicator('error', 'сессия истекла');
+                                toast('Сессия администратора истекла — войдите снова', '#fca5a5');
+                                fetchList();
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
                                 return;
                             }
                             if (res.status === 409 && Array.isArray(data.items)) {
@@ -560,7 +565,7 @@
                     window.__igdbResults = data.results;
                     el.innerHTML = data.results.map((item, idx) => `
                         <div class="search-result">
-                            ${item.cover ? `<img class="search-cover" src="${escapeHTML(item.cover)}" alt="${escapeHTML(item.title)}" loading="lazy">` : '<div class="search-cover"></div>'}
+                            ${item.cover ? `<img class="search-cover" src="${escapeHTML(item.cover)}" alt="${escapeHTML(item.title)}" loading="lazy" data-fallback-cover="search-cover">` : '<div class="search-cover"></div>'}
                             <div class="col">
                                 <div style="font-family:var(--font-heading);font-size:18px;color:#fff;" class="truncate">${escapeHTML(item.title)}</div>
                                 <div class="game-meta">${escapeHTML(metaText(item))}</div>
@@ -592,7 +597,7 @@
             }
 
             function saveEditor() {
-                if (!selectedGame) return;
+                if (!admin.isAdmin() || !selectedGame) return;
                 const now = Date.now();
                 const item = {
                     ...selectedGame,
@@ -611,7 +616,7 @@
             }
 
             function deleteCurrentGame() {
-                if (!selectedGame || !editingId) return;
+                if (!admin.isAdmin() || !selectedGame || !editingId) return;
                 if (!confirm(`Удалить «${selectedGame.title}»?`)) return;
                 list = list.filter((g) => g.id !== selectedGame.id);
                 render();
@@ -620,6 +625,14 @@
             }
 
             bindModalDismiss();
+            document.addEventListener('error', (e) => {
+                const img = e.target;
+                if (!(img instanceof HTMLImageElement) || !img.dataset.fallbackCover) return;
+                const fb = document.createElement('div');
+                fb.className = img.dataset.fallbackCover;
+                if (img.dataset.fallbackCover === 'cover-empty') fb.textContent = 'GL';
+                img.replaceWith(fb);
+            }, true);
 
             document.getElementById('stats-tabs').addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-filter]');

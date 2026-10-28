@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>danonsha</title>
     <meta name="description" content="danonsha — стримы, записи и ссылки.">
-    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" crossorigin>
@@ -877,14 +877,14 @@
             .watch-title { font-size: 13px; -webkit-line-clamp: 1; }
             .watch-controls-wrap { padding: 18px 10px 8px; }
             .watch-progress { padding: 8px 0; margin-bottom: 6px; }
-            .watch-controls-row { gap: 8px; }
+            .watch-controls { gap: 8px; }
             .watch-vol { display: none; }
             .watch-ctrl-left, .watch-ctrl-right { gap: 6px; }
             .w-btn { width: 26px; height: 26px; }
             .w-btn svg { width: 15px; height: 15px; }
             .watch-time { font-size: 10px; letter-spacing: .02em; }
             .watch-chat-head { padding: 12px 14px 10px; }
-            .watch-chat-head .title { font-size: 10px; letter-spacing: .16em; }
+            .watch-chat-heading { font-size: 11px; letter-spacing: .15em; }
             .watch-chat-body-wrap { height: min(42vh, 340px); min-height: 220px; }
             .dock { padding: 0 14px max(16px, calc(env(safe-area-inset-bottom) + 10px)); }
             .dock .hide-m { display: none; }
@@ -1326,12 +1326,23 @@
                             ${live ? 'Watch stream' : 'Open channel'}
                         </a>
                     </div>`);
+                const avatarImg = card.querySelector('img.avatar');
+                if (avatarImg) {
+                    avatarImg.addEventListener('error', () => {
+                        avatarImg.replaceWith(Object.assign(document.createElement('div'), { className: 'avatar' }));
+                    }, { once: true });
+                }
             } catch (error) {
                 setHeroStatus(false);
                 renderTwitchFallback('channel link');
             }
         }
         function initReveals() {
+            const nodes = document.querySelectorAll('.reveal');
+            if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
+                nodes.forEach(el => el.classList.add('visible'));
+                return;
+            }
             const observer = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
@@ -1340,12 +1351,16 @@
                     }
                 });
             }, { threshold: 0.1, rootMargin: '0px 0px -6% 0px' });
-            document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+            nodes.forEach(el => observer.observe(el));
         }
 
         function setAtmo(on, save) {
             document.body.classList.toggle('calm', !on);
-            if (save) localStorage.setItem('danonsha-atmo', on ? '1' : '0');
+            const btn = document.getElementById('atmo');
+            if (btn) btn.style.opacity = on ? '1' : '.6';
+            if (save) {
+                try { localStorage.setItem('danonsha-atmo', on ? '1' : '0'); } catch {}
+            }
         }
 
         let resumeRainLoop = () => {};
@@ -1377,10 +1392,11 @@
         const prefetchedUrls = new Set();
         function initNavPrefetch() {
             const prefetchHref = (rawHref) => {
-                if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:')) return;
+                if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('javascript:')) return;
                 let url;
                 try { url = new URL(rawHref, location.origin); } catch { return; }
-                if (url.origin !== location.origin || url.pathname === location.pathname || url.pathname.startsWith('/api/')) return;
+                if (url.origin !== location.origin || url.pathname === location.pathname) return;
+                if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/vods/')) return;
                 const key = url.pathname + url.search;
                 if (prefetchedUrls.has(key)) return;
                 prefetchedUrls.add(key);
@@ -1392,7 +1408,7 @@
             };
             document.addEventListener('pointerover', (e) => {
                 const a = e.target.closest && e.target.closest('a[href]');
-                if (a && !a.target) prefetchHref(a.getAttribute('href'));
+                if (a && !a.target && !a.hasAttribute('download')) prefetchHref(a.getAttribute('href'));
             }, { passive: true });
         }
 
@@ -1502,10 +1518,12 @@
         function initHeart() {
             const heart = document.getElementById('heart');
             if (!heart) return;
-            if (localStorage.getItem('danonsha-heart') === '1') heart.classList.add('loved');
+            try {
+                if (localStorage.getItem('danonsha-heart') === '1') heart.classList.add('loved');
+            } catch {}
             heart.addEventListener('click', () => {
                 const loved = heart.classList.toggle('loved');
-                localStorage.setItem('danonsha-heart', loved ? '1' : '0');
+                try { localStorage.setItem('danonsha-heart', loved ? '1' : '0'); } catch {}
             });
         }
 
@@ -1530,6 +1548,7 @@
             let vh = innerHeight || 1;
             let maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
             let ghostOffsets = [];
+            let kickFn = null;
 
             function measureLayout() {
                 vh = innerHeight || 1;
@@ -1539,7 +1558,16 @@
                     const parent = el.parentElement;
                     return parent ? parent.getBoundingClientRect().top + sy : 0;
                 });
-                if (smooth.target > maxScroll) smooth.target = maxScroll;
+                let clamped = false;
+                if (smooth.target > maxScroll) {
+                    smooth.target = maxScroll;
+                    clamped = true;
+                }
+                if (smooth.current > maxScroll) {
+                    smooth.current = maxScroll;
+                    clamped = true;
+                }
+                if (clamped && kickFn) kickFn();
             }
 
             if ('ResizeObserver' in window) {
@@ -1564,9 +1592,10 @@
                 const upd = () => {
                     touchRaf = null;
                     const y = window.scrollY;
-                    const rH = vh * 0.64;
-                    if (railProgress) railProgress.style.transform = `translate3d(0, ${rH * (maxScroll > 0 ? y / maxScroll : 0) - 20}px, 0)`;
+                    const rH = Math.max(0, vh * 0.64 - 40);
+                    if (railProgress) railProgress.style.transform = `translate3d(0, ${rH * (maxScroll > 0 ? Math.min(1, y / maxScroll) : 0)}px, 0)`;
                 };
+                kickFn = upd;
                 addEventListener('scroll', () => {
                     if (!touchRaf) touchRaf = requestAnimationFrame(upd);
                 }, { passive: true });
@@ -1632,6 +1661,7 @@
                     raf = requestAnimationFrame(animate);
                 }
             }
+            kickFn = kick;
 
             function onWheel(e) {
                 if (e.ctrlKey) return;
@@ -1670,13 +1700,18 @@
             document.querySelectorAll('a[href^="#"]').forEach(a => {
                 a.addEventListener('click', (e) => {
                     const href = a.getAttribute('href');
-                    if (!href || href === '#' || href === '#top') {
+                    if (!href || !href.startsWith('#')) return;
+                    if (href === '#' || href === '#top') {
                         e.preventDefault();
                         smooth.target = 0;
                         kick();
                         return;
                     }
-                    const t = document.querySelector(href);
+                    let t = null;
+                    try { t = document.getElementById(decodeURIComponent(href.slice(1))); } catch {}
+                    if (!t) {
+                        try { t = document.querySelector(href); } catch {}
+                    }
                     if (!t) return;
                     e.preventDefault();
                     measureLayout();
@@ -1807,7 +1842,7 @@
             const m = (vod && vod.id || '').match(/(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})/);
             if (m) {
                 const startMin = parseInt(m[4], 10) * 60 + parseInt(m[5], 10);
-                const curMin = (startMin + Math.floor((offsetSec || 0) / 60)) % (24 * 60);
+                const curMin = (((startMin + Math.floor((offsetSec || 0) / 60)) % 1440) + 1440) % 1440;
                 return `${String(Math.floor(curMin / 60)).padStart(2, '0')}:${String(curMin % 60).padStart(2, '0')}`;
             }
             return fmtClock(offsetSec || 0);
@@ -2314,6 +2349,11 @@
                 return;
             }
 
+            // Проверяем до перерисовки, находился ли скролл у низа чата
+            const wasNearBottom = prevShown <= 0
+                || Boolean(watchChatBody.querySelector('.w-chat-empty'))
+                || (watchChatBody.scrollHeight - watchChatBody.scrollTop - watchChatBody.clientHeight) <= 56;
+
             // Инкрементальная дорисовка без пересборки всех элементов при обычном воспроизведении
             const canAppend = prevShown > 0 && shownTotal > prevShown && (shownTotal - prevShown) <= 24
                 && !watchChatBody.querySelector('.w-chat-empty');
@@ -2323,10 +2363,12 @@
                     addHtml += chatItemHTML(chatLines[i], true);
                 }
                 watchChatBody.insertAdjacentHTML('beforeend', addHtml);
-                while (watchChatBody.children.length > 130) {
-                    watchChatBody.removeChild(watchChatBody.firstElementChild);
+                if (wasNearBottom) {
+                    while (watchChatBody.children.length > 130) {
+                        watchChatBody.removeChild(watchChatBody.firstElementChild);
+                    }
+                    watchChatBody.scrollTop = watchChatBody.scrollHeight;
                 }
-                watchChatBody.scrollTop = watchChatBody.scrollHeight;
                 return;
             }
 
@@ -2336,7 +2378,9 @@
                 html += chatItemHTML(chatLines[i], prevShown === 0 && shownTotal <= 4);
             }
             watchChatBody.innerHTML = html;
-            watchChatBody.scrollTop = watchChatBody.scrollHeight;
+            if (wasNearBottom || prevShown < 0) {
+                watchChatBody.scrollTop = watchChatBody.scrollHeight;
+            }
         }
 
         if (watchChatBody) {
@@ -2473,9 +2517,15 @@
                 try { vodProbeAbort.abort(); } catch {}
                 vodProbeAbort = null;
             }
+            activeVod = null;
+            activeVodId = null;
             streamPreparing = false;
             pendingPlay = false;
+            syncActiveVodCards();
             try { watchVideo.pause(); } catch {}
+            if (document.pictureInPictureElement && document.exitPictureInPicture) {
+                document.exitPictureInPicture().catch(() => {});
+            }
             destroyMpegtsPlayer();
             watchVideo.removeAttribute('src');
             watchVideo.load();
@@ -2485,8 +2535,10 @@
             vodWatch.setAttribute('aria-hidden', 'true');
             syncBodyOverlayLock();
             resumeRainLoop();
-            if (document.fullscreenElement) {
+            if (document.fullscreenElement && document.exitFullscreen) {
                 document.exitFullscreen().catch(() => {});
+            } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+                try { document.webkitExitFullscreen(); } catch {}
             }
             if (updateHistory) {
                 const url = new URL(location.href);
@@ -2498,14 +2550,18 @@
         }
 
         function toggleWatchFullscreen() {
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(() => {});
+            const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+            if (fsEl) {
+                if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                else if (document.webkitExitFullscreen) { try { document.webkitExitFullscreen(); } catch {} }
             } else if (watchStageInner && watchStageInner.requestFullscreen) {
                 watchStageInner.requestFullscreen().catch(() => {
                     if (watchVideo && watchVideo.webkitEnterFullscreen) {
                         try { watchVideo.webkitEnterFullscreen(); } catch {}
                     }
                 });
+            } else if (watchStageInner && watchStageInner.webkitRequestFullscreen) {
+                try { watchStageInner.webkitRequestFullscreen(); } catch {}
             } else if (watchVideo && watchVideo.webkitEnterFullscreen) {
                 try { watchVideo.webkitEnterFullscreen(); } catch {}
             }
@@ -2596,17 +2652,32 @@
                 seekWatchVideoTo((watchVideo.currentTime || 0) + 10);
             });
         }
+        let lastNonZeroVolume = 0.8;
+        function toggleWatchMute() {
+            if (!watchVideo) return;
+            if (watchVideo.muted || watchVideo.volume === 0) {
+                watchVideo.muted = false;
+                if (watchVideo.volume === 0) {
+                    watchVideo.volume = lastNonZeroVolume > 0 ? lastNonZeroVolume : 0.6;
+                }
+            } else {
+                lastNonZeroVolume = watchVideo.volume || lastNonZeroVolume;
+                watchVideo.muted = true;
+            }
+            if (watchVol) watchVol.value = watchVideo.muted ? 0 : watchVideo.volume;
+            updateVolIcon();
+        }
+
         if (watchMuteBtn) {
-            watchMuteBtn.addEventListener('click', () => {
-                watchVideo.muted = !watchVideo.muted;
-                updateVolIcon();
-            });
+            watchMuteBtn.addEventListener('click', toggleWatchMute);
         }
         if (watchVol) {
             watchVol.addEventListener('input', () => {
                 const val = parseFloat(watchVol.value);
-                watchVideo.volume = Math.max(0, Math.min(1, val));
-                watchVideo.muted = val === 0;
+                const clamped = Number.isFinite(val) ? Math.max(0, Math.min(1, val)) : 1;
+                if (clamped > 0) lastNonZeroVolume = clamped;
+                watchVideo.volume = clamped;
+                watchVideo.muted = clamped === 0;
                 updateVolIcon();
             });
         }
@@ -2617,19 +2688,22 @@
                 const dur = effectiveWatchDuration();
                 if (!Number.isFinite(dur) || dur <= 0) return;
                 const rect = watchProgress.getBoundingClientRect();
+                if (!(rect.width > 0)) return;
                 const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                 seekWatchVideoTo(ratio * dur);
             };
             watchProgress.addEventListener('pointerdown', (e) => {
                 scrubbing = true;
-                watchProgress.setPointerCapture(e.pointerId);
+                try { watchProgress.setPointerCapture(e.pointerId); } catch {}
                 seekFromEvent(e);
             });
             watchProgress.addEventListener('pointermove', (e) => {
                 if (scrubbing) seekFromEvent(e);
             });
-            watchProgress.addEventListener('pointerup', () => { scrubbing = false; });
-            watchProgress.addEventListener('pointercancel', () => { scrubbing = false; });
+            const stopScrub = () => { scrubbing = false; };
+            watchProgress.addEventListener('pointerup', stopScrub);
+            watchProgress.addEventListener('pointercancel', stopScrub);
+            watchProgress.addEventListener('lostpointercapture', stopScrub);
         }
 
         if (watchShare) {
@@ -2675,22 +2749,25 @@
                 }
             }
             if (!vodWatch || !vodWatch.classList.contains('open')) return;
-            if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
-            if (e.key === ' ' || e.key === 'k' || e.key === 'K') {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            const tag = (e.target && e.target.tagName) || '';
+            if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.target?.isContentEditable) return;
+            const code = e.code || '';
+            if (e.key === ' ' || code === 'KeyK' || e.key === 'k' || e.key === 'K') {
                 e.preventDefault();
-                toggleWatchPlay();
+                if (!e.repeat) toggleWatchPlay();
             } else if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 seekWatchVideoTo((watchVideo.currentTime || 0) - 10);
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 seekWatchVideoTo((watchVideo.currentTime || 0) + 10);
-            } else if (e.key === 'f' || e.key === 'F') {
+            } else if (code === 'KeyF' || e.key === 'f' || e.key === 'F') {
                 e.preventDefault();
-                toggleWatchFullscreen();
-            } else if (e.key === 'm' || e.key === 'M') {
+                if (!e.repeat) toggleWatchFullscreen();
+            } else if (code === 'KeyM' || e.key === 'm' || e.key === 'M') {
                 e.preventDefault();
-                watchVideo.muted = !watchVideo.muted;
+                if (!e.repeat) toggleWatchMute();
             }
         });
 
@@ -2698,10 +2775,12 @@
             const vodParam = new URLSearchParams(location.search).get('vod');
             if (vodParam && allVods.length) {
                 const idx = allVods.findIndex(x => x.id === vodParam);
-                if (idx >= 0) openVod(allVods[idx], idx, false);
-            } else {
-                closeVodWatch(false);
+                if (idx >= 0) {
+                    openVod(allVods[idx], idx, false);
+                    return;
+                }
             }
+            closeVodWatch(false);
         });
 
         function renderAllVodGrids(vods) {
@@ -2722,7 +2801,7 @@
         }
 
         function vodListSignature(list) {
-            return (list || []).map(v => `${v.id}:${v.title}:${v.has_chat ? 1 : 0}:${v.size_label || ''}`).join('|');
+            return (list || []).map(v => `${v.id}:${v.title}:${v.has_chat ? 1 : 0}:${v.size_label || ''}:${v.duration_s || 0}`).join('|');
         }
 
         async function loadVods() {
@@ -2752,7 +2831,13 @@
                     if (!data || !Array.isArray(data.vods) || !data.vods.length) return;
                     if (vodListSignature(data.vods) !== vodListSignature(allVods)) {
                         renderAllVodGrids(data.vods);
-                        if (initialVodId && (!vodWatch || !vodWatch.classList.contains('open'))) {
+                        if (activeVodId) {
+                            const updated = allVods.find(x => x.id === activeVodId);
+                            if (updated) {
+                                activeVod = updated;
+                                updateTimelineUI();
+                            }
+                        } else if (initialVodId && (!vodWatch || !vodWatch.classList.contains('open'))) {
                             const idx = allVods.findIndex(x => x.id === initialVodId);
                             if (idx >= 0) openVod(allVods[idx], idx, false);
                         }
@@ -2772,11 +2857,16 @@
             initHeart();
             initSmooth();
             initNavPrefetch();
-            const saved = localStorage.getItem('danonsha-atmo');
-            if (saved !== null) setAtmo(saved === '1', false);
-            document.getElementById('atmo').addEventListener('click', () => {
-                setAtmo(document.body.classList.contains('calm'), true);
-            });
+            try {
+                const saved = localStorage.getItem('danonsha-atmo');
+                if (saved !== null) setAtmo(saved === '1', false);
+            } catch {}
+            const atmoBtn = document.getElementById('atmo');
+            if (atmoBtn) {
+                atmoBtn.addEventListener('click', () => {
+                    setAtmo(document.body.classList.contains('calm'), true);
+                });
+            }
         }
 
         init();
