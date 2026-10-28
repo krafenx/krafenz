@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>danonsha</title>
     <meta name="description" content="danonsha — стримы, записи и ссылки.">
-    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/krafenx/krafen/8c5ff5d6ae7d406899fbf4906d5bc543e06c6648/cherry-blossom.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" crossorigin>
     <style nonce="__CSP_NONCE__">
         :root {
             --void: #050505;
@@ -160,8 +160,39 @@
         .reveal.visible { opacity: 1; filter: blur(0); transform: none; }
 
         /* ---------- hero ---------- */
-        .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+        .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
         .hero-inner { will-change: transform, opacity; }
+        .hero-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(280px, .65fr);
+            align-items: center;
+            gap: clamp(28px, 5vw, 72px);
+        }
+        .hero-copy { position: relative; z-index: 2; }
+        .hero-portrait {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 714 / 1280;
+            margin: 0;
+            isolation: isolate;
+            border: 1px solid rgba(160,160,160,.2);
+            box-shadow: 0 24px 70px rgba(0,0,0,.35);
+        }
+        .hero-portrait::before {
+            content: "";
+            position: absolute;
+            z-index: -1;
+            inset: 12px -12px -12px 12px;
+            border: 1px solid rgba(163,19,19,.38);
+            pointer-events: none;
+        }
+        .hero-portrait img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
         .hero-status {
             display: inline-flex; align-items: center; gap: 9px; width: fit-content;
             padding: 8px 16px; margin-bottom: 34px;
@@ -176,7 +207,7 @@
         .hero-eyebrow { font-size: 11px; letter-spacing: .35em; text-transform: uppercase; color: var(--silver-dim); margin-bottom: 22px; }
         .hero-name {
             font-family: var(--font-display);
-            font-size: clamp(110px, 16vw, 240px); line-height: .88; letter-spacing: .005em;
+            font-size: clamp(96px, 11vw, 168px); line-height: .88; letter-spacing: .005em;
             color: var(--silver-bright);
             text-shadow: 0 0 80px rgba(224, 224, 224, .12);
         }
@@ -371,11 +402,18 @@
             .section { padding: 100px 26px; }
             .topnav { padding: 18px 22px; }
             .topnav .links { display: none; }
+            .hero-layout { display: flex; flex-direction: column; align-items: stretch; gap: 30px; }
+            .hero-portrait { width: min(48%, 390px); margin: 0 14px 14px auto; }
+            .hero-name { font-size: clamp(88px, 13vw, 148px); }
+            .hero-tagline, .hero-actions { max-width: 100%; }
         }
         @media (max-width: 620px) {
             .social-grid, .vod-grid { grid-template-columns: 1fr; }
             .dock { padding: 0 16px 18px; }
             .dock .hide-m { display: none; }
+            .hero-portrait { width: min(72%, 360px); margin-top: 4px; }
+            .hero-name { font-size: clamp(76px, 16vw, 112px); }
+            .hero-tagline, .hero-actions { max-width: 100%; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -417,19 +455,24 @@
     <main>
         <section class="hero section" id="hero">
             <div class="ghost">01</div>
-            <div class="hero-inner">
-                <span class="hero-status" id="hero-status"><span class="dot"></span>проверяю эфир…</span>
-                <div class="hero-eyebrow">streams · moments · connection</div>
-                <h1 class="hero-name">danon<span class="grad">sha</span></h1>
-                <p class="hero-tagline">Стримы про игры, кино и ночные разговоры.<br>
-                <em>Каждый эфир остаётся в архиве</em> — с чатом и молниями за окном.</p>
-                <div class="hero-actions">
-                    <a class="btn-primary" href="#archive">▶ Смотреть записи</a>
-                    <a class="btn-ghost" href="https://twitch.tv/danonsha" target="_blank" rel="noopener noreferrer">
-                        <svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 2 2.5 6v14h5v3h3l3-3h4l5-5V2H4zm17.5 12.5-3 3H13l-3 3v-3H6V4h15.5v10.5zM17 7h-2v5h2V7zm-5 0h-2v5h2V7z"/></svg>
-                        Twitch
-                    </a>
+            <div class="hero-layout">
+                <div class="hero-inner hero-copy">
+                    <span class="hero-status" id="hero-status"><span class="dot"></span>проверяю эфир…</span>
+                    <div class="hero-eyebrow">streams · moments · connection</div>
+                    <h1 class="hero-name">danon<span class="grad">sha</span></h1>
+                    <p class="hero-tagline">Стримы про игры, кино и ночные разговоры.<br>
+                    <em>Каждый эфир остаётся в архиве</em> — с чатом и молниями за окном.</p>
+                    <div class="hero-actions">
+                        <a class="btn-primary" href="#archive">▶ Смотреть записи</a>
+                        <a class="btn-ghost" href="https://twitch.tv/danonsha" target="_blank" rel="noopener noreferrer">
+                            <svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 2 2.5 6v14h5v3h3l3-3h4l5-5V2H4zm17.5 12.5-3 3H13l-3 3v-3H6V4h15.5v10.5zM17 7h-2v5h2V7zm-5 0h-2v5h2V7z"/></svg>
+                            Twitch
+                        </a>
+                    </div>
                 </div>
+                <figure class="hero-portrait">
+                    <img src="/images/danonsha-portrait.webp" alt="danonsha" fetchpriority="high">
+                </figure>
             </div>
             <div class="scroll-cue"><div class="wheel"></div>листай</div>
         </section>
