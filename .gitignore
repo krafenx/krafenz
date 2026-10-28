@@ -18,6 +18,7 @@ data/*.db-shm
 data/tokens.json
 data/.update_sha
 data/vod_thumbs/
+data/vod_chats/
 vods/
 recorder/.tg_session*
 
