@@ -26,6 +26,8 @@
         'static-cdn.jtvnw.net',
         'drive.google.com',
         'lh3.googleusercontent.com',
+        'images.weserv.nl',
+        'm.media-amazon.com',
     ]);
 
     function escapeHTML(value) {
@@ -622,6 +624,17 @@
         const loginBtn = document.getElementById('login-btn');
         const passInput = document.getElementById('admin-password-input');
         const errBox = document.getElementById('admin-login-error');
+        const adminBar = document.getElementById('admin-bar');
+
+        if (adminBar && !adminBar.querySelector('a[href="/admin"]') && location.pathname !== '/admin') {
+            const dashLink = document.createElement('a');
+            dashLink.href = '/admin';
+            dashLink.className = 'btn-action';
+            dashLink.textContent = 'панель управления ↗';
+            const firstAction = adminBar.querySelector('a.btn-action, button.btn-action');
+            if (firstAction) adminBar.insertBefore(dashLink, firstAction);
+            else adminBar.appendChild(dashLink);
+        }
 
         function apply(next) {
             const wasActive = active;

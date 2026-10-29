@@ -25,6 +25,7 @@ import io
 import ipaddress
 import json
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -102,7 +103,10 @@ def _resolve_root_path(raw_value: str | Path) -> Path:
 DATA_DIR = _resolve_root_path(os.environ.get("DATA_DIR", ROOT / "data"))
 DB_PATH = DATA_DIR / "krafen.db"
 AUTH_DB_PATH = DATA_DIR / "auth.db"
+ANALYTICS_DB_PATH = DATA_DIR / "analytics.db"
+HEADLESS_LOG_PATH = DATA_DIR / "server.log"
 SEED_SQL_PATH = DATA_DIR / "seed.sql"
+_SERVER_STARTED_AT = time.time()
 THUMB_CACHE_DIR = DATA_DIR / "vod_thumbs"
 CHAT_CACHE_DIR = DATA_DIR / "vod_chats"
 IMG_CACHE_DIR = DATA_DIR / "img_cache"
@@ -984,8 +988,13 @@ async def _app_lifespan(_app: FastAPI):
                 lp.default_exception_handler(ctx)
 
         loop.set_exception_handler(_win32_loop_exception_handler)
+    _start_analytics_flusher()
     _start_drive_vods_poller()
-    yield
+    try:
+        yield
+    finally:
+        with contextlib.suppress(Exception):
+            flush_analytics_buffer()
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=_app_lifespan)
@@ -2077,8 +2086,642 @@ def init_db() -> None:
 init_db()
 
 
+# ----------------------------- Телеметрия и статистика (analytics.db) -----------------------------
+
+ANALYTICS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS daily_traffic (
+    day TEXT PRIMARY KEY,
+    views INTEGER NOT NULL DEFAULT 0,
+    api_hits INTEGER NOT NULL DEFAULT 0,
+    bot_hits INTEGER NOT NULL DEFAULT 0,
+    vod_plays INTEGER NOT NULL DEFAULT 0,
+    vod_downloads INTEGER NOT NULL DEFAULT 0,
+    bytes_sent INTEGER NOT NULL DEFAULT 0,
+    status_2xx INTEGER NOT NULL DEFAULT 0,
+    status_3xx INTEGER NOT NULL DEFAULT 0,
+    status_4xx INTEGER NOT NULL DEFAULT 0,
+    status_5xx INTEGER NOT NULL DEFAULT 0,
+    blocked_hits INTEGER NOT NULL DEFAULT 0,
+    latency_sum_ms REAL NOT NULL DEFAULT 0,
+    req_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS hourly_traffic (
+    hour_bucket INTEGER PRIMARY KEY,
+    views INTEGER NOT NULL DEFAULT 0,
+    api_hits INTEGER NOT NULL DEFAULT 0,
+    vod_plays INTEGER NOT NULL DEFAULT 0,
+    bytes_sent INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS daily_visitors (
+    day TEXT NOT NULL,
+    vhash TEXT NOT NULL,
+    first_ts INTEGER NOT NULL,
+    last_ts INTEGER NOT NULL,
+    hits INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (day, vhash)
+);
+
+CREATE TABLE IF NOT EXISTS hourly_visitors (
+    hour_bucket INTEGER NOT NULL,
+    vhash TEXT NOT NULL,
+    PRIMARY KEY (hour_bucket, vhash)
+);
+
+CREATE TABLE IF NOT EXISTS page_stats (
+    day TEXT NOT NULL,
+    page TEXT NOT NULL,
+    views INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, page)
+);
+
+CREATE TABLE IF NOT EXISTS referrer_stats (
+    day TEXT NOT NULL,
+    source TEXT NOT NULL,
+    views INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, source)
+);
+
+CREATE TABLE IF NOT EXISTS device_stats (
+    day TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    views INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, kind, name)
+);
+
+CREATE TABLE IF NOT EXISTS vod_analytics (
+    vod_id TEXT PRIMARY KEY,
+    plays INTEGER NOT NULL DEFAULT 0,
+    downloads INTEGER NOT NULL DEFAULT 0,
+    chat_loads INTEGER NOT NULL DEFAULT 0,
+    bytes_streamed INTEGER NOT NULL DEFAULT 0,
+    last_played_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    status TEXT NOT NULL,
+    ip TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT ''
+);
+"""
+
+_analytics_db_lock = threading.Lock()
+_analytics_buf_lock = threading.Lock()
+_analytics_flusher_started = False
+_analytics_last_prune_ts = 0.0
+
+_TRACKED_PAGES: dict[str, tuple[str, str]] = {
+    "/": ("/", "Главная"),
+    "/index.html": ("/", "Главная"),
+    "/watchlist": ("/watchlist", "Watchlist"),
+    "/watchlist.html": ("/watchlist", "Watchlist"),
+    "/gamelist": ("/gamelist", "Gamelist"),
+    "/gamelist.html": ("/gamelist", "Gamelist"),
+    "/setup": ("/setup", "Setup"),
+    "/setup.html": ("/setup", "Setup"),
+    "/wishlist": ("/wishlist", "Wishlist"),
+    "/wishlist.html": ("/wishlist", "Wishlist"),
+    "/tasks": ("/tasks", "Tasks"),
+    "/tasks.html": ("/tasks", "Tasks"),
+    "/danonsha": ("/danonsha", "danonsha"),
+    "/danonsha.html": ("/danonsha", "danonsha"),
+}
+
+_BOT_UA_RE = re.compile(
+    r"(bot|spider|crawl|slurp|mediapartners|curl/|wget/|python-requests|httpx|aiohttp|"
+    r"headlesschrome|lighthouse|uptimerobot|pingdom|statuscake|go-http-client|facebookexternalhit|"
+    r"discordbot|telegrambot|twitterbot|whatsapp|yandexbot|googlebot|bingbot|applebot|semrush|ahrefs)",
+    flags=re.IGNORECASE,
+)
+
+_COUNTRY_LABELS = {
+    "RU": "Россия",
+    "BY": "Беларусь",
+    "KZ": "Казахстан",
+    "UA": "Украина",
+    "DE": "Германия",
+    "NL": "Нидерланды",
+    "FI": "Финляндия",
+    "US": "США",
+    "GB": "Великобритания",
+    "PL": "Польша",
+    "FR": "Франция",
+    "TR": "Турция",
+    "AM": "Армения",
+    "GE": "Грузия",
+    "UZ": "Узбекистан",
+    "EE": "Эстония",
+    "LV": "Латвия",
+    "LT": "Литва",
+    "SE": "Швеция",
+}
+
+# In-memory агрегационные буферы до сброса в SQLite
+_buf_daily: dict[str, list[float]] = {}
+_buf_hourly: dict[int, list[int]] = {}
+_buf_visitors: dict[tuple[str, str], list[int]] = {}
+_buf_hourly_visitors: set[tuple[int, str]] = set()
+_buf_pages: dict[tuple[str, str], int] = {}
+_buf_referrers: dict[tuple[str, str], int] = {}
+_buf_devices: dict[tuple[str, str, str], int] = {}
+_buf_vods: dict[str, list[int]] = {}
+_active_visitors: dict[str, tuple[float, str]] = {}
+_recent_vod_events: dict[tuple[str, str, str], float] = {}
+
+
+@contextlib.contextmanager
+def analytics_db_connect():
+    is_new = not ANALYTICS_DB_PATH.exists()
+    conn = sqlite3.connect(ANALYTICS_DB_PATH, timeout=15, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    if is_new:
+        with contextlib.suppress(OSError):
+            os.chmod(ANALYTICS_DB_PATH, 0o600)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def init_analytics_db() -> None:
+    with _analytics_db_lock, analytics_db_connect() as conn:
+        conn.executescript(ANALYTICS_SCHEMA_SQL)
+
+
+with contextlib.suppress(Exception):
+    init_analytics_db()
+
+
+def read_vod_overrides() -> dict[str, dict[str, Any]]:
+    val = kv_get("vod_overrides", {})
+    return val if isinstance(val, dict) else {}
+
+
+def write_vod_overrides(overrides: dict[str, dict[str, Any]]) -> None:
+    kv_set("vod_overrides", overrides)
+
+
+def _visitor_daily_hash(day: str, ip: str, ua: str) -> str:
+    salt = SECRET_KEY.encode("utf-8")
+    msg = f"{day}|{ip}|{ua[:160]}".encode("utf-8", errors="replace")
+    return hmac.new(salt, msg, hashlib.sha256).hexdigest()[:20]
+
+
+def _classify_user_agent(ua: str) -> tuple[str, str, str]:
+    u = ua.lower()
+    if any(k in u for k in ("ipad", "tablet", "playbook", "silk")):
+        device = "Планшет"
+    elif any(k in u for k in ("mobi", "iphone", "ipod", "android")):
+        device = "Смартфон"
+    else:
+        device = "ПК"
+
+    if "telegram" in u:
+        browser = "Telegram"
+    elif "yabrowser" in u or "yandex" in u:
+        browser = "Яндекс"
+    elif "edg/" in u or "edga/" in u or "edgios/" in u:
+        browser = "Edge"
+    elif "opr/" in u or "opera" in u:
+        browser = "Opera"
+    elif "firefox/" in u or "fxios/" in u:
+        browser = "Firefox"
+    elif "chrome/" in u or "crios/" in u:
+        browser = "Chrome"
+    elif "safari/" in u:
+        browser = "Safari"
+    else:
+        browser = "Другой"
+
+    if "windows" in u:
+        os_name = "Windows"
+    elif "android" in u:
+        os_name = "Android"
+    elif "iphone" in u or "ipad" in u or "cpu os" in u:
+        os_name = "iOS"
+    elif "mac os x" in u or "macintosh" in u:
+        os_name = "macOS"
+    elif "linux" in u:
+        os_name = "Linux"
+    else:
+        os_name = "Другая"
+    return device, browser, os_name
+
+
+def _classify_referrer(ref: str, self_host: str) -> str:
+    raw = (ref or "").strip()
+    if not raw:
+        return "Прямой заход"
+    try:
+        parsed = urlsplit(raw)
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except Exception:
+        return "Прямой заход"
+    if not host:
+        return "Прямой заход"
+    clean_self = (self_host or "").split(":", 1)[0].lower()
+    if host == clean_self or (PUBLIC_ORIGIN and host == (urlsplit(PUBLIC_ORIGIN).hostname or "").lower()):
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    if host in ("t.me", "telegram.me", "telegram.org") or host.endswith(".t.me"):
+        return "Telegram"
+    if "twitch.tv" in host:
+        return "Twitch"
+    if "discord.com" in host or "discord.gg" in host:
+        return "Discord"
+    if "youtube.com" in host or host == "youtu.be":
+        return "YouTube"
+    if "yandex." in host or host == "ya.ru":
+        return "Яндекс"
+    if "google." in host:
+        return "Google"
+    if host in ("vk.com", "vk.ru"):
+        return "VK"
+    if "github.com" in host:
+        return "GitHub"
+    if "boosty.to" in host:
+        return "Boosty"
+    return host[:60]
+
+
+def _classify_country(request: Request, ip: str) -> str:
+    if _is_trusted_proxy_peer(request):
+        cc = (request.headers.get("cf-ipcountry") or "").strip().upper()
+        if len(cc) == 2 and cc.isalpha() and cc != "XX":
+            return cc
+    with contextlib.suppress(ValueError):
+        addr = ipaddress.ip_address(ip)
+        if addr.is_loopback or addr.is_private:
+            return "LOCAL"
+    return "DIRECT"
+
+
+def record_vod_stream_bytes(vod_id: str, byte_count: int) -> None:
+    if byte_count <= 0 or not vod_id:
+        return
+    now = time.time()
+    day = time.strftime("%Y-%m-%d", time.localtime(now))
+    hbucket = int(now // 3600)
+    with _analytics_buf_lock:
+        d = _buf_daily.setdefault(day, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0])
+        d[5] += byte_count
+        hb = _buf_hourly.setdefault(hbucket, [0, 0, 0, 0])
+        hb[3] += byte_count
+        if len(_buf_vods) < 1024 or vod_id in _buf_vods:
+            vb = _buf_vods.setdefault(vod_id, [0, 0, 0, 0, 0])
+            vb[3] += byte_count
+
+
+def record_request_telemetry(
+    request: Request,
+    status_code: int,
+    latency_ms: float,
+    resp_bytes: int,
+) -> None:
+    path = request.url.path or "/"
+    if path.startswith("/api/admin"):
+        return
+
+    now = time.time()
+    now_i = int(now)
+    day = time.strftime("%Y-%m-%d", time.localtime(now))
+    hbucket = int(now // 3600)
+    ua = (request.headers.get("user-agent") or "")[:300]
+    ip = client_ip(request)
+    is_bot = bool(_BOT_UA_RE.search(ua)) if ua else False
+    purpose = (
+        request.headers.get("sec-purpose")
+        or request.headers.get("purpose")
+        or request.headers.get("x-moz")
+        or ""
+    ).lower()
+    is_prefetch = "prefetch" in purpose or "prerender" in purpose
+
+    is_api = path.startswith("/api/")
+    canonical_page = ""
+    if request.method == "GET" and status_code == 200 and not is_api:
+        norm_p = path.rstrip("/") or "/"
+        tracked = _TRACKED_PAGES.get(norm_p)
+        if tracked:
+            canonical_page = tracked[0]
+
+    # Определяем события VOD
+    vod_event_id = ""
+    vod_event_kind = ""  # "play" | "download" | "chat"
+    if path.startswith("/api/vods/") and status_code in (200, 206):
+        rest = path[len("/api/vods/") :]
+        if rest.endswith("/stream") and request.method == "GET":
+            raw_vid = rest[: -len("/stream")].strip("/")
+            if safe_name(raw_vid):
+                vod_event_id = raw_vid
+                want_dl = (request.query_params.get("download") or "").strip() == "1"
+                rng = (request.headers.get("range") or "").strip().lower()
+                is_initial_range = (not rng) or rng.startswith("bytes=0-")
+                if want_dl and is_initial_range:
+                    vod_event_kind = "download"
+                elif not want_dl:
+                    # Исключаем короткий 192-байтный контейнерный probe (bytes=0-191)
+                    if rng != "bytes=0-191":
+                        vod_event_kind = "play"
+        elif rest.endswith("/chat") and request.method == "GET" and status_code == 200:
+            raw_vid = rest[: -len("/chat")].strip("/")
+            if safe_name(raw_vid):
+                vod_event_id = raw_vid
+                vod_event_kind = "chat"
+    elif path.startswith("/vods/") and request.method == "GET" and status_code in (200, 206):
+        parts = [p for p in path.split("/") if p]
+        if len(parts) == 3 and parts[2].lower().endswith((".mp4", ".webm", ".mkv", ".mov")) and safe_name(parts[1]):
+            rng = (request.headers.get("range") or "").strip().lower()
+            if rng != "bytes=0-191":
+                vod_event_id = parts[1]
+                vod_event_kind = "play"
+
+    vhash = _visitor_daily_hash(day, ip, ua) if not is_bot else ""
+
+    with _analytics_buf_lock:
+        # [views, api_hits, bot_hits, vod_plays, vod_downloads, bytes_sent,
+        #  s2xx, s3xx, s4xx, s5xx, blocked_hits, latency_sum_ms, req_count]
+        d = _buf_daily.setdefault(day, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0])
+        hb = _buf_hourly.setdefault(hbucket, [0, 0, 0, 0])  # [views, api_hits, vod_plays, bytes_sent]
+
+        d[5] += max(0, resp_bytes)
+        hb[3] += max(0, resp_bytes)
+        d[11] += max(0.0, latency_ms)
+        d[12] += 1
+
+        if 200 <= status_code < 300:
+            d[6] += 1
+        elif 300 <= status_code < 400:
+            d[7] += 1
+        elif 400 <= status_code < 500:
+            d[8] += 1
+            if status_code in (401, 403, 413, 429):
+                d[10] += 1
+        elif status_code >= 500:
+            d[9] += 1
+
+        if is_bot:
+            d[2] += 1
+            return
+
+        if is_api:
+            d[1] += 1
+            hb[1] += 1
+
+        if canonical_page and not is_prefetch:
+            d[0] += 1
+            hb[0] += 1
+            if len(_buf_pages) < 512:
+                _buf_pages[(day, canonical_page)] = _buf_pages.get((day, canonical_page), 0) + 1
+
+            if vhash:
+                if len(_buf_visitors) < 8192:
+                    vis = _buf_visitors.get((day, vhash))
+                    if vis is None:
+                        _buf_visitors[(day, vhash)] = [now_i, now_i, 1]
+                    else:
+                        vis[1] = now_i
+                        vis[2] += 1
+                if len(_buf_hourly_visitors) < 8192:
+                    _buf_hourly_visitors.add((hbucket, vhash))
+
+                # Живой онлайн за последние 5 минут
+                if len(_active_visitors) > 2048:
+                    cutoff_act = now - 300.0
+                    stale_v = [k for k, v in _active_visitors.items() if v[0] < cutoff_act]
+                    for k in stale_v:
+                        _active_visitors.pop(k, None)
+                if len(_active_visitors) < 2048:
+                    _active_visitors[vhash] = (now, canonical_page)
+
+            ref_src = _classify_referrer(request.headers.get("referer") or "", _effective_request_host(request))
+            if ref_src and len(_buf_referrers) < 1024:
+                _buf_referrers[(day, ref_src)] = _buf_referrers.get((day, ref_src), 0) + 1
+
+            dev, brw, os_name = _classify_user_agent(ua)
+            cc = _classify_country(request, ip)
+            if len(_buf_devices) < 1024:
+                for kind, val in (("device", dev), ("browser", brw), ("os", os_name), ("country", cc)):
+                    _buf_devices[(day, kind, val)] = _buf_devices.get((day, kind, val), 0) + 1
+
+        if vod_event_id and vod_event_kind and vhash:
+            if len(_recent_vod_events) > 4096:
+                cutoff_vod = now - 900.0
+                stale_vod = [k for k, ts_v in _recent_vod_events.items() if ts_v < cutoff_vod]
+                for k in stale_vod:
+                    _recent_vod_events.pop(k, None)
+            dedup_key = (vhash, vod_event_id, vod_event_kind)
+            prev_ts = _recent_vod_events.get(dedup_key, 0.0)
+            if now - prev_ts >= 900.0:
+                _recent_vod_events[dedup_key] = now
+                if len(_buf_vods) < 1024 or vod_event_id in _buf_vods:
+                    # [plays, downloads, chat_loads, bytes_streamed, last_played_at]
+                    vb = _buf_vods.setdefault(vod_event_id, [0, 0, 0, 0, 0])
+                    if vod_event_kind == "play":
+                        d[3] += 1
+                        hb[2] += 1
+                        vb[0] += 1
+                        vb[4] = now_i
+                    elif vod_event_kind == "download":
+                        d[4] += 1
+                        vb[1] += 1
+                        vb[4] = now_i
+                    elif vod_event_kind == "chat":
+                        vb[2] += 1
+
+
+def log_admin_event(request: Request | None, action: str, status: str = "ok", detail: str = "") -> None:
+    ip = client_ip(request) if request is not None else "system"
+    now_i = int(time.time())
+    clean_act = text(action, 60)
+    clean_st = text(status, 24)
+    clean_det = text(detail, 260)
+    try:
+        with _analytics_db_lock, analytics_db_connect() as conn:
+            conn.execute(
+                "INSERT INTO admin_audit_log (ts, action, status, ip, detail) VALUES (?, ?, ?, ?, ?)",
+                (now_i, clean_act, clean_st, ip[:80], clean_det),
+            )
+            conn.execute(
+                "DELETE FROM admin_audit_log WHERE id NOT IN (SELECT id FROM admin_audit_log ORDER BY id DESC LIMIT 500)"
+            )
+    except Exception:
+        pass
+
+
+def flush_analytics_buffer() -> None:
+    global _analytics_last_prune_ts
+    with _analytics_buf_lock:
+        if (
+            not _buf_daily
+            and not _buf_hourly
+            and not _buf_visitors
+            and not _buf_hourly_visitors
+            and not _buf_pages
+            and not _buf_referrers
+            and not _buf_devices
+            and not _buf_vods
+        ):
+            return
+        snap_daily = dict(_buf_daily)
+        _buf_daily.clear()
+        snap_hourly = dict(_buf_hourly)
+        _buf_hourly.clear()
+        snap_visitors = dict(_buf_visitors)
+        _buf_visitors.clear()
+        snap_hvisitors = list(_buf_hourly_visitors)
+        _buf_hourly_visitors.clear()
+        snap_pages = dict(_buf_pages)
+        _buf_pages.clear()
+        snap_refs = dict(_buf_referrers)
+        _buf_referrers.clear()
+        snap_devs = dict(_buf_devices)
+        _buf_devices.clear()
+        snap_vods = dict(_buf_vods)
+        _buf_vods.clear()
+
+    now = time.time()
+    with _analytics_db_lock, analytics_db_connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for day, vals in snap_daily.items():
+                conn.execute(
+                    """
+                    INSERT INTO daily_traffic (
+                        day, views, api_hits, bot_hits, vod_plays, vod_downloads, bytes_sent,
+                        status_2xx, status_3xx, status_4xx, status_5xx, blocked_hits, latency_sum_ms, req_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(day) DO UPDATE SET
+                        views = views + excluded.views,
+                        api_hits = api_hits + excluded.api_hits,
+                        bot_hits = bot_hits + excluded.bot_hits,
+                        vod_plays = vod_plays + excluded.vod_plays,
+                        vod_downloads = vod_downloads + excluded.vod_downloads,
+                        bytes_sent = bytes_sent + excluded.bytes_sent,
+                        status_2xx = status_2xx + excluded.status_2xx,
+                        status_3xx = status_3xx + excluded.status_3xx,
+                        status_4xx = status_4xx + excluded.status_4xx,
+                        status_5xx = status_5xx + excluded.status_5xx,
+                        blocked_hits = blocked_hits + excluded.blocked_hits,
+                        latency_sum_ms = latency_sum_ms + excluded.latency_sum_ms,
+                        req_count = req_count + excluded.req_count
+                    """,
+                    (day, *vals),
+                )
+
+            for hbucket, hvals in snap_hourly.items():
+                conn.execute(
+                    """
+                    INSERT INTO hourly_traffic (hour_bucket, views, api_hits, vod_plays, bytes_sent)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(hour_bucket) DO UPDATE SET
+                        views = views + excluded.views,
+                        api_hits = api_hits + excluded.api_hits,
+                        vod_plays = vod_plays + excluded.vod_plays,
+                        bytes_sent = bytes_sent + excluded.bytes_sent
+                    """,
+                    (hbucket, *hvals),
+                )
+
+            for (day, vhash), vvals in snap_visitors.items():
+                conn.execute(
+                    """
+                    INSERT INTO daily_visitors (day, vhash, first_ts, last_ts, hits)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(day, vhash) DO UPDATE SET
+                        last_ts = MAX(last_ts, excluded.last_ts),
+                        hits = hits + excluded.hits
+                    """,
+                    (day, vhash, vvals[0], vvals[1], vvals[2]),
+                )
+
+            if snap_hvisitors:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO hourly_visitors (hour_bucket, vhash) VALUES (?, ?)",
+                    snap_hvisitors,
+                )
+
+            for (day, page), cnt in snap_pages.items():
+                conn.execute(
+                    """
+                    INSERT INTO page_stats (day, page, views) VALUES (?, ?, ?)
+                    ON CONFLICT(day, page) DO UPDATE SET views = views + excluded.views
+                    """,
+                    (day, page, cnt),
+                )
+
+            for (day, src), cnt in snap_refs.items():
+                conn.execute(
+                    """
+                    INSERT INTO referrer_stats (day, source, views) VALUES (?, ?, ?)
+                    ON CONFLICT(day, source) DO UPDATE SET views = views + excluded.views
+                    """,
+                    (day, src, cnt),
+                )
+
+            for (day, kind, name), cnt in snap_devs.items():
+                conn.execute(
+                    """
+                    INSERT INTO device_stats (day, kind, name, views) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(day, kind, name) DO UPDATE SET views = views + excluded.views
+                    """,
+                    (day, kind, name, cnt),
+                )
+
+            for vod_id, vvals in snap_vods.items():
+                conn.execute(
+                    """
+                    INSERT INTO vod_analytics (vod_id, plays, downloads, chat_loads, bytes_streamed, last_played_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(vod_id) DO UPDATE SET
+                        plays = plays + excluded.plays,
+                        downloads = downloads + excluded.downloads,
+                        chat_loads = chat_loads + excluded.chat_loads,
+                        bytes_streamed = bytes_streamed + excluded.bytes_streamed,
+                        last_played_at = MAX(last_played_at, excluded.last_played_at)
+                    """,
+                    (vod_id, vvals[0], vvals[1], vvals[2], vvals[3], vvals[4]),
+                )
+
+            if now - _analytics_last_prune_ts > 3600.0:
+                _analytics_last_prune_ts = now
+                cur_hb = int(now // 3600)
+                cutoff_90d = time.strftime("%Y-%m-%d", time.localtime(now - 90 * 86400))
+                conn.execute("DELETE FROM hourly_traffic WHERE hour_bucket < ?", (cur_hb - 24 * 14,))
+                conn.execute("DELETE FROM hourly_visitors WHERE hour_bucket < ?", (cur_hb - 72,))
+                conn.execute("DELETE FROM daily_visitors WHERE day < ?", (cutoff_90d,))
+
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+
+
+def _start_analytics_flusher() -> None:
+    global _analytics_flusher_started
+    if _analytics_flusher_started:
+        return
+    _analytics_flusher_started = True
+
+    def _worker() -> None:
+        while True:
+            time.sleep(4.0)
+            with contextlib.suppress(Exception):
+                flush_analytics_buffer()
+
+    threading.Thread(target=_worker, name="krafen-analytics-flusher", daemon=True).start()
+
+
 _MAX_BODY_DEFAULT = 1_048_576  # 1 МБ для сохранения коллекций
 _MAX_BODY_ADMIN = 8_192        # 8 КБ для /api/admin*
+_MAX_BODY_RESTORE = 2_097_152  # 2 МБ для импорта JSON-бэкапа коллекций
 _MAX_BODY_THUMB = 524_288      # 512 КБ для JPEG-превью
 
 
@@ -2087,6 +2730,8 @@ class _PayloadTooLargeError(Exception):
 
 
 def _max_body_bytes_for_path(path: str) -> int:
+    if path == "/api/admin/restore":
+        return _MAX_BODY_RESTORE
     if path.startswith("/api/admin"):
         return _MAX_BODY_ADMIN
     if path.startswith("/api/vods/") and path.endswith("/thumb"):
@@ -2190,10 +2835,12 @@ async def add_security_headers(request: Request, call_next):
 
         request._receive = _limited_receive
 
+    t0 = time.perf_counter()
     try:
         response = await call_next(request)
     except _PayloadTooLargeError:
         response = j({"error": "payload_too_large"}, 413)
+    latency_ms = (time.perf_counter() - t0) * 1000.0
 
     # Сжимаем JSON/текстовые ответы в памяти (не трогая потоковое видео и Range 206)
     if (
@@ -2217,6 +2864,15 @@ async def add_security_headers(request: Request, call_next):
 
     for key, value in hdrs.items():
         response.headers.setdefault(key, value)
+
+    with contextlib.suppress(Exception):
+        cl_hdr = response.headers.get("content-length")
+        resp_len = int(cl_hdr) if (cl_hdr and cl_hdr.isdigit()) else len(getattr(response, "body", b"") or b"")
+        # Для StreamingResponse видео байты считаются отдельно в генераторе чанков
+        if isinstance(response, StreamingResponse):
+            resp_len = 0
+        record_request_telemetry(request, int(getattr(response, "status_code", 200) or 200), latency_ms, resp_len)
+
     return response
 
 
@@ -2256,6 +2912,7 @@ def make_put_list(name: str):
         ok, next_state = update_list_atomic(name, revision, items)
         if not ok:
             return j({"error": "revision_conflict", "items": next_state["items"], "revision": next_state["revision"]}, 409)
+        log_admin_event(request, f"save_{name}", "ok", f"items={len(next_state['items'])}, rev={next_state['revision']}")
         return j({"ok": True, "items": next_state["items"], "revision": next_state["revision"]})
 
     endpoint.__name__ = f"put_{name}"
@@ -2287,7 +2944,10 @@ def admin_check(request: Request) -> JSONResponse:
 @app.delete("/api/admin")
 def admin_logout(request: Request) -> JSONResponse:
     require_same_origin(request)
+    was_admin = verify_session(request.cookies.get(SESSION_COOKIE))
     revoke_session(request.cookies.get(SESSION_COOKIE))
+    if was_admin:
+        log_admin_event(request, "logout", "ok", "Выход из админ-сессии")
     response = j({"ok": True})
     response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, "", 0)
     return response
@@ -2302,7 +2962,9 @@ def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
         return j({"error": "admin_password_missing"}, 503)
     if not constant_time_equal(text(body.get("password"), 512), ADMIN_PASSWORD):
         _record_admin_failed_login(request)
+        log_admin_event(request, "login", "denied", "Неверный пароль администратора")
         return j({"error": "invalid_password"}, 401)
+    log_admin_event(request, "login", "ok", "Успешный вход в админ-панель")
     response = j({"ok": True})
     response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, create_session(), SESSION_TTL_SECONDS)
     return response
@@ -2315,9 +2977,925 @@ def admin_trigger_update(request: Request) -> JSONResponse:
     rate_limit(request, "admin_update", 6, 60)
     result = perform_github_update(force=True, allow_zip_fallback_on_api_error=True)
     status = 200 if result.get("ok") else 502
+    log_admin_event(
+        request,
+        "github_update",
+        "ok" if result.get("ok") else "error",
+        f"updated={result.get('updated_files', 0)}, sha={str(result.get('sha') or '')[:8]}",
+    )
     if result.get("ok") and result.get("server_changed"):
         threading.Timer(1.0, _reexec_current_process).start()
     return j(result, status)
+
+
+def _dir_usage_stats(directory: Path, pattern: str = "*") -> dict[str, int]:
+    count = 0
+    size_bytes = 0
+    if not directory.is_dir():
+        return {"count": 0, "bytes": 0}
+    with contextlib.suppress(OSError):
+        for p in directory.glob(pattern):
+            if p.is_file() and not p.name.startswith(".tmp_"):
+                count += 1
+                with contextlib.suppress(OSError):
+                    size_bytes += p.stat().st_size
+    return {"count": count, "bytes": size_bytes}
+
+
+def _file_size_safe(path: Path) -> int:
+    try:
+        total = path.stat().st_size if path.is_file() else 0
+        for suffix in ("-wal", "-shm"):
+            side = Path(str(path) + suffix)
+            if side.is_file():
+                total += side.stat().st_size
+        return total
+    except OSError:
+        return 0
+
+
+def _process_rss_bytes() -> int:
+    # Linux /proc/self/status
+    status_file = Path("/proc/self/status")
+    if status_file.is_file():
+        with contextlib.suppress(OSError, ValueError):
+            for line in status_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    # Windows GetProcessMemoryInfo
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            import ctypes
+            from ctypes import wintypes
+
+            class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            pmc = _PROCESS_MEMORY_COUNTERS()
+            pmc.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
+            hproc = ctypes.windll.kernel32.GetCurrentProcess()
+            if ctypes.windll.psapi.GetProcessMemoryInfo(hproc, ctypes.byref(pmc), pmc.cb):
+                return int(pmc.WorkingSetSize)
+    # POSIX resource fallback
+    with contextlib.suppress(Exception):
+        import resource
+
+        rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        return rss if sys.platform == "darwin" else rss * 1024
+    return 0
+
+
+_RU_SHORT_MONTHS = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+
+
+def _fmt_short_day_ru(ymd: str) -> str:
+    parts = ymd.split("-")
+    if len(parts) != 3:
+        return ymd
+    with contextlib.suppress(ValueError):
+        m = max(1, min(12, int(parts[1])))
+        d = int(parts[2])
+        return f"{d} {_RU_SHORT_MONTHS[m - 1]}"
+    return ymd
+
+
+@app.get("/api/admin/overview")
+def admin_overview(request: Request, days: int = 14) -> JSONResponse:
+    require_admin(request)
+    rate_limit(request, "admin_overview", 120, 60)
+    span_days = max(7, min(90, int(days or 14)))
+
+    with contextlib.suppress(Exception):
+        flush_analytics_buffer()
+
+    now = time.time()
+    today_ymd = time.strftime("%Y-%m-%d", time.localtime(now))
+    start_ymd = time.strftime("%Y-%m-%d", time.localtime(now - (span_days - 1) * 86400))
+    cur_hbucket = int(now // 3600)
+    start_hbucket = cur_hbucket - 23
+
+    # Живой онлайн (за последние 5 минут)
+    active_cutoff = now - 300.0
+    active_by_page: dict[str, int] = {}
+    online_now = 0
+    with _analytics_buf_lock:
+        stale_keys = [k for k, v in _active_visitors.items() if v[0] < active_cutoff]
+        for k in stale_keys:
+            _active_visitors.pop(k, None)
+        online_now = len(_active_visitors)
+        for _, pg in _active_visitors.values():
+            active_by_page[pg] = active_by_page.get(pg, 0) + 1
+
+    # Чтение агрегатов из analytics.db
+    with _analytics_db_lock, analytics_db_connect() as aconn:
+        today_row = aconn.execute("SELECT * FROM daily_traffic WHERE day = ?", (today_ymd,)).fetchone()
+        today_uniques = int(
+            aconn.execute("SELECT COUNT(*) AS c FROM daily_visitors WHERE day = ?", (today_ymd,)).fetchone()["c"]
+        )
+        period_uniques = int(
+            aconn.execute(
+                "SELECT COUNT(DISTINCT vhash) AS c FROM daily_visitors WHERE day >= ?",
+                (start_ymd,),
+            ).fetchone()["c"]
+        )
+        all_uniques = int(aconn.execute("SELECT COUNT(DISTINCT vhash) AS c FROM daily_visitors").fetchone()["c"])
+
+        period_sum = aconn.execute(
+            """
+            SELECT
+                COALESCE(SUM(views), 0) AS views,
+                COALESCE(SUM(api_hits), 0) AS api_hits,
+                COALESCE(SUM(bot_hits), 0) AS bot_hits,
+                COALESCE(SUM(vod_plays), 0) AS vod_plays,
+                COALESCE(SUM(vod_downloads), 0) AS vod_downloads,
+                COALESCE(SUM(bytes_sent), 0) AS bytes_sent,
+                COALESCE(SUM(status_2xx), 0) AS s2xx,
+                COALESCE(SUM(status_3xx), 0) AS s3xx,
+                COALESCE(SUM(status_4xx), 0) AS s4xx,
+                COALESCE(SUM(status_5xx), 0) AS s5xx,
+                COALESCE(SUM(blocked_hits), 0) AS blocked_hits,
+                COALESCE(SUM(latency_sum_ms), 0.0) AS lat_sum,
+                COALESCE(SUM(req_count), 0) AS req_cnt
+            FROM daily_traffic WHERE day >= ?
+            """,
+            (start_ymd,),
+        ).fetchone()
+
+        all_sum = aconn.execute(
+            """
+            SELECT
+                COALESCE(SUM(views), 0) AS views,
+                COALESCE(SUM(api_hits), 0) AS api_hits,
+                COALESCE(SUM(bot_hits), 0) AS bot_hits,
+                COALESCE(SUM(vod_plays), 0) AS vod_plays,
+                COALESCE(SUM(vod_downloads), 0) AS vod_downloads,
+                COALESCE(SUM(bytes_sent), 0) AS bytes_sent,
+                COALESCE(SUM(blocked_hits), 0) AS blocked_hits
+            FROM daily_traffic
+            """
+        ).fetchone()
+
+        daily_map = {
+            r["day"]: dict(r)
+            for r in aconn.execute("SELECT * FROM daily_traffic WHERE day >= ?", (start_ymd,)).fetchall()
+        }
+        daily_uniq_map = {
+            r["day"]: int(r["c"])
+            for r in aconn.execute(
+                "SELECT day, COUNT(*) AS c FROM daily_visitors WHERE day >= ? GROUP BY day",
+                (start_ymd,),
+            ).fetchall()
+        }
+
+        hourly_map = {
+            int(r["hour_bucket"]): dict(r)
+            for r in aconn.execute(
+                "SELECT * FROM hourly_traffic WHERE hour_bucket >= ?",
+                (start_hbucket,),
+            ).fetchall()
+        }
+        hourly_uniq_map = {
+            int(r["hour_bucket"]): int(r["c"])
+            for r in aconn.execute(
+                "SELECT hour_bucket, COUNT(*) AS c FROM hourly_visitors WHERE hour_bucket >= ? GROUP BY hour_bucket",
+                (start_hbucket,),
+            ).fetchall()
+        }
+
+        page_rows = aconn.execute(
+            "SELECT page, SUM(views) AS v FROM page_stats WHERE day >= ? GROUP BY page ORDER BY v DESC",
+            (start_ymd,),
+        ).fetchall()
+        ref_rows = aconn.execute(
+            "SELECT source, SUM(views) AS v FROM referrer_stats WHERE day >= ? GROUP BY source ORDER BY v DESC LIMIT 10",
+            (start_ymd,),
+        ).fetchall()
+        dev_rows = aconn.execute(
+            "SELECT kind, name, SUM(views) AS v FROM device_stats WHERE day >= ? GROUP BY kind, name ORDER BY v DESC",
+            (start_ymd,),
+        ).fetchall()
+        vod_stat_map = {
+            r["vod_id"]: dict(r)
+            for r in aconn.execute("SELECT * FROM vod_analytics").fetchall()
+        }
+        audit_rows = [
+            dict(r)
+            for r in aconn.execute("SELECT * FROM admin_audit_log ORDER BY id DESC LIMIT 60").fetchall()
+        ]
+
+    # Почасовой ряд за последние 24ч
+    hourly_24h: list[dict[str, Any]] = []
+    for hb in range(start_hbucket, cur_hbucket + 1):
+        hr = hourly_map.get(hb, {})
+        ts_h = hb * 3600
+        hourly_24h.append(
+            {
+                "ts": ts_h,
+                "label": time.strftime("%H:00", time.localtime(ts_h)),
+                "views": int(hr.get("views") or 0),
+                "uniques": int(hourly_uniq_map.get(hb, 0)),
+                "vod_plays": int(hr.get("vod_plays") or 0),
+                "api_hits": int(hr.get("api_hits") or 0),
+            }
+        )
+
+    # Посуточный ряд за выбранный период
+    daily_series: list[dict[str, Any]] = []
+    for offset in range(span_days - 1, -1, -1):
+        d_ts = now - offset * 86400
+        ymd = time.strftime("%Y-%m-%d", time.localtime(d_ts))
+        dr = daily_map.get(ymd, {})
+        daily_series.append(
+            {
+                "date": ymd,
+                "label": _fmt_short_day_ru(ymd),
+                "views": int(dr.get("views") or 0),
+                "uniques": int(daily_uniq_map.get(ymd, 0)),
+                "vod_plays": int(dr.get("vod_plays") or 0),
+                "bytes_sent": int(dr.get("bytes_sent") or 0),
+            }
+        )
+
+    page_labels = {v[0]: v[1] for v in _TRACKED_PAGES.values()}
+    total_pg_views = sum(int(r["v"] or 0) for r in page_rows) or 1
+    pages_breakdown = [
+        {
+            "path": r["page"],
+            "label": page_labels.get(r["page"], r["page"]),
+            "views": int(r["v"] or 0),
+            "pct": round(int(r["v"] or 0) * 100.0 / total_pg_views, 1),
+        }
+        for r in page_rows
+    ]
+
+    total_refs = sum(int(r["v"] or 0) for r in ref_rows) or 1
+    referrers_breakdown = [
+        {
+            "source": r["source"],
+            "views": int(r["v"] or 0),
+            "pct": round(int(r["v"] or 0) * 100.0 / total_refs, 1),
+        }
+        for r in ref_rows
+    ]
+
+    grouped_devs: dict[str, list[dict[str, Any]]] = {"device": [], "browser": [], "os": [], "country": []}
+    kind_totals: dict[str, int] = {"device": 0, "browser": 0, "os": 0, "country": 0}
+    for r in dev_rows:
+        k = r["kind"]
+        if k in kind_totals:
+            kind_totals[k] += int(r["v"] or 0)
+    for r in dev_rows:
+        k = r["kind"]
+        if k not in grouped_devs or len(grouped_devs[k]) >= 8:
+            continue
+        v = int(r["v"] or 0)
+        raw_name = str(r["name"] or "")
+        label = (
+            ("Локальная сеть" if raw_name == "LOCAL" else ("Прямое подключение" if raw_name == "DIRECT" else _COUNTRY_LABELS.get(raw_name, raw_name)))
+            if k == "country"
+            else raw_name
+        )
+        grouped_devs[k].append(
+            {
+                "code": raw_name,
+                "label": label,
+                "views": v,
+                "pct": round(v * 100.0 / max(1, kind_totals[k]), 1),
+            }
+        )
+
+    # Статистика коллекций
+    with _db_lock, db_connect() as conn:
+        meta_rows = {
+            r["name"]: {"revision": int(r["revision"] or 0), "updated_at": int(r["updated_at"] or 0)}
+            for r in conn.execute("SELECT name, revision, updated_at FROM collection_meta").fetchall()
+        }
+
+    wl_state = read_list("watchlist")
+    gl_state = read_list("gamelist")
+    st_state = read_list("setup")
+    ws_state = read_list("wishlist")
+
+    wl_items = wl_state["items"]
+    gl_items = gl_state["items"]
+    st_items = st_state["items"]
+    ws_items = ws_state["items"]
+
+    rated_games = [float(g.get("rating") or 0) for g in gl_items if float(g.get("rating") or 0) > 0]
+    avg_game_rating = round(sum(rated_games) / len(rated_games), 2) if rated_games else 0.0
+    wish_budget: dict[str, float] = {"RUB": 0.0, "USD": 0.0, "EUR": 0.0}
+    for w in ws_items:
+        if w.get("status") != "bought":
+            cur = w.get("currency") if w.get("currency") in wish_budget else "RUB"
+            price_val = float(w.get("price") or 0)
+            if price_val > 0:
+                wish_budget[cur] += price_val
+
+    collections_summary = {
+        "total_items": len(wl_items) + len(gl_items) + len(st_items) + len(ws_items),
+        "watchlist": {
+            "total": len(wl_items),
+            "revision": wl_state["revision"],
+            "updated_at": meta_rows.get("watchlist", {}).get("updated_at", 0),
+            "by_type": {
+                "anime": sum(1 for i in wl_items if i.get("type") == "anime"),
+                "movie": sum(1 for i in wl_items if i.get("type") == "movie"),
+                "series": sum(1 for i in wl_items if i.get("type") == "series"),
+            },
+            "by_status": {
+                "watched": sum(1 for i in wl_items if i.get("status") == "watched"),
+                "planned": sum(1 for i in wl_items if i.get("status") == "planned"),
+                "dropped": sum(1 for i in wl_items if i.get("status") == "dropped"),
+            },
+        },
+        "gamelist": {
+            "total": len(gl_items),
+            "revision": gl_state["revision"],
+            "updated_at": meta_rows.get("gamelist", {}).get("updated_at", 0),
+            "avg_rating": avg_game_rating,
+            "reviews_count": sum(1 for i in gl_items if str(i.get("review") or "").strip()),
+            "by_status": {
+                "completed": sum(1 for i in gl_items if i.get("status") == "completed"),
+                "playing": sum(1 for i in gl_items if i.get("status") == "playing"),
+                "paused": sum(1 for i in gl_items if i.get("status") == "paused"),
+                "wishlist": sum(1 for i in gl_items if i.get("status") == "wishlist"),
+                "dropped": sum(1 for i in gl_items if i.get("status") == "dropped"),
+            },
+        },
+        "setup": {
+            "total": len(st_items),
+            "revision": st_state["revision"],
+            "updated_at": meta_rows.get("setup", {}).get("updated_at", 0),
+            "pc_count": sum(1 for i in st_items if i.get("group") == "pc"),
+            "gear_count": sum(1 for i in st_items if i.get("group") == "gear"),
+        },
+        "wishlist": {
+            "total": len(ws_items),
+            "revision": ws_state["revision"],
+            "updated_at": meta_rows.get("wishlist", {}).get("updated_at", 0),
+            "by_status": {
+                "want": sum(1 for i in ws_items if i.get("status") == "want"),
+                "saving": sum(1 for i in ws_items if i.get("status") == "saving"),
+                "bought": sum(1 for i in ws_items if i.get("status") == "bought"),
+            },
+            "budget": {k: round(v, 2) for k, v in wish_budget.items()},
+        },
+    }
+
+    # Статистика VOD-архива
+    all_vods = list_vods(force_sync=False, include_hidden=True)
+    enriched_vods: list[dict[str, Any]] = []
+    tot_vod_plays = 0
+    tot_vod_dls = 0
+    tot_vod_bytes = 0
+    for v in all_vods:
+        vid = str(v.get("id") or "")
+        vst = vod_stat_map.get(vid, {})
+        plays = int(vst.get("plays") or 0)
+        dls = int(vst.get("downloads") or 0)
+        chats = int(vst.get("chat_loads") or 0)
+        b_streamed = int(vst.get("bytes_streamed") or 0)
+        tot_vod_plays += plays
+        tot_vod_dls += dls
+        tot_vod_bytes += b_streamed
+        stem = _vod_cache_stem(vid)
+        has_cached_thumb = (THUMB_CACHE_DIR / f"thumb_{stem}.jpg").is_file()
+        enriched_vods.append(
+            {
+                "id": vid,
+                "source": v.get("source"),
+                "title": v.get("title"),
+                "orig_title": v.get("orig_title") or v.get("title"),
+                "custom_title": v.get("custom_title") or "",
+                "note": v.get("note") or "",
+                "orig_note": v.get("orig_note") or "",
+                "custom_note": v.get("custom_note") or "",
+                "hidden": bool(v.get("hidden")),
+                "game": v.get("game") or "",
+                "size_label": v.get("size_label") or "",
+                "duration_s": int(v.get("duration_s") or 0),
+                "has_chat": bool(v.get("has_chat")),
+                "has_cached_thumb": has_cached_thumb,
+                "thumb_url": v.get("thumb_url"),
+                "view_url": v.get("view_url") or "",
+                "plays": plays,
+                "downloads": dls,
+                "chat_loads": chats,
+                "bytes_streamed": b_streamed,
+                "last_played_at": int(vst.get("last_played_at") or 0),
+            }
+        )
+
+    # Кэши и файловая система
+    thumb_stats = _dir_usage_stats(THUMB_CACHE_DIR, "thumb_*.jpg")
+    chat_stats = _dir_usage_stats(CHAT_CACHE_DIR, "chat_*.jsonl")
+    img_stats = _dir_usage_stats(IMG_CACHE_DIR, "img_*.*")
+    with _api_cache_lock:
+        api_cache_count = sum(1 for exp, _, _ in _api_cache.values() if exp > now)
+    with _rate_lock:
+        rate_buckets_count = len(_rate_buckets)
+
+    disk_total, disk_used, disk_free = 0, 0, 0
+    with contextlib.suppress(OSError):
+        du = shutil.disk_usage(DATA_DIR)
+        disk_total, disk_used, disk_free = int(du.total), int(du.used), int(du.free)
+
+    load_1m = None
+    if hasattr(os, "getloadavg"):
+        with contextlib.suppress(OSError):
+            load_1m = round(os.getloadavg()[0], 2)
+
+    cur_sha = ""
+    with contextlib.suppress(OSError):
+        if UPDATE_SHA_PATH.is_file():
+            cur_sha = UPDATE_SHA_PATH.read_text(encoding="utf-8").strip()[:12]
+
+    tokens = read_tokens()
+    rec_enabled = os.environ.get("RECORDER") == "1"
+    rec_alive = bool(_ACTIVE_REC_PROC is not None and _ACTIVE_REC_PROC.poll() is None)
+
+    req_cnt_period = int(period_sum["req_cnt"] or 0)
+    avg_lat_ms = round(float(period_sum["lat_sum"] or 0.0) / req_cnt_period, 1) if req_cnt_period > 0 else 0.0
+    today_req_cnt = int(today_row["req_count"] or 0) if today_row else 0
+    today_lat_ms = (
+        round(float(today_row["latency_sum_ms"] or 0.0) / today_req_cnt, 1)
+        if (today_row and today_req_cnt > 0)
+        else 0.0
+    )
+
+    return j(
+        {
+            "ok": True,
+            "span_days": span_days,
+            "realtime": {
+                "online_now": online_now,
+                "active_pages": active_by_page,
+                "server_time": int(now),
+                "uptime_s": max(0, int(now - _SERVER_STARTED_AT)),
+            },
+            "kpis": {
+                "today": {
+                    "views": int(today_row["views"] or 0) if today_row else 0,
+                    "uniques": today_uniques,
+                    "vod_plays": int(today_row["vod_plays"] or 0) if today_row else 0,
+                    "vod_downloads": int(today_row["vod_downloads"] or 0) if today_row else 0,
+                    "api_hits": int(today_row["api_hits"] or 0) if today_row else 0,
+                    "bot_hits": int(today_row["bot_hits"] or 0) if today_row else 0,
+                    "blocked_hits": int(today_row["blocked_hits"] or 0) if today_row else 0,
+                    "bytes_sent": int(today_row["bytes_sent"] or 0) if today_row else 0,
+                    "avg_latency_ms": today_lat_ms,
+                },
+                "period": {
+                    "views": int(period_sum["views"] or 0),
+                    "uniques": period_uniques,
+                    "vod_plays": int(period_sum["vod_plays"] or 0),
+                    "vod_downloads": int(period_sum["vod_downloads"] or 0),
+                    "api_hits": int(period_sum["api_hits"] or 0),
+                    "bot_hits": int(period_sum["bot_hits"] or 0),
+                    "blocked_hits": int(period_sum["blocked_hits"] or 0),
+                    "bytes_sent": int(period_sum["bytes_sent"] or 0),
+                    "avg_latency_ms": avg_lat_ms,
+                    "status_2xx": int(period_sum["s2xx"] or 0),
+                    "status_3xx": int(period_sum["s3xx"] or 0),
+                    "status_4xx": int(period_sum["s4xx"] or 0),
+                    "status_5xx": int(period_sum["s5xx"] or 0),
+                },
+                "all_time": {
+                    "views": int(all_sum["views"] or 0),
+                    "uniques": all_uniques,
+                    "vod_plays": int(all_sum["vod_plays"] or 0),
+                    "vod_downloads": int(all_sum["vod_downloads"] or 0),
+                    "api_hits": int(all_sum["api_hits"] or 0),
+                    "bot_hits": int(all_sum["bot_hits"] or 0),
+                    "blocked_hits": int(all_sum["blocked_hits"] or 0),
+                    "bytes_sent": int(all_sum["bytes_sent"] or 0),
+                },
+            },
+            "charts": {
+                "hourly_24h": hourly_24h,
+                "daily": daily_series,
+            },
+            "breakdowns": {
+                "pages": pages_breakdown,
+                "referrers": referrers_breakdown,
+                "devices": grouped_devs["device"],
+                "browsers": grouped_devs["browser"],
+                "os": grouped_devs["os"],
+                "countries": grouped_devs["country"],
+            },
+            "collections": collections_summary,
+            "vods": {
+                "total": len(enriched_vods),
+                "visible_count": sum(1 for v in enriched_vods if not v["hidden"]),
+                "hidden_count": sum(1 for v in enriched_vods if v["hidden"]),
+                "gdrive_count": sum(1 for v in enriched_vods if v["source"] == "gdrive"),
+                "local_count": sum(1 for v in enriched_vods if v["source"] == "local"),
+                "total_plays": tot_vod_plays,
+                "total_downloads": tot_vod_dls,
+                "total_bytes_streamed": tot_vod_bytes,
+                "last_sync_ts": int(_drive_sync_ts or 0),
+                "folder_id": GDRIVE_FOLDER_ID,
+                "folder_url": f"https://drive.google.com/drive/folders/{GDRIVE_FOLDER_ID}" if GDRIVE_FOLDER_ID else "",
+                "items": enriched_vods,
+            },
+            "caches": {
+                "vod_thumbs": thumb_stats,
+                "vod_chats": chat_stats,
+                "img_proxy": img_stats,
+                "api_mem_entries": api_cache_count,
+                "rate_buckets": rate_buckets_count,
+            },
+            "system": {
+                "python": platform.python_version(),
+                "platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
+                "pid": os.getpid(),
+                "cpu_count": os.cpu_count() or 1,
+                "load_1m": load_1m,
+                "rss_bytes": _process_rss_bytes(),
+                "disk_total_bytes": disk_total,
+                "disk_used_bytes": disk_used,
+                "disk_free_bytes": disk_free,
+                "disk_used_pct": round(disk_used * 100.0 / disk_total, 1) if disk_total > 0 else 0.0,
+                "db_sizes": {
+                    "krafen_db": _file_size_safe(DB_PATH),
+                    "auth_db": _file_size_safe(AUTH_DB_PATH),
+                    "analytics_db": _file_size_safe(ANALYTICS_DB_PATH),
+                    "server_log": _file_size_safe(HEADLESS_LOG_PATH),
+                },
+                "is_pterodactyl": _is_pterodactyl_env(),
+                "auto_update_enabled": is_auto_update_enabled(),
+                "auto_update_repo": f"{AUTO_UPDATE_REPO}@{AUTO_UPDATE_BRANCH}",
+                "current_sha": cur_sha,
+            },
+            "integrations": [
+                {
+                    "id": "admin_auth",
+                    "name": "Админ-защита и сессии",
+                    "status": "ok" if ADMIN_PASSWORD else "error",
+                    "detail": "Пароль задан, HMAC + CSRF активны" if ADMIN_PASSWORD else "Пароль не задан или равен change-me",
+                },
+                {
+                    "id": "public_origin",
+                    "name": "PUBLIC_ORIGIN",
+                    "status": "ok" if PUBLIC_ORIGIN else "warn",
+                    "detail": PUBLIC_ORIGIN or "Автоопределение по заголовку Host",
+                },
+                {
+                    "id": "spotify",
+                    "name": "Spotify Web API",
+                    "status": (
+                        "ok"
+                        if (SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET and tokens.get("spotify_refresh_token"))
+                        else ("warn" if (SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET) else "muted")
+                    ),
+                    "detail": (
+                        "Аккаунт привязан (живой трек активен)"
+                        if tokens.get("spotify_refresh_token")
+                        else ("Ключи есть, требуется привязка OAuth" if SPOTIFY_CLIENT_ID else "Не настроено (работает Last.fm)")
+                    ),
+                    "connected": bool(tokens.get("spotify_refresh_token")),
+                },
+                {
+                    "id": "lastfm",
+                    "name": "Last.fm Scrobbler",
+                    "status": "ok" if LASTFM_API_KEY else "muted",
+                    "detail": f"Профиль @{LASTFM_USER}" if LASTFM_API_KEY else "Ключ LASTFM_API_KEY не указан",
+                },
+                {
+                    "id": "twitch",
+                    "name": "Twitch Helix & IGDB",
+                    "status": "ok" if (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET) else "warn",
+                    "detail": f"Канал @{TWITCH_CHANNEL}" if TWITCH_CLIENT_ID else "Ключи TWITCH_CLIENT_ID/SECRET не заданы",
+                },
+                {
+                    "id": "tmdb",
+                    "name": "TMDB + Shikimori",
+                    "status": "ok" if (TMDB_ACCESS_TOKEN or TMDB_API_KEY) else "warn",
+                    "detail": "Поиск фильмов, сериалов и аниме готов" if (TMDB_ACCESS_TOKEN or TMDB_API_KEY) else "Shikimori работает, TMDB без ключа",
+                },
+                {
+                    "id": "discord",
+                    "name": "Discord Виджет",
+                    "status": "ok" if DISCORD_INVITE_CODE else "muted",
+                    "detail": f"Инвайт discord.gg/{DISCORD_INVITE_CODE}" if DISCORD_INVITE_CODE else "Не задан код приглашения",
+                },
+                {
+                    "id": "gdrive",
+                    "name": "Google Drive VOD-архив",
+                    "status": "ok" if GDRIVE_FOLDER_ID else "muted",
+                    "detail": (
+                        f"Папка подключена ({'API v3' if GDRIVE_API_KEY else 'публичный режим'})"
+                        if GDRIVE_FOLDER_ID
+                        else "Папка не задана"
+                    ),
+                },
+                {
+                    "id": "github_update",
+                    "name": "Автообновление GitHub",
+                    "status": "ok" if is_auto_update_enabled() else "muted",
+                    "detail": (
+                        f"Включено ({'токен задан' if _resolve_github_token() else 'публичный доступ'})"
+                        if is_auto_update_enabled()
+                        else "Отключено (локальная git-рабочая копия)"
+                    ),
+                },
+                {
+                    "id": "recorder",
+                    "name": "Рекордер стримов",
+                    "status": "ok" if rec_alive else ("warn" if rec_enabled else "muted"),
+                    "detail": (
+                        f"Активен (@{os.environ.get('RECORDER_CHANNEL', 'danonsha')})"
+                        if rec_alive
+                        else ("Включён в .env, но процесс остановлен" if rec_enabled else "Выключен на этом узле (RECORDER=0)")
+                    ),
+                },
+            ],
+            "audit_log": audit_rows,
+        }
+    )
+
+
+@app.post("/api/admin/vods/sync")
+def admin_sync_vods(request: Request) -> JSONResponse:
+    global _drive_sync_ts
+    require_same_origin(request)
+    require_admin(request)
+    rate_limit(request, "admin_vod_sync", 12, 60)
+    if not GDRIVE_FOLDER_ID:
+        return j({"error": "gdrive_not_configured"}, 400)
+    with _drive_sync_lock:
+        _drive_sync_ts = time.time()
+    _sync_drive_vods_worker(GDRIVE_FOLDER_ID, force=True)
+    vods = list_vods(force_sync=False, include_hidden=True)
+    log_admin_event(request, "vod_sync", "ok", f"Синхронизировано записей: {len(vods)}")
+    return j({"ok": True, "count": len(vods)})
+
+
+@app.post("/api/admin/vods/override")
+def admin_vod_override(request: Request, body: dict[str, Any]) -> JSONResponse:
+    require_same_origin(request)
+    require_admin(request)
+    rate_limit(request, "admin_vod_override", 60, 60)
+    vod_id = text(body.get("vod_id"), 160)
+    if not safe_name(vod_id):
+        return j({"error": "invalid_vod_id"}, 400)
+
+    overrides = read_vod_overrides()
+    if body.get("reset"):
+        overrides.pop(vod_id, None)
+        write_vod_overrides(overrides)
+        log_admin_event(request, "vod_override", "ok", f"Сброшены правки VOD {vod_id}")
+        return j({"ok": True, "vod_id": vod_id, "override": None})
+
+    custom_title = text(body.get("custom_title"), 260)
+    custom_note = text(body.get("custom_note"), 180)
+    hidden = bool(body.get("hidden"))
+    if not custom_title and not custom_note and not hidden:
+        overrides.pop(vod_id, None)
+    else:
+        overrides[vod_id] = {
+            "custom_title": custom_title,
+            "custom_note": custom_note,
+            "hidden": hidden,
+            "updated_at": int(time.time()),
+        }
+    write_vod_overrides(overrides)
+    log_admin_event(
+        request,
+        "vod_override",
+        "ok",
+        f"VOD {vod_id}: hidden={hidden}, note={bool(custom_note)}, title={bool(custom_title)}",
+    )
+    return j({"ok": True, "vod_id": vod_id, "override": overrides.get(vod_id)})
+
+
+@app.post("/api/admin/vods/reset-thumb")
+def admin_vod_reset_thumb(request: Request, body: dict[str, Any]) -> JSONResponse:
+    require_same_origin(request)
+    require_admin(request)
+    rate_limit(request, "admin_reset_thumb", 30, 60)
+    target = text(body.get("vod_id"), 160)
+    removed = 0
+    if target == "all":
+        if THUMB_CACHE_DIR.is_dir():
+            for p in THUMB_CACHE_DIR.glob("thumb_*.jpg"):
+                with contextlib.suppress(OSError):
+                    p.unlink()
+                    removed += 1
+        log_admin_event(request, "reset_thumb", "ok", f"Сброшены все превью ({removed} шт.)")
+        return j({"ok": True, "removed": removed})
+
+    if not safe_name(target):
+        return j({"error": "invalid_vod_id"}, 400)
+    stem = _vod_cache_stem(target)
+    tpath = THUMB_CACHE_DIR / f"thumb_{stem}.jpg"
+    if tpath.is_file():
+        with contextlib.suppress(OSError):
+            tpath.unlink()
+            removed = 1
+    log_admin_event(request, "reset_thumb", "ok", f"Сброшено превью {target}")
+    return j({"ok": True, "removed": removed})
+
+
+@app.post("/api/admin/cache/clear")
+def admin_clear_cache(request: Request, body: dict[str, Any]) -> JSONResponse:
+    require_same_origin(request)
+    require_admin(request)
+    rate_limit(request, "admin_cache_clear", 20, 60)
+    target = text(body.get("target"), 40) or "api"
+    freed_bytes = 0
+    removed_files = 0
+
+    def _purge_dir(directory: Path, pattern: str) -> None:
+        nonlocal freed_bytes, removed_files
+        if not directory.is_dir():
+            return
+        for p in directory.glob(pattern):
+            if p.is_file():
+                with contextlib.suppress(OSError):
+                    freed_bytes += p.stat().st_size
+                    p.unlink()
+                    removed_files += 1
+
+    if target in ("api", "all_caches"):
+        with _api_cache_lock:
+            removed_files += len(_api_cache)
+            _api_cache.clear()
+        _list_cache.clear()
+    if target in ("img", "all_caches"):
+        _purge_dir(IMG_CACHE_DIR, "img_*.*")
+    if target in ("thumbs", "all_caches"):
+        _purge_dir(THUMB_CACHE_DIR, "thumb_*.jpg")
+    if target in ("chats", "all_caches"):
+        _purge_dir(CHAT_CACHE_DIR, "chat_*.jsonl")
+    if target == "analytics":
+        with _analytics_buf_lock:
+            _buf_daily.clear()
+            _buf_hourly.clear()
+            _buf_visitors.clear()
+            _buf_hourly_visitors.clear()
+            _buf_pages.clear()
+            _buf_referrers.clear()
+            _buf_devices.clear()
+            _buf_vods.clear()
+            _active_visitors.clear()
+            _recent_vod_events.clear()
+        with _analytics_db_lock, analytics_db_connect() as aconn:
+            for tbl in (
+                "daily_traffic",
+                "hourly_traffic",
+                "daily_visitors",
+                "hourly_visitors",
+                "page_stats",
+                "referrer_stats",
+                "device_stats",
+                "vod_analytics",
+            ):
+                aconn.execute(f"DELETE FROM {tbl}")
+
+    log_admin_event(request, "cache_clear", "ok", f"target={target}, removed={removed_files}, bytes={freed_bytes}")
+    return j({"ok": True, "target": target, "removed": removed_files, "freed_bytes": freed_bytes})
+
+
+@app.post("/api/admin/spotify/disconnect")
+def admin_spotify_disconnect(request: Request) -> JSONResponse:
+    require_same_origin(request)
+    require_admin(request)
+    rate_limit(request, "admin_spotify_disc", 10, 60)
+    tokens = read_tokens()
+    tokens.pop("spotify_refresh_token", None)
+    write_tokens(tokens)
+    _spotify_mem.clear()
+    with _api_cache_lock:
+        _api_cache.pop("spotify_now", None)
+    log_admin_event(request, "spotify_disconnect", "ok", "Отключён токен Spotify")
+    return j({"ok": True})
+
+
+@app.get("/api/admin/backup")
+def admin_export_backup(request: Request) -> Response:
+    require_admin(request)
+    rate_limit(request, "admin_backup", 15, 60)
+    snapshot = {
+        "schema": "krafen-backup-v1",
+        "exported_at": int(time.time()),
+        "exported_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "collections": {name: read_list(name, use_cache=False) for name in LIST_SPECS},
+        "vod_overrides": read_vod_overrides(),
+    }
+    raw = json.dumps(snapshot, ensure_ascii=False, indent=2).encode("utf-8")
+    fname = f"krafen-backup-{time.strftime('%Y-%m-%d')}.json"
+    log_admin_event(request, "backup_export", "ok", f"Экспорт {fname} ({len(raw)} байт)")
+    return Response(
+        content=raw,
+        status_code=200,
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{fname}"',
+        },
+    )
+
+
+@app.post("/api/admin/restore")
+def admin_import_backup(request: Request, body: dict[str, Any]) -> JSONResponse:
+    require_same_origin(request)
+    require_admin(request)
+    rate_limit(request, "admin_restore", 6, 60)
+    cols = body.get("collections")
+    if not isinstance(cols, dict):
+        return j({"error": "invalid_backup_format"}, 400)
+
+    restored_counts: dict[str, int] = {}
+    now = int(time.time())
+    with _db_lock, db_connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for name, spec in LIST_SPECS.items():
+                if name not in cols:
+                    continue
+                entry = cols[name]
+                raw_items = entry.get("items") if isinstance(entry, dict) else (entry if isinstance(entry, list) else None)
+                if not isinstance(raw_items, list):
+                    continue
+                norm_fn = NORMALIZERS[spec["normalizer"]]
+                cleaned = [x for x in (norm_fn(it) for it in raw_items) if x is not None][: spec["max_items"]]
+                row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
+                next_rev = (max(0, int(row["revision"] or 0)) if row else 0) + 1
+                stored = _write_collection_items(conn, name, cleaned)
+                conn.execute(
+                    """
+                    INSERT INTO collection_meta (name, revision, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at
+                    """,
+                    (name, next_rev, now),
+                )
+                _list_cache[name] = {"ts": time.time(), "revision": next_rev, "items": list(stored)}
+                restored_counts[name] = len(stored)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            return j({"error": "restore_failed"}, 500)
+
+    raw_overrides = body.get("vod_overrides")
+    if isinstance(raw_overrides, dict):
+        safe_ov: dict[str, dict[str, Any]] = {}
+        for k, v in list(raw_overrides.items())[:500]:
+            vid = text(k, 160)
+            if safe_name(vid) and isinstance(v, dict):
+                safe_ov[vid] = {
+                    "custom_title": text(v.get("custom_title"), 260),
+                    "custom_note": text(v.get("custom_note"), 180),
+                    "hidden": bool(v.get("hidden")),
+                    "updated_at": now,
+                }
+        write_vod_overrides(safe_ov)
+
+    summary_str = ", ".join(f"{k}:{v}" for k, v in restored_counts.items()) or "пусто"
+    log_admin_event(request, "backup_restore", "ok", f"Восстановлено ({summary_str})")
+    return j({"ok": True, "restored": restored_counts})
+
+
+_LOG_REDACT_RE = re.compile(
+    r"(Bearer\s+[A-Za-z0-9._~+/=-]{8,}|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+)",
+    flags=re.IGNORECASE,
+)
+
+
+@app.get("/api/admin/logs")
+def admin_read_logs(request: Request, lines: int = 150) -> JSONResponse:
+    require_admin(request)
+    rate_limit(request, "admin_logs", 60, 60)
+    max_lines = max(20, min(600, int(lines or 150)))
+    if not HEADLESS_LOG_PATH.is_file():
+        return j({"ok": True, "exists": False, "size_bytes": 0, "lines": []})
+    try:
+        st_size = HEADLESS_LOG_PATH.stat().st_size
+        with open(HEADLESS_LOG_PATH, "rb") as fh:
+            if st_size > 196_608:
+                fh.seek(-196_608, os.SEEK_END)
+            raw_tail = fh.read().decode("utf-8", errors="replace")
+        tail_lines = [
+            _LOG_REDACT_RE.sub("[REDACTED]", ln)
+            for ln in raw_tail.splitlines()[-max_lines:]
+        ]
+        return j({"ok": True, "exists": True, "size_bytes": st_size, "lines": tail_lines})
+    except OSError:
+        return j({"ok": True, "exists": False, "size_bytes": 0, "lines": []})
 
 
 # ----------------------------- Поиск (TMDB / Shikimori / IGDB) -----------------------------
@@ -2909,6 +4487,8 @@ _PROXY_IMG_HOSTS = frozenset({
     "static-cdn.jtvnw.net",
     "drive.google.com",
     "lh3.googleusercontent.com",
+    "images.weserv.nl",
+    "m.media-amazon.com",
 })
 _SAFE_IMG_MIMES = {
     "image/jpeg": ".jpg",
@@ -3638,7 +5218,7 @@ def maybe_sync_drive_vods(force: bool = False) -> None:
         threading.Thread(target=_sync_drive_vods_worker, args=(GDRIVE_FOLDER_ID, False), daemon=True).start()
 
 
-def list_vods(force_sync: bool = False) -> list[dict[str, Any]]:
+def list_vods(force_sync: bool = False, *, include_hidden: bool = False) -> list[dict[str, Any]]:
     if force_sync:
         maybe_sync_drive_vods(force=True)
 
@@ -3726,9 +5306,32 @@ def list_vods(force_sync: bool = False) -> list[dict[str, Any]]:
                 "sort_key": r["sort_key"],
             }
 
+    overrides = read_vod_overrides()
+    final_vods: list[dict[str, Any]] = []
+    for vid, entry in vods_by_id.items():
+        ov = overrides.get(vid) if isinstance(overrides.get(vid), dict) else None
+        is_hidden = bool(ov and ov.get("hidden"))
+        if is_hidden and not include_hidden:
+            continue
+        orig_title = str(entry.get("title") or "")
+        orig_note = str(entry.get("note") or "")
+        custom_title = text(ov.get("custom_title"), 260) if ov else ""
+        custom_note = text(ov.get("custom_note"), 180) if ov else ""
+        if custom_title:
+            entry["title"] = custom_title
+        if custom_note:
+            entry["note"] = custom_note
+        if include_hidden:
+            entry["orig_title"] = orig_title
+            entry["orig_note"] = orig_note
+            entry["custom_title"] = custom_title
+            entry["custom_note"] = custom_note
+            entry["hidden"] = is_hidden
+        final_vods.append(entry)
+
     if not force_sync:
         maybe_sync_drive_vods(force=False)
-    return sorted(vods_by_id.values(), key=lambda x: str(x.get("sort_key") or x.get("id") or ""), reverse=True)
+    return sorted(final_vods, key=lambda x: str(x.get("sort_key") or x.get("id") or ""), reverse=True)
 
 
 def find_vod(vod_id: str) -> Path | None:
@@ -4233,13 +5836,18 @@ def vod_stream(vod_id: str, request: Request) -> Response:
         return Response(status_code=status_code, media_type=media_type, headers=out_headers)
 
     def stream_chunks():
+        sent = 0
         try:
             for chunk in upstream.iter_content(chunk_size=64 * 1024):
                 if chunk:
+                    sent += len(chunk)
                     yield chunk
         except (requests.RequestException, OSError):
             return
         finally:
+            if sent > 0:
+                with contextlib.suppress(Exception):
+                    record_vod_stream_bytes(vod_id, sent)
             upstream.close()
             session.close()
 
@@ -4308,6 +5916,8 @@ def static_file(full_path: str, request: Request) -> Response:
         body = path.read_text(encoding="utf-8", errors="replace").replace("__CSP_NONCE__", nonce)
         encoded = body.encode("utf-8")
         headers = {"Cache-Control": "no-cache", "Content-Length": str(len(encoded))}
+        if path.name.lower() == "admin.html":
+            headers["X-Robots-Tag"] = "noindex, nofollow"
         headers.update(
             security_headers(
                 nonce,

@@ -17,14 +17,14 @@ CREATE TABLE IF NOT EXISTS drive_vods (
     note TEXT NOT NULL DEFAULT '',
     sort_key TEXT NOT NULL
 );
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-09-03_17-56','1_SRlYEQ9E0hF1dWmoS3segy5qSAV7rG3','мама в 16 (я) ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','7.21 ГБ','','2026-09-03_17-56');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-09-02_12-15','1td-vOnVhyvsT6VjzROhhdIV7asxvJImR','ну допустим мяу ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','12.32 ГБ','','2026-09-02_12-15');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-08-31_13-44','1u8ZrnJPIASjUEI5EeYS1v_X7C63YnDeJ','ну допустим мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','7.48 ГБ','','2026-08-31_13-44');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-08-30_13-04','1igadvmUfhI_XOjcmGsE_2rMaxYB7_4Be','мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','1.84 ГБ','','2026-08-30_13-04');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-08-30_01-01','1mLVCiVyC6yBVkX-E3YJafLY7EJhGeu-k','мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','3.65 ГБ','','2026-08-30_01-01');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-08-27_17-23','1KyokELlAV_-f703pnSjEtRpaKyWDH2mk','щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','7.5 ГБ','','2026-08-27_17-23');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-08-25_14-52','13maPLTBIWghOtGDDhdtG5iY9MUFdeXeE','щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','13.25 ГБ','эта запись лагающая — не исправить','2026-08-25_14-52');
-INSERT OR REPLACE INTO "drive_vods" VALUES('2026-08-23_11-50','1QPUp9NYaHEdvS8P-cndGpks1LivR-YkP','щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','17.27 ГБ','','2026-08-23_11-50');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-09-03_17-56','1_SRlYEQ9E0hF1dWmoS3segy5qSAV7rG3','мама в 16 (я) ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','7.21 ГБ','','2026-09-03_17-56');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-09-02_12-15','1td-vOnVhyvsT6VjzROhhdIV7asxvJImR','ну допустим мяу ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','12.32 ГБ','','2026-09-02_12-15');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-08-31_13-44','1u8ZrnJPIASjUEI5EeYS1v_X7C63YnDeJ','ну допустим мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','7.48 ГБ','','2026-08-31_13-44');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-08-30_13-04','1igadvmUfhI_XOjcmGsE_2rMaxYB7_4Be','мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','1.84 ГБ','','2026-08-30_13-04');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-08-30_01-01','1mLVCiVyC6yBVkX-E3YJafLY7EJhGeu-k','мяу ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','3.65 ГБ','','2026-08-30_01-01');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-08-27_17-23','1KyokELlAV_-f703pnSjEtRpaKyWDH2mk','щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','7.5 ГБ','','2026-08-27_17-23');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-08-25_14-52','13maPLTBIWghOtGDDhdtG5iY9MUFdeXeE','щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','13.25 ГБ','эта запись лагающая — не исправить','2026-08-25_14-52');
+INSERT OR REPLACE INTO "drive_vods" (id, drive_id, title, size_label, note, sort_key) VALUES('2026-08-23_11-50','1QPUp9NYaHEdvS8P-cndGpks1LivR-YkP','щавелевый персик ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб','17.27 ГБ','','2026-08-23_11-50');
 CREATE TABLE IF NOT EXISTS gamelist_items (
     pos INTEGER NOT NULL,
     id TEXT PRIMARY KEY,
