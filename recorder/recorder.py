@@ -77,6 +77,20 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 _load_dotenv(ROOT_DIR / ".env")
 _load_dotenv(Path(__file__).resolve().parent / ".env")
 
+_WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+if sys.stdout is None or sys.stderr is None:
+    try:
+        _log_dir = ROOT_DIR / "data"
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        _rec_log = open(_log_dir / "recorder.log", "a", encoding="utf-8", buffering=1, errors="replace")
+        if sys.stdout is None:
+            sys.stdout = _rec_log
+        if sys.stderr is None:
+            sys.stderr = _rec_log
+    except OSError:
+        pass
+
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:
@@ -89,7 +103,8 @@ for _stream in (sys.stdout, sys.stderr):
 CHANNEL = (os.environ.get("RECORDER_CHANNEL") or os.environ.get("TWITCH_CHANNEL") or "danonsha").strip()
 CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
-RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT_DIR / "vods"))
+_raw_rec_dir = Path(os.environ.get("RECORD_DIR", ROOT_DIR / "vods"))
+RECORD_DIR = _raw_rec_dir if _raw_rec_dir.is_absolute() else (ROOT_DIR / _raw_rec_dir).resolve()
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 STREAMLINK_BIN = os.environ.get("STREAMLINK_BIN", "streamlink")
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
@@ -185,7 +200,14 @@ def _list_rclone_remotes(rclone_exe: str) -> list[str]:
     if local_conf.is_file():
         cmd.extend(["--config", str(local_conf)])
     try:
-        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+        res = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=_WIN_NO_WINDOW,
+        )
         if res.returncode == 0:
             return [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip().endswith(":")]
     except Exception:
@@ -478,7 +500,11 @@ def upload_to_cloud(folder: Path) -> bool:
         log(f"cloud: заливаю {folder.name} → {dest} ...")
         res = subprocess.run(
             cmd,
-            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=None,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=None,
+            creationflags=_WIN_NO_WINDOW,
         )
         if res.returncode == 0:
             if folder.exists():
@@ -527,7 +553,14 @@ def test_cloud_connection() -> int:
     cmd = [rclone_exe, "lsd", remote, "--max-depth", "1", *extra]
     folder_note = f" (папка Drive ID: {GDRIVE_FOLDER_ID})" if "--drive-root-folder-id" in extra else ""
     log(f"проверяю доступ к {remote}{folder_note} ...")
-    res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+    res = subprocess.run(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        creationflags=_WIN_NO_WINDOW,
+    )
     if res.returncode != 0:
         log(f"ОШИБКА rclone: {(res.stderr or res.stdout or '').strip()}")
         return 1
@@ -546,7 +579,10 @@ def split_video(video: Path, max_bytes: float) -> list[Path]:
     out_pattern = str(video.with_suffix(".part%03d.mp4"))
     subprocess.run(
         [ffmpeg_exe, "-y", "-i", str(video), "-c", "copy", "-fs", str(int(max_bytes)), out_pattern],
-        stdin=subprocess.DEVNULL, check=True, capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=True,
+        capture_output=True,
+        creationflags=_WIN_NO_WINDOW,
     )
     return sorted(video.parent.glob(video.stem + ".part*.mp4"))
 
@@ -667,6 +703,7 @@ def remux_mpegts_to_mp4(video: Path) -> bool:
                 stderr=subprocess.DEVNULL,
                 timeout=None,
                 check=False,
+                creationflags=_WIN_NO_WINDOW,
             )
             if res.returncode == 0 and tmp.is_file() and tmp.stat().st_size > max(1024, int(orig_size * 0.5)):
                 tmp.replace(video)
@@ -704,6 +741,7 @@ def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
                 stderr=subprocess.DEVNULL,
                 timeout=25,
                 check=False,
+                creationflags=_WIN_NO_WINDOW,
             )
             if tmp.is_file() and tmp.stat().st_size > 1024:
                 tmp.replace(thumb)
@@ -770,6 +808,7 @@ def record_session(stream: dict) -> None:
         stdin=subprocess.DEVNULL,
         stdout=log_fh,
         stderr=subprocess.STDOUT,
+        creationflags=_WIN_NO_WINDOW,
     )
     _active_proc = proc
 
