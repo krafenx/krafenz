@@ -8,7 +8,8 @@
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" media="print" data-async-css>
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"></noscript>
     <link rel="stylesheet" href="/style.css">
     <style nonce="__CSP_NONCE__">
         /* Музыкальный виджет с размытием обложки */
@@ -630,7 +631,7 @@
                         return;
                     }
 
-                    const safeTrackImage = window.KrafenUI.safeHttpUrl(track.image);
+                    const safeTrackImage = window.KrafenUI.proxyImgUrl(track.image);
                     if (safeTrackImage) {
                         if (artContainer.dataset.imgSrc !== safeTrackImage) {
                             artContainer.dataset.imgSrc = safeTrackImage;
@@ -743,7 +744,7 @@
                     const live = Boolean(data.live);
                     setHeroStatus(live, live ? 'в эфире на twitch' : 'офлайн · на связи');
                     const stream = data.stream || {};
-                    const safeAvatar = window.KrafenUI.safeHttpUrl(data.profileImage);
+                    const safeAvatar = window.KrafenUI.proxyImgUrl(data.profileImage);
                     const avatar = safeAvatar
                         ? `<img src="${escapeHTML(safeAvatar)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
                         : '<div class="avatar"></div>';
@@ -790,21 +791,9 @@
                 if (!card) return;
                 const code = CONFIG.discord_invite_code;
                 try {
-                    let info = null;
                     const apiRes = await fetch(`/api/discord?code=${encodeURIComponent(code)}`, { headers: { Accept: 'application/json' } });
-                    if (apiRes.ok) {
-                        info = await apiRes.json();
-                    } else {
-                        const direct = await fetch(`https://discord.com/api/invites/${encodeURIComponent(code)}?with_counts=true`);
-                        if (!direct.ok) throw new Error('discord_unavailable');
-                        const raw = await direct.json();
-                        info = {
-                            name: raw.guild?.name || 'Discord Server',
-                            memberCount: Number(raw.approximate_member_count || 0),
-                            onlineCount: Number(raw.approximate_presence_count || 0),
-                            url: `https://discord.gg/${code}`,
-                        };
-                    }
+                    if (!apiRes.ok) throw new Error('discord_unavailable');
+                    const info = await apiRes.json();
 
                     card.innerHTML = `
                         <div class="stack" style="height:100%;justify-content:space-between;">

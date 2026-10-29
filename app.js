@@ -6,6 +6,28 @@
     const ATMO_KEY = 'krafen-atmo';
     const HEART_KEY = 'krafen-heart';
 
+    document.querySelectorAll('link[data-async-css]').forEach((el) => {
+        el.media = 'all';
+    });
+
+    const PROXY_IMG_HOSTS = new Set([
+        'cdn.discordapp.com',
+        'media.discordapp.net',
+        'shikimori.one',
+        'nyaa.shikimori.one',
+        'desu.shikimori.one',
+        'dere.shikimori.one',
+        'kawai.shikimori.one',
+        'image.tmdb.org',
+        'images.igdb.com',
+        'i.scdn.co',
+        'lastfm.freetls.fastly.net',
+        'lastfm-img2.akamaized.net',
+        'static-cdn.jtvnw.net',
+        'drive.google.com',
+        'lh3.googleusercontent.com',
+    ]);
+
     function escapeHTML(value) {
         return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
             '&': '&amp;',
@@ -26,6 +48,19 @@
             }
         } catch {}
         return fallback;
+    }
+
+    function proxyImgUrl(value, fallback = '') {
+        const safe = safeHttpUrl(value, '');
+        if (!safe) return fallback;
+        try {
+            const parsed = new URL(safe, location.origin);
+            if (parsed.origin === location.origin) return safe;
+            if (parsed.protocol === 'https:' && PROXY_IMG_HOSTS.has(parsed.hostname.toLowerCase())) {
+                return `/api/img?u=${encodeURIComponent(parsed.href)}`;
+            }
+        } catch {}
+        return safe;
     }
 
     /* ---------- уведомления (toast) ---------- */
@@ -709,6 +744,7 @@
     window.KrafenUI = {
         escapeHTML,
         safeHttpUrl,
+        proxyImgUrl,
         toast,
         observeReveals,
         smoothSwap,

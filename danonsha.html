@@ -8,7 +8,8 @@
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" crossorigin media="print" data-async-css>
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" crossorigin></noscript>
     <style nonce="__CSP_NONCE__">
         :root {
             color-scheme: dark;
@@ -1164,6 +1165,7 @@
     </div>
 
     <script nonce="__CSP_NONCE__">
+        document.querySelectorAll('link[data-async-css]').forEach((el) => { el.media = 'all'; });
         const CONFIG = {
             twitch_user: 'danonsha',
             telegram_channel: 'danonshasad',
@@ -1187,6 +1189,13 @@
             }[char]));
         }
 
+        const PROXY_IMG_HOSTS = new Set([
+            'cdn.discordapp.com', 'media.discordapp.net', 'shikimori.one', 'nyaa.shikimori.one',
+            'desu.shikimori.one', 'dere.shikimori.one', 'kawai.shikimori.one', 'image.tmdb.org',
+            'images.igdb.com', 'i.scdn.co', 'lastfm.freetls.fastly.net', 'lastfm-img2.akamaized.net',
+            'static-cdn.jtvnw.net', 'drive.google.com', 'lh3.googleusercontent.com',
+        ]);
+
         function safeHttpUrl(value, fallback = '') {
             const raw = String(value ?? '').trim();
             if (!raw) return fallback;
@@ -1197,6 +1206,19 @@
                 }
             } catch {}
             return fallback;
+        }
+
+        function proxyImgUrl(value, fallback = '') {
+            const safe = safeHttpUrl(value, '');
+            if (!safe) return fallback;
+            try {
+                const parsed = new URL(safe, location.origin);
+                if (parsed.origin === location.origin) return safe;
+                if (parsed.protocol === 'https:' && PROXY_IMG_HOSTS.has(parsed.hostname.toLowerCase())) {
+                    return `/api/img?u=${encodeURIComponent(parsed.href)}`;
+                }
+            } catch {}
+            return safe;
         }
 
         function setCard(id, html) {
@@ -1312,7 +1334,7 @@
                 const live = Boolean(data.live);
                 setHeroStatus(live);
                 const stream = data.stream || {};
-                const safeAvatarUrl = safeHttpUrl(data.profileImage);
+                const safeAvatarUrl = proxyImgUrl(data.profileImage);
                 const avatar = safeAvatarUrl
                     ? `<img src="${escapeHTML(safeAvatarUrl)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
                     : '<div class="avatar" style="background:rgba(255,255,255,.05);"></div>';
@@ -1795,13 +1817,13 @@
         ].map(v => ({
             ...v,
             stream_url: `/api/vods/${v.id}/stream`,
-            download_url: `https://drive.usercontent.google.com/download?id=${v.drive_id}&export=download&confirm=t`,
+            download_url: `/api/vods/${v.id}/stream?download=1`,
             embed_url: `https://drive.google.com/file/d/${v.drive_id}/preview`,
             view_url: `https://drive.google.com/file/d/${v.drive_id}/view`,
             thumb_url: `/api/vods/${v.id}/thumb`,
             thumb_fallbacks: [
-                `https://drive.google.com/thumbnail?id=${v.drive_id}&sz=w960`,
-                `https://lh3.googleusercontent.com/d/${v.drive_id}=w960`
+                proxyImgUrl(`https://drive.google.com/thumbnail?id=${v.drive_id}&sz=w960`),
+                proxyImgUrl(`https://lh3.googleusercontent.com/d/${v.drive_id}=w960`)
             ]
         }));
 
@@ -1885,10 +1907,13 @@
             if (v.thumb_url) list.push(v.thumb_url);
             else list.push(`/api/vods/${encodeURIComponent(v.id)}/thumb`);
             if (Array.isArray(v.thumb_fallbacks)) {
-                for (const u of v.thumb_fallbacks) if (u && !list.includes(u)) list.push(u);
+                for (const u of v.thumb_fallbacks) {
+                    const pu = proxyImgUrl(u);
+                    if (pu && !list.includes(pu)) list.push(pu);
+                }
             } else if (v.drive_id) {
-                list.push(`https://drive.google.com/thumbnail?id=${encodeURIComponent(v.drive_id)}&sz=w960`);
-                list.push(`https://lh3.googleusercontent.com/d/${encodeURIComponent(v.drive_id)}=w960`);
+                list.push(proxyImgUrl(`https://drive.google.com/thumbnail?id=${encodeURIComponent(v.drive_id)}&sz=w960`));
+                list.push(proxyImgUrl(`https://lh3.googleusercontent.com/d/${encodeURIComponent(v.drive_id)}=w960`));
             }
             return list;
         }
