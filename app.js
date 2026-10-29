@@ -16,6 +16,18 @@
         }[ch]));
     }
 
+    function safeHttpUrl(value, fallback = '') {
+        const raw = String(value ?? '').trim();
+        if (!raw) return fallback;
+        try {
+            const parsed = new URL(raw, location.origin);
+            if (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && parsed.origin === location.origin)) {
+                return parsed.href;
+            }
+        } catch {}
+        return fallback;
+    }
+
     /* ---------- уведомления (toast) ---------- */
     let toastTimer = null;
     function toast(message, color) {
@@ -696,6 +708,7 @@
 
     window.KrafenUI = {
         escapeHTML,
+        safeHttpUrl,
         toast,
         observeReveals,
         smoothSwap,

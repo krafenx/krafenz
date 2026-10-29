@@ -21,6 +21,7 @@ import hashlib
 import html
 import hmac
 import io
+import ipaddress
 import json
 import os
 import re
@@ -35,7 +36,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import requests
 import uvicorn
@@ -106,8 +107,12 @@ PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 PUBLIC_ORIGIN = os.environ.get("PUBLIC_ORIGIN", "").strip().rstrip("/")
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+_RAW_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+_WEAK_PLACEHOLDER_PASSWORDS = {"change-me", "changeme"}
+ADMIN_PASSWORD = "" if _RAW_ADMIN_PASSWORD.strip().lower() in _WEAK_PLACEHOLDER_PASSWORDS else _RAW_ADMIN_PASSWORD
+_ADMIN_PASSWORD_IS_PLACEHOLDER = bool(_RAW_ADMIN_PASSWORD and not ADMIN_PASSWORD)
 SECURE_COOKIES_MODE = os.environ.get("SECURE_COOKIES", "auto").strip().lower()
+TRUST_PROXY_MODE = os.environ.get("TRUST_PROXY_HEADERS", "auto").strip().lower()
 
 TWITCH_CHANNEL = os.environ.get("TWITCH_CHANNEL", "krafen")
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
@@ -252,7 +257,19 @@ def _fetch_remote_branch_sha() -> tuple[str, str]:
         return "", type(exc).__name__
 
 
+_SAFE_GH_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_SAFE_GH_REF_RE = re.compile(r"^[A-Za-z0-9_./-]{1,120}$")
+_ALLOWED_GH_ZIP_HOSTS = {"api.github.com", "github.com", "codeload.github.com"}
+
+
+def _is_allowed_github_download_host(hostname: str) -> bool:
+    h = (hostname or "").lower().rstrip(".")
+    return h in _ALLOWED_GH_ZIP_HOSTS or h.endswith(".githubusercontent.com")
+
+
 def _download_github_zip() -> bytes:
+    if not _SAFE_GH_REPO_RE.fullmatch(AUTO_UPDATE_REPO) or not _SAFE_GH_REF_RE.fullmatch(AUTO_UPDATE_BRANCH):
+        raise ValueError("invalid_auto_update_config")
     gh_token = _resolve_github_token()
     candidates: list[tuple[str, dict[str, str]]] = []
     api_headers = {
@@ -278,22 +295,38 @@ def _download_github_zip() -> bytes:
 
     last_err: Exception | None = None
     saw_404 = False
-    for url, req_headers in candidates:
+    for start_url, base_headers in candidates:
         try:
-            with requests.get(url, headers=req_headers, stream=True, timeout=25) as resp:
-                if resp.status_code == 404:
-                    saw_404 = True
-                resp.raise_for_status()
-                buf = io.BytesIO()
-                total = 0
-                for chunk in resp.iter_content(chunk_size=64 * 1024):
-                    if not chunk:
+            cur_url = start_url
+            cur_headers = dict(base_headers)
+            for _hop in range(5):
+                parsed = urlsplit(cur_url)
+                if parsed.scheme != "https" or not _is_allowed_github_download_host(parsed.hostname or ""):
+                    raise ValueError("disallowed_redirect_host")
+                # Не пересылаем токен на CDN/S3 presigned URLs (*.githubusercontent.com)
+                if (parsed.hostname or "").lower().endswith(".githubusercontent.com"):
+                    cur_headers.pop("Authorization", None)
+                with requests.get(cur_url, headers=cur_headers, stream=True, timeout=25, allow_redirects=False) as resp:
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        loc = (resp.headers.get("location") or "").strip()
+                        if not loc:
+                            raise RuntimeError("empty_redirect_location")
+                        cur_url = loc
                         continue
-                    total += len(chunk)
-                    if total > _MAX_UPDATE_ZIP_BYTES:
-                        raise ValueError("update_archive_too_large")
-                    buf.write(chunk)
-                return buf.getvalue()
+                    if resp.status_code == 404:
+                        saw_404 = True
+                    resp.raise_for_status()
+                    buf = io.BytesIO()
+                    total = 0
+                    for chunk in resp.iter_content(chunk_size=64 * 1024):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > _MAX_UPDATE_ZIP_BYTES:
+                            raise ValueError("update_archive_too_large")
+                        buf.write(chunk)
+                    return buf.getvalue()
+            raise RuntimeError("too_many_redirects")
         except Exception as exc:
             last_err = exc
     if saw_404 and not gh_token:
@@ -329,6 +362,7 @@ def perform_github_update(*, force: bool = False, allow_zip_fallback_on_api_erro
             raw_zip = _download_github_zip()
             updated_files: list[str] = []
             server_changed = False
+            total_unpacked = 0
 
             with zipfile.ZipFile(io.BytesIO(raw_zip)) as zf:
                 for info in zf.infolist():
@@ -336,6 +370,11 @@ def perform_github_update(*, force: bool = False, allow_zip_fallback_on_api_erro
                         continue
                     if ((info.external_attr >> 16) & 0o170000) == 0o120000:
                         continue
+                    if info.file_size > _MAX_UPDATE_ZIP_BYTES:
+                        raise ValueError("zip_entry_too_large")
+                    total_unpacked += max(0, int(info.file_size))
+                    if total_unpacked > _MAX_UPDATE_ZIP_BYTES * 4:
+                        raise ValueError("zip_unpacked_too_large")
                     raw_name = info.filename.replace("\\", "/").lstrip("/")
                     if "/" not in raw_name:
                         continue
@@ -402,7 +441,7 @@ def perform_github_update(*, force: bool = False, allow_zip_fallback_on_api_erro
             }
         except Exception as exc:
             print(f"автообновление: ошибка обновления ({exc}) — продолжаю с локальными файлами", flush=True)
-            return {"ok": False, "error": str(exc), "updated": [], "server_changed": False}
+            return {"ok": False, "error": "update_failed", "updated": [], "server_changed": False}
 
 
 _HEADLESS_LOG_FH: Any = None
@@ -1352,9 +1391,14 @@ def text(value: Any, max_len: int = 200) -> str:
 
 def clean_url(value: Any, max_len: int = 600) -> str | None:
     url = text(value, max_len)
-    if not url:
+    if not url or not url.startswith("https://"):
         return None
-    return url if url.startswith("https://") else None
+    if any(ch in url for ch in ("\r", "\n", "\t", " ", "<", ">", '"', "'")):
+        return None
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    return url
 
 
 def year_from(value: Any) -> str:
@@ -1380,12 +1424,21 @@ def b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
+def _session_hmac_key() -> bytes:
+    pwd_fp = hashlib.sha256(ADMIN_PASSWORD.encode("utf-8")).hexdigest() if ADMIN_PASSWORD else ""
+    return f"{SECRET_KEY}:{pwd_fp}".encode("utf-8")
+
+
 def sign(value: str) -> str:
-    return b64url(hmac.new(SECRET_KEY.encode(), value.encode(), hashlib.sha256).digest())
+    return b64url(hmac.new(_session_hmac_key(), value.encode(), hashlib.sha256).digest())
 
 
 def constant_time_equal(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode(), b.encode())
+
+
+_revoked_sessions_lock = threading.Lock()
+_revoked_sessions: dict[str, int] = {}
 
 
 def create_session() -> str:
@@ -1402,16 +1455,48 @@ def create_session() -> str:
 
 
 def verify_session(token: str | None) -> bool:
-    if not token or not ADMIN_PASSWORD:
+    if not token or not ADMIN_PASSWORD or len(token) > 512:
         return False
     try:
         payload, signature = token.split(".", 1)
         if not constant_time_equal(signature, sign(payload)):
             return False
         data = json.loads(b64url_decode(payload))
-        return int(data.get("exp", 0)) > int(time.time())
+        now = int(time.time())
+        exp = int(data.get("exp", 0))
+        nonce = str(data.get("nonce") or "")
+        if exp <= now or not nonce:
+            return False
+        with _revoked_sessions_lock:
+            if nonce in _revoked_sessions:
+                return False
+        return True
     except Exception:
         return False
+
+
+def revoke_session(token: str | None) -> None:
+    if not token or len(token) > 512 or "." not in token:
+        return
+    try:
+        payload, signature = token.split(".", 1)
+        if not constant_time_equal(signature, sign(payload)):
+            return
+        data = json.loads(b64url_decode(payload))
+        nonce = str(data.get("nonce") or "")
+        exp = int(data.get("exp", 0))
+        now = int(time.time())
+        if not nonce or exp <= now:
+            return
+        with _revoked_sessions_lock:
+            expired = [k for k, v in _revoked_sessions.items() if v <= now]
+            for k in expired:
+                _revoked_sessions.pop(k, None)
+            if len(_revoked_sessions) >= 2048:
+                _revoked_sessions.pop(next(iter(_revoked_sessions)))
+            _revoked_sessions[nonce] = exp
+    except Exception:
+        return
 
 
 def require_admin(request: Request) -> None:
@@ -1419,11 +1504,103 @@ def require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail={"error": "unauthorized"})
 
 
+_CLOUDFLARE_NETS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "173.245.48.0/20",
+        "103.21.244.0/22",
+        "103.22.200.0/22",
+        "103.31.4.0/22",
+        "141.101.64.0/18",
+        "108.162.192.0/18",
+        "190.93.240.0/20",
+        "188.114.96.0/20",
+        "197.234.240.0/22",
+        "198.41.128.0/17",
+        "162.158.0.0/15",
+        "104.16.0.0/13",
+        "104.24.0.0/14",
+        "172.64.0.0/13",
+        "131.0.72.0/22",
+        "2400:cb00::/32",
+        "2606:4700::/32",
+        "2803:f800::/32",
+        "2405:b500::/32",
+        "2405:8100::/32",
+        "2a06:98c0::/29",
+        "2c0f:f248::/32",
+    )
+)
+
+
+def _is_trusted_proxy_peer(request: Request) -> bool:
+    if TRUST_PROXY_MODE in {"0", "false", "no", "off"}:
+        return False
+    if TRUST_PROXY_MODE in {"1", "true", "yes", "on"}:
+        return True
+    peer = request.client.host if request.client else ""
+    if not peer:
+        return False
+    if peer in {"testclient", "localhost"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(peer)
+        if ip.is_loopback or ip.is_private or ip.is_link_local:
+            return True
+        return any(ip in net for net in _CLOUDFLARE_NETS)
+    except ValueError:
+        return False
+
+
+_SAFE_HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}(?::\d{1,5})?$")
+
+
+def _effective_request_host(request: Request) -> str:
+    candidates: list[str] = []
+    if _is_trusted_proxy_peer(request):
+        xfh = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+        if xfh:
+            candidates.append(xfh)
+    raw_host = (request.headers.get("host") or request.url.netloc or "").split(",")[0].strip()
+    if raw_host:
+        candidates.append(raw_host)
+    for h in candidates:
+        if _SAFE_HOST_RE.fullmatch(h):
+            return h.lower()
+    return f"localhost:{PORT}"
+
+
+def _is_e2b_preview_request(request: Request) -> bool:
+    host_only = _effective_request_host(request).split(":", 1)[0]
+    return host_only.endswith(".e2b.app")
+
+
 def is_https_request(request: Request) -> bool:
-    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
-    if proto:
-        return proto == "https"
+    if _is_trusted_proxy_peer(request):
+        proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+        if proto:
+            return proto == "https"
     return request.url.scheme == "https"
+
+
+def require_same_origin(request: Request) -> None:
+    """Защита от CSRF для state-changing запросов."""
+    allow_e2b_iframe = _is_e2b_preview_request(request)
+    sec_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if sec_site and sec_site not in ("same-origin", "none") and not allow_e2b_iframe:
+        raise HTTPException(status_code=403, detail={"error": "csrf_blocked"})
+
+    origin = (request.headers.get("origin") or "").strip()
+    if origin and origin != "null":
+        parsed_origin = urlsplit(origin)
+        origin_host = (parsed_origin.netloc or "").strip().lower()
+        allowed_hosts = {_effective_request_host(request)}
+        if PUBLIC_ORIGIN:
+            pub_host = (urlsplit(PUBLIC_ORIGIN).netloc or "").strip().lower()
+            if pub_host:
+                allowed_hosts.add(pub_host)
+        if not origin_host or (origin_host not in allowed_hosts and not allow_e2b_iframe):
+            raise HTTPException(status_code=403, detail={"error": "csrf_blocked"})
 
 
 def cookie_header(request: Request, name: str, value: str, max_age: int, path: str = "/") -> str:
@@ -1436,7 +1613,7 @@ def cookie_header(request: Request, name: str, value: str, max_age: int, path: s
         secure = https
 
     in_iframe = request.headers.get("sec-fetch-dest", "").lower() == "iframe"
-    same_site = "None" if (in_iframe and secure) else "Lax"
+    same_site = "None" if (in_iframe and secure and _is_e2b_preview_request(request)) else "Lax"
 
     parts = [f"{name}={value}", f"Max-Age={max_age}", f"Path={path}", "HttpOnly", f"SameSite={same_site}"]
     if secure:
@@ -1445,31 +1622,69 @@ def cookie_header(request: Request, name: str, value: str, max_age: int, path: s
 
 
 def client_ip(request: Request) -> str:
-    forwarded = (
-        request.headers.get("cf-connecting-ip")
-        or request.headers.get("x-real-ip")
-        or request.headers.get("x-forwarded-for")
-        or ""
-    )
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:80]
+    if _is_trusted_proxy_peer(request):
+        forwarded = (
+            request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-real-ip")
+            or request.headers.get("x-forwarded-for")
+            or ""
+        )
+        if forwarded:
+            cand = forwarded.split(",")[0].strip()[:80]
+            with contextlib.suppress(ValueError):
+                return str(ipaddress.ip_address(cand))
     return request.client.host if request.client else "unknown"
+
+
+_MAX_RATE_BUCKETS = 4096
+
+
+def _prune_rate_buckets_locked(now: float, max_age: float = 300.0) -> None:
+    if len(_rate_buckets) > 2048:
+        cutoff = now - max_age
+        stale = [k for k, v in _rate_buckets.items() if not v or v[-1] <= cutoff]
+        for k in stale:
+            _rate_buckets.pop(k, None)
+    if len(_rate_buckets) >= _MAX_RATE_BUCKETS:
+        # Защита памяти при массовом переборе ключей: вытесняем самые старые корзины
+        by_age = sorted(_rate_buckets.items(), key=lambda kv: kv[1][-1] if kv[1] else 0.0)
+        for k, _ in by_age[:1024]:
+            _rate_buckets.pop(k, None)
 
 
 def rate_limit(request: Request, name: str, limit: int = 60, period: int = 60) -> None:
     key = f"{name}:{client_ip(request)}"
     now = time.time()
     with _rate_lock:
-        if len(_rate_buckets) > 2048:
-            cutoff = now - max(period, 300)
-            stale = [k for k, v in _rate_buckets.items() if not v or v[-1] <= cutoff]
-            for k in stale:
-                _rate_buckets.pop(k, None)
+        _prune_rate_buckets_locked(now, max(period, 300))
         bucket = [ts for ts in _rate_buckets.get(key, []) if ts > now - period]
         if len(bucket) >= limit:
             raise HTTPException(status_code=429, detail={"error": "rate_limited"})
         bucket.append(now)
         _rate_buckets[key] = bucket
+
+
+def _check_admin_failed_login_guard(request: Request) -> None:
+    ip_key = f"admin_fail_ip:{client_ip(request)}"
+    global_key = "admin_fail_global:all"
+    now = time.time()
+    with _rate_lock:
+        ip_fails = [ts for ts in _rate_buckets.get(ip_key, []) if ts > now - 300]
+        global_fails = [ts for ts in _rate_buckets.get(global_key, []) if ts > now - 60]
+        if len(ip_fails) >= 8 or len(global_fails) >= 20:
+            raise HTTPException(status_code=429, detail={"error": "rate_limited"})
+
+
+def _record_admin_failed_login(request: Request) -> None:
+    ip_key = f"admin_fail_ip:{client_ip(request)}"
+    global_key = "admin_fail_global:all"
+    now = time.time()
+    with _rate_lock:
+        _prune_rate_buckets_locked(now, 300)
+        for key, window in ((ip_key, 300), (global_key, 60)):
+            bucket = [ts for ts in _rate_buckets.get(key, []) if ts > now - window]
+            bucket.append(now)
+            _rate_buckets[key] = bucket
 
 
 def j(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> JSONResponse:
@@ -1725,40 +1940,107 @@ def init_db() -> None:
 init_db()
 
 
-def security_headers(nonce: str | None = None) -> dict[str, str]:
+_MAX_BODY_DEFAULT = 1_048_576  # 1 МБ для сохранения коллекций
+_MAX_BODY_ADMIN = 8_192        # 8 КБ для /api/admin*
+_MAX_BODY_THUMB = 524_288      # 512 КБ для JPEG-превью
+
+
+class _PayloadTooLargeError(Exception):
+    pass
+
+
+def _max_body_bytes_for_path(path: str) -> int:
+    if path.startswith("/api/admin"):
+        return _MAX_BODY_ADMIN
+    if path.startswith("/api/vods/") and path.endswith("/thumb"):
+        return _MAX_BODY_THUMB
+    return _MAX_BODY_DEFAULT
+
+
+def security_headers(
+    nonce: str | None = None,
+    *,
+    is_https: bool = False,
+    allow_frame: bool = False,
+) -> dict[str, str]:
     script_src = "script-src 'self'"
     if nonce:
         script_src += f" 'nonce-{nonce}'"
     style_src = "'self' 'unsafe-inline' https://fonts.googleapis.com"
-    return {
+    csp_parts = [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "form-action 'self'",
+        script_src,
+        f"style-src {style_src}",
+        f"style-src-elem {style_src}",
+        "style-src-attr 'unsafe-inline'",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "img-src 'self' data: https:",
+        "media-src 'self' blob: https:",
+        "worker-src 'self' blob:",
+        "frame-src 'self' https://drive.google.com https://*.google.com https://*.googleusercontent.com",
+        "connect-src 'self' https://discord.com",
+    ]
+    if not allow_frame:
+        csp_parts.append("frame-ancestors 'self'")
+    out = {
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
-        "Content-Security-Policy": "; ".join(
-            [
-                "default-src 'self'",
-                "base-uri 'self'",
-                "object-src 'none'",
-                "form-action 'self'",
-                script_src,
-                f"style-src {style_src}",
-                f"style-src-elem {style_src}",
-                "style-src-attr 'unsafe-inline'",
-                "font-src 'self' https://fonts.gstatic.com data:",
-                "img-src 'self' data: https:",
-                "media-src 'self' blob: https:",
-                "worker-src 'self' blob:",
-                "frame-src 'self' https://drive.google.com https://*.google.com https://*.googleusercontent.com",
-                "connect-src 'self' https://discord.com",
-            ]
-        ),
+        "Content-Security-Policy": "; ".join(csp_parts),
     }
+    if not allow_frame:
+        out["X-Frame-Options"] = "SAMEORIGIN"
+    if is_https:
+        out["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return out
 
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    for key, value in security_headers().items():
+    is_https = is_https_request(request)
+    allow_frame = _is_e2b_preview_request(request)
+    hdrs = security_headers(is_https=is_https, allow_frame=allow_frame)
+
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        max_bytes = _max_body_bytes_for_path(request.url.path)
+        cl_raw = (request.headers.get("content-length") or "").strip()
+        if cl_raw:
+            try:
+                if int(cl_raw) > max_bytes:
+                    resp = j({"error": "payload_too_large"}, 413)
+                    for k, v in hdrs.items():
+                        resp.headers.setdefault(k, v)
+                    return resp
+            except ValueError:
+                resp = j({"error": "invalid_content_length"}, 400)
+                for k, v in hdrs.items():
+                    resp.headers.setdefault(k, v)
+                return resp
+
+        orig_receive = request._receive
+        seen_bytes = 0
+
+        async def _limited_receive():
+            nonlocal seen_bytes
+            msg = await orig_receive()
+            if msg.get("type") == "http.request":
+                seen_bytes += len(msg.get("body") or b"")
+                if seen_bytes > max_bytes:
+                    raise _PayloadTooLargeError()
+            return msg
+
+        request._receive = _limited_receive
+
+    try:
+        response = await call_next(request)
+    except _PayloadTooLargeError:
+        response = j({"error": "payload_too_large"}, 413)
+
+    for key, value in hdrs.items():
         response.headers.setdefault(key, value)
     return response
 
@@ -1780,6 +2062,7 @@ def make_get_list(name: str):
 
 def make_put_list(name: str):
     def endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
+        require_same_origin(request)
         require_admin(request)
         rate_limit(request, f"write_{name}", 60, 60)
         try:
@@ -1828,6 +2111,8 @@ def admin_check(request: Request) -> JSONResponse:
 
 @app.delete("/api/admin")
 def admin_logout(request: Request) -> JSONResponse:
+    require_same_origin(request)
+    revoke_session(request.cookies.get(SESSION_COOKIE))
     response = j({"ok": True})
     response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, "", 0)
     return response
@@ -1835,10 +2120,13 @@ def admin_logout(request: Request) -> JSONResponse:
 
 @app.post("/api/admin")
 def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
+    require_same_origin(request)
     rate_limit(request, "admin_login", 10, 60)
+    _check_admin_failed_login_guard(request)
     if not ADMIN_PASSWORD:
         return j({"error": "admin_password_missing"}, 503)
     if not constant_time_equal(text(body.get("password"), 512), ADMIN_PASSWORD):
+        _record_admin_failed_login(request)
         return j({"error": "invalid_password"}, 401)
     response = j({"ok": True})
     response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, create_session(), SESSION_TTL_SECONDS)
@@ -1847,6 +2135,7 @@ def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
 
 @app.post("/api/admin/update")
 def admin_trigger_update(request: Request) -> JSONResponse:
+    require_same_origin(request)
     require_admin(request)
     rate_limit(request, "admin_update", 6, 60)
     result = perform_github_update(force=True, allow_zip_fallback_on_api_error=True)
@@ -1861,12 +2150,12 @@ def admin_trigger_update(request: Request) -> JSONResponse:
 
 def tmdb_poster(path: Any) -> str | None:
     value = text(path, 120)
-    return f"{TMDB_IMAGE_BASE}{value}" if value.startswith("/") else None
+    return f"{TMDB_IMAGE_BASE}{value}" if re.fullmatch(r"/[A-Za-z0-9_.-]+", value) else None
 
 
 def igdb_cover(image_id: Any) -> str | None:
     value = text(image_id, 80)
-    return f"https://images.igdb.com/igdb/image/upload/t_cover_big/{value}.jpg" if value else None
+    return f"https://images.igdb.com/igdb/image/upload/t_cover_big/{value}.jpg" if re.fullmatch(r"[A-Za-z0-9_-]+", value) else None
 
 
 def search_tmdb(query: str, item_type: str) -> JSONResponse:
@@ -2116,8 +2405,8 @@ def spotify_basic_auth() -> str:
 def request_origin(request: Request) -> str:
     if PUBLIC_ORIGIN:
         return PUBLIC_ORIGIN
-    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
-    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
+    proto = "https" if is_https_request(request) else "http"
+    host = _effective_request_host(request)
     return f"{proto}://{host}"
 
 
@@ -2359,7 +2648,7 @@ def twitch_status(login: str) -> tuple[int, dict[str, Any]]:
             "login": user.get("login", login),
             "displayName": user.get("display_name", login),
             "description": user.get("description", ""),
-            "profileImage": user.get("profile_image_url", ""),
+            "profileImage": clean_url(user.get("profile_image_url")) or "",
             "viewCount": user.get("view_count", 0),
             "url": f"https://www.twitch.tv/{login}",
             "stream": (
@@ -2410,7 +2699,8 @@ def discord_invite(request: Request, code: str = DISCORD_INVITE_CODE) -> JSONRes
         guild = data.get("guild") if isinstance(data.get("guild"), dict) else {}
         icon_hash = text(guild.get("icon"), 80)
         guild_id = text(guild.get("id"), 40)
-        icon_url = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128" if guild_id and icon_hash else None
+        valid_icon = re.fullmatch(r"[A-Za-z0-9_]+", icon_hash) and re.fullmatch(r"\d+", guild_id)
+        icon_url = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128" if valid_icon else None
         payload = {
             "code": clean_code,
             "name": text(guild.get("name"), 120) or "Discord Server",
@@ -2637,9 +2927,29 @@ def _read_response_prefix(resp: requests.Response, max_bytes: int = 131072) -> s
     return bytes(buf[:max_bytes]).decode("utf-8", errors="ignore")
 
 
+_SAFE_GDRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,80}$")
+_SAFE_GDRIVE_UUID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SAFE_STREAM_MIMES = {
+    "video/mp4",
+    "video/webm",
+    "video/x-matroska",
+    "video/quicktime",
+    "video/mp2t",
+    "application/octet-stream",
+}
+
+
+def _extract_safe_gdrive_uuid(sample: str) -> str:
+    uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
+    if not uuid_m:
+        return ""
+    cand = uuid_m.group(1).strip()
+    return cand if _SAFE_GDRIVE_UUID_RE.fullmatch(cand) else ""
+
+
 def _probe_gdrive_file_size(drive_id: str) -> int:
     """Определяет точный размер файла на Google Drive по 1-байтовому Range-запросу."""
-    if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", drive_id):
+    if not _SAFE_GDRIVE_ID_RE.fullmatch(drive_id):
         return 0
     base_url = "https://drive.usercontent.google.com/download"
     headers = {
@@ -2654,10 +2964,10 @@ def _probe_gdrive_file_size(drive_id: str) -> int:
         if "text/html" in ctype:
             sample = _read_response_prefix(resp)
             resp.close()
-            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
-            if not uuid_m:
+            found_uuid = _extract_safe_gdrive_uuid(sample)
+            if not found_uuid:
                 return 0
-            params["uuid"] = uuid_m.group(1)
+            params["uuid"] = found_uuid
             resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(3, 8))
         cr = resp.headers.get("Content-Range") or ""
         cl = resp.headers.get("Content-Length") or ""
@@ -2676,7 +2986,7 @@ def _probe_gdrive_file_size(drive_id: str) -> int:
 
 def _download_gdrive_small_bytes(drive_id: str, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
     """Скачивает небольшой публичный файл с Google Drive (meta.json, chat.jsonl, thumb.jpg)."""
-    if not re.fullmatch(r"[A-Za-z0-9_-]{10,80}", drive_id):
+    if not _SAFE_GDRIVE_ID_RE.fullmatch(drive_id):
         return None
     base_url = "https://drive.usercontent.google.com/download"
     headers = {
@@ -2690,10 +3000,10 @@ def _download_gdrive_small_bytes(drive_id: str, max_bytes: int = 8 * 1024 * 1024
         if "text/html" in ctype:
             sample = _read_response_prefix(resp)
             resp.close()
-            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
-            if not uuid_m:
+            found_uuid = _extract_safe_gdrive_uuid(sample)
+            if not found_uuid:
                 return None
-            params["uuid"] = uuid_m.group(1)
+            params["uuid"] = found_uuid
             resp = session.get(base_url, params=params, headers=headers, stream=True, timeout=(4, 15))
             ctype = (resp.headers.get("content-type") or "").lower()
 
@@ -3005,27 +3315,39 @@ def list_vods(force_sync: bool = False) -> list[dict[str, Any]]:
 
     if RECORD_DIR.exists():
         for folder in sorted(RECORD_DIR.iterdir(), reverse=True):
-            if not folder.is_dir():
+            if not folder.is_dir() or not safe_name(folder.name):
                 continue
             meta_file = folder / "meta.json"
             if not meta_file.is_file():
                 continue
             try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                raw_meta = json.loads(meta_file.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            video_file = text(meta.get("video_file"), 120) or "video.mp4"
-            thumb_file = text(meta.get("thumb_file"), 120) or "thumb.jpg"
+            if not isinstance(raw_meta, dict):
+                continue
+            raw_vfile = text(raw_meta.get("video_file"), 120) or "video.mp4"
+            video_file = raw_vfile if safe_name(raw_vfile) else "video.mp4"
+            raw_tfile = text(raw_meta.get("thumb_file"), 120) or "thumb.jpg"
+            thumb_file = raw_tfile if safe_name(raw_tfile) else "thumb.jpg"
             q_id = quote(folder.name, safe="")
-            meta["id"] = folder.name
-            meta["source"] = "local"
-            meta["has_chat"] = (folder / "chat.jsonl").is_file()
-            meta["has_video"] = (folder / video_file).is_file() or (folder / "video.mp4").is_file()
-            meta["has_thumb"] = (folder / thumb_file).is_file() or (folder / "thumb.jpg").is_file()
-            meta["thumb_url"] = f"/api/vods/{q_id}/thumb"
-            meta["thumb_fallbacks"] = []
-            meta["sort_key"] = folder.name
-            vods_by_id[folder.name] = meta
+            vods_by_id[folder.name] = {
+                "id": folder.name,
+                "source": "local",
+                "title": text(raw_meta.get("title"), 260) or folder.name,
+                "game": text(raw_meta.get("game"), 120),
+                "duration_s": max(0, _safe_int(raw_meta.get("duration_s"), 0)),
+                "started_at": text(raw_meta.get("started_at") or raw_meta.get("record_started_at"), 64),
+                "size_label": text(raw_meta.get("size_label"), 40),
+                "note": text(raw_meta.get("note"), 180),
+                "video_file": video_file,
+                "has_chat": (folder / "chat.jsonl").is_file(),
+                "has_video": (folder / video_file).is_file() or (folder / "video.mp4").is_file(),
+                "has_thumb": (folder / thumb_file).is_file() or (folder / "thumb.jpg").is_file(),
+                "thumb_url": f"/api/vods/{q_id}/thumb",
+                "thumb_fallbacks": [],
+                "sort_key": folder.name,
+            }
 
     with _db_lock, db_connect() as conn:
         rows = conn.execute("SELECT * FROM drive_vods ORDER BY sort_key DESC").fetchall()
@@ -3105,13 +3427,15 @@ def api_vods(request: Request, refresh: str = "") -> JSONResponse:
 
 
 @app.get("/api/vods/{vod_id}/chat")
-def vod_chat(vod_id: str):
+def vod_chat(vod_id: str, request: Request):
+    rate_limit(request, "vod_chat", 60, 60)
     if not safe_name(vod_id):
         return j({"error": "not found"}, 404)
+    chat_headers = {"X-Content-Type-Options": "nosniff"}
     folder = find_vod(vod_id)
     chat = folder / "chat.jsonl" if folder else None
     if chat and chat.is_file():
-        return FileResponse(chat, media_type=MIME[".jsonl"])
+        return FileResponse(chat, media_type=MIME[".jsonl"], headers=chat_headers)
 
     row = _get_drive_vod_row(vod_id)
     chat_drive_id = str(row.get("chat_drive_id") or "").strip() if row else ""
@@ -3119,8 +3443,9 @@ def vod_chat(vod_id: str):
         return j({"error": "no chat"}, 404)
 
     cached_chat = CHAT_CACHE_DIR / f"{_vod_cache_stem(vod_id)}.jsonl"
+    pub_chat_headers = {"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"}
     if cached_chat.is_file() and cached_chat.stat().st_size > 0:
-        return FileResponse(cached_chat, media_type=MIME[".jsonl"], headers={"Cache-Control": "public, max-age=86400"})
+        return FileResponse(cached_chat, media_type=MIME[".jsonl"], headers=pub_chat_headers)
 
     raw_chat = _download_gdrive_small_bytes(chat_drive_id, max_bytes=20 * 1024 * 1024)
     if not raw_chat:
@@ -3132,12 +3457,12 @@ def vod_chat(vod_id: str):
         tmp_chat.write_bytes(raw_chat)
         tmp_chat.replace(cached_chat)
     except OSError:
-        return Response(content=raw_chat, media_type=MIME[".jsonl"])
+        return Response(content=raw_chat, media_type=MIME[".jsonl"], headers=chat_headers)
     finally:
         if tmp_chat.exists():
             tmp_chat.unlink(missing_ok=True)
 
-    return FileResponse(cached_chat, media_type=MIME[".jsonl"], headers={"Cache-Control": "public, max-age=86400"})
+    return FileResponse(cached_chat, media_type=MIME[".jsonl"], headers=pub_chat_headers)
 
 
 def video_file_for(folder: Path, filename: str) -> Path | None:
@@ -3222,6 +3547,10 @@ _thumb_sem = threading.BoundedSemaphore(2)
 
 def _get_thumb_lock(vod_id: str) -> threading.Lock:
     with _thumb_locks_guard:
+        if len(_thumb_locks) > 512:
+            for k in list(_thumb_locks.keys())[:256]:
+                if not _thumb_locks[k].locked():
+                    _thumb_locks.pop(k, None)
         lk = _thumb_locks.get(vod_id)
         if lk is None:
             lk = threading.Lock()
@@ -3254,15 +3583,19 @@ def _extract_ffmpeg_frame(input_target: str, dest: Path, seek_seconds: list[int]
     ffmpeg_exe = _find_ffmpeg_bin()
     if not ffmpeg_exe:
         return False
+    is_remote = input_target.startswith("https://")
+    proto_whitelist = "http,https,tcp,tls,crypto" if is_remote else "file,crypto,data"
+    safe_target = input_target if is_remote else str(Path(input_target).resolve())
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(f".{dest.stem}.{secrets.token_hex(4)}.jpg")
     for ss in seek_seconds:
         try:
             subprocess.run(
                 [
-                    ffmpeg_exe, "-y",
-                    "-ss", str(ss),
-                    "-i", input_target,
+                    ffmpeg_exe, "-nostdin", "-y",
+                    "-protocol_whitelist", proto_whitelist,
+                    "-ss", str(int(ss)),
+                    "-i", safe_target,
                     "-frames:v", "1",
                     "-vf", "scale=960:-2",
                     "-q:v", "3",
@@ -3289,14 +3622,28 @@ def _extract_ffmpeg_frame(input_target: str, dest: Path, seek_seconds: list[int]
     return False
 
 
+def _cache_gdrive_uuid(drive_id: str, found_uuid: str) -> None:
+    now = time.time()
+    with _gdrive_uuid_lock:
+        if len(_gdrive_uuid_cache) > 512:
+            expired = [k for k, v in _gdrive_uuid_cache.items() if v[0] <= now]
+            for k in expired:
+                _gdrive_uuid_cache.pop(k, None)
+            if len(_gdrive_uuid_cache) > 512:
+                _gdrive_uuid_cache.pop(next(iter(_gdrive_uuid_cache)))
+        _gdrive_uuid_cache[drive_id] = (now + 1200, found_uuid)
+
+
 def _resolve_gdrive_direct_url(drive_id: str) -> str | None:
     global _gdrive_unreachable_until
+    if not _SAFE_GDRIVE_ID_RE.fullmatch(drive_id):
+        return None
     now = time.time()
     if now < _gdrive_unreachable_until:
         return None
     with _gdrive_uuid_lock:
         entry = _gdrive_uuid_cache.get(drive_id)
-        if entry and entry[0] > now:
+        if entry and entry[0] > now and _SAFE_GDRIVE_UUID_RE.fullmatch(entry[1]):
             return f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t&uuid={entry[1]}"
 
     base_url = "https://drive.usercontent.google.com/download"
@@ -3310,11 +3657,9 @@ def _resolve_gdrive_direct_url(drive_id: str) -> str | None:
             ctype = (r.headers.get("content-type") or "").lower()
             if "text/html" in ctype:
                 sample = _read_response_prefix(r)
-                uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', sample)
-                if uuid_m:
-                    found_uuid = uuid_m.group(1)
-                    with _gdrive_uuid_lock:
-                        _gdrive_uuid_cache[drive_id] = (time.time() + 1200, found_uuid)
+                found_uuid = _extract_safe_gdrive_uuid(sample)
+                if found_uuid:
+                    _cache_gdrive_uuid(drive_id, found_uuid)
                     return f"{base_url}?id={drive_id}&export=download&confirm=t&uuid={found_uuid}"
                 return None
             if r.status_code in (200, 206):
@@ -3416,9 +3761,7 @@ def vod_thumb(vod_id: str) -> Response:
 async def cache_client_vod_thumb(vod_id: str, request: Request) -> JSONResponse:
     if not safe_name(vod_id):
         return j({"error": "not found"}, 404)
-    sec_site = (request.headers.get("sec-fetch-site") or "").lower()
-    if sec_site and sec_site not in ("same-origin", "none"):
-        return j({"error": "forbidden"}, 403)
+    require_same_origin(request)
     rate_limit(request, "vod_thumb_cache", 24, 60)
 
     folder = find_vod(vod_id)
@@ -3467,21 +3810,23 @@ def vod_stream(vod_id: str, request: Request) -> Response:
         return vod_video(vod_id, video_name, request)
 
     drive_id = _resolve_drive_id(vod_id)
-    if not drive_id:
+    if not drive_id or not _SAFE_GDRIVE_ID_RE.fullmatch(drive_id):
         return j({"error": "not found"}, 404)
 
     now = time.time()
     cached_uuid = ""
     with _gdrive_uuid_lock:
         entry = _gdrive_uuid_cache.get(drive_id)
-        if entry and entry[0] > now:
+        if entry and entry[0] > now and _SAFE_GDRIVE_UUID_RE.fullmatch(entry[1]):
             cached_uuid = entry[1]
 
     req_headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
     }
-    range_header = request.headers.get("range")
+    range_header = (request.headers.get("range") or "").strip()
     if range_header:
+        if not re.fullmatch(r"bytes=\d{0,16}-\d{0,16}", range_header, flags=re.IGNORECASE):
+            return j({"error": "bad range"}, 416)
         req_headers["Range"] = range_header
 
     base_url = "https://drive.usercontent.google.com/download"
@@ -3506,18 +3851,16 @@ def vod_stream(vod_id: str, request: Request) -> Response:
                     _gdrive_uuid_cache.pop(drive_id, None)
             html_sample = _read_response_prefix(upstream)
             upstream.close()
-            uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', html_sample)
-            if not uuid_m and request.method == "HEAD" and cached_uuid:
+            found_uuid = _extract_safe_gdrive_uuid(html_sample)
+            if not found_uuid and request.method == "HEAD" and cached_uuid:
                 probe_params = {"id": drive_id, "export": "download", "confirm": "t"}
                 probe_headers = dict(req_headers)
                 probe_headers.setdefault("Range", "bytes=0-1023")
                 with session.get(base_url, params=probe_params, headers=probe_headers, stream=True, timeout=(4, 15)) as probe:
                     if "text/html" in (probe.headers.get("content-type") or "").lower():
-                        uuid_m = re.search(r'name="uuid"\s+value="([^"]+)"', _read_response_prefix(probe))
-            if uuid_m:
-                found_uuid = uuid_m.group(1)
-                with _gdrive_uuid_lock:
-                    _gdrive_uuid_cache[drive_id] = (time.time() + 1200, found_uuid)
+                        found_uuid = _extract_safe_gdrive_uuid(_read_response_prefix(probe))
+            if found_uuid:
+                _cache_gdrive_uuid(drive_id, found_uuid)
                 params["uuid"] = found_uuid
                 upstream = session.request(
                     request.method,
@@ -3537,12 +3880,17 @@ def vod_stream(vod_id: str, request: Request) -> Response:
         session.close()
         return j({"error": "upstream_unreachable"}, 502)
 
-    out_headers: dict[str, str] = {"Accept-Ranges": "bytes"}
+    out_headers: dict[str, str] = {
+        "Accept-Ranges": "bytes",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
+    }
     for h_name in ("Content-Length", "Content-Range"):
         val = upstream.headers.get(h_name)
         if val:
             out_headers[h_name] = val
-    media_type = upstream.headers.get("Content-Type") or "video/mp4"
+    raw_mime = (upstream.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    media_type = raw_mime if raw_mime in _SAFE_STREAM_MIMES else "video/mp4"
     status_code = upstream.status_code if upstream.status_code in (200, 206) else 200
 
     if request.method == "HEAD":
@@ -3622,13 +3970,16 @@ def static_file(full_path: str, request: Request) -> Response:
         return j({"error": "not found"}, 404)
     if path.suffix.lower() == ".html":
         nonce = b64url(secrets.token_bytes(16))
-        try:
-            body = path.read_text(encoding="utf-8").replace("__CSP_NONCE__", nonce)
-        except UnicodeDecodeError:
-            return FileResponse(path, media_type=MIME[".html"])
+        body = path.read_text(encoding="utf-8", errors="replace").replace("__CSP_NONCE__", nonce)
         encoded = body.encode("utf-8")
         headers = {"Cache-Control": "no-cache", "Content-Length": str(len(encoded))}
-        headers.update(security_headers(nonce))
+        headers.update(
+            security_headers(
+                nonce,
+                is_https=is_https_request(request),
+                allow_frame=_is_e2b_preview_request(request),
+            )
+        )
         if request.method == "HEAD":
             return Response(status_code=200, media_type=MIME[".html"], headers=headers)
         return Response(content=encoded, status_code=200, media_type=MIME[".html"], headers=headers)
@@ -3689,7 +4040,9 @@ def main() -> None:
         PID_FILE_PATH.write_text(f"{os.getpid()}\n", encoding="utf-8")
     if is_auto_update_enabled() and AUTO_UPDATE_INTERVAL > 0:
         _start_auto_update_watcher()
-    if not ADMIN_PASSWORD:
+    if _ADMIN_PASSWORD_IS_PLACEHOLDER:
+        print("ВНИМАНИЕ: ADMIN_PASSWORD оставлен как 'change-me' из примера — вход в админ-режим отключён до смены пароля", flush=True)
+    elif not ADMIN_PASSWORD:
         print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, вход в админ-режим отключён", flush=True)
     rec_proc = start_recorder() if os.environ.get("RECORDER") == "1" else None
     _ACTIVE_REC_PROC = rec_proc

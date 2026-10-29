@@ -630,10 +630,11 @@
                         return;
                     }
 
-                    if (track.image) {
-                        if (artContainer.dataset.imgSrc !== track.image) {
-                            artContainer.dataset.imgSrc = track.image;
-                            artContainer.innerHTML = `<img src="${escapeHTML(track.image)}" alt="Обложка" decoding="async">`;
+                    const safeTrackImage = window.KrafenUI.safeHttpUrl(track.image);
+                    if (safeTrackImage) {
+                        if (artContainer.dataset.imgSrc !== safeTrackImage) {
+                            artContainer.dataset.imgSrc = safeTrackImage;
+                            artContainer.innerHTML = `<img src="${escapeHTML(safeTrackImage)}" alt="Обложка" decoding="async">`;
                             const artImg = artContainer.querySelector('img');
                             if (artImg) {
                                 artImg.addEventListener('error', () => {
@@ -642,7 +643,7 @@
                                     blurBg.style.backgroundImage = 'none';
                                 }, { once: true });
                             }
-                            blurBg.style.backgroundImage = `url(${JSON.stringify(track.image)})`;
+                            blurBg.style.backgroundImage = `url(${JSON.stringify(safeTrackImage)})`;
                         }
                     } else {
                         artContainer.dataset.imgSrc = '';
@@ -742,13 +743,15 @@
                     const live = Boolean(data.live);
                     setHeroStatus(live, live ? 'в эфире на twitch' : 'офлайн · на связи');
                     const stream = data.stream || {};
-                    const avatar = data.profileImage
-                        ? `<img src="${escapeHTML(data.profileImage)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
+                    const safeAvatar = window.KrafenUI.safeHttpUrl(data.profileImage);
+                    const avatar = safeAvatar
+                        ? `<img src="${escapeHTML(safeAvatar)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
                         : '<div class="avatar"></div>';
                     const title = live ? (stream.title || 'Прямой эфир') : (data.description || 'Канал сейчас не в эфире.');
                     const meta = live
                         ? `${formatMetric(stream.viewerCount)} зрителей${stream.gameName ? ` · ${stream.gameName}` : ''}${stream.startedAt ? ` · ${twitchLiveDuration(stream.startedAt)}` : ''}`
                         : `${formatMetric(data.viewCount)} просмотров канала`;
+                    const safeTwitchUrl = window.KrafenUI.safeHttpUrl(data.url, `https://twitch.tv/${encodeURIComponent(CONFIG.twitch_user)}`);
 
                     card.innerHTML = `
                         <div class="stack" style="height:100%;justify-content:space-between;">
@@ -764,7 +767,7 @@
                                 <div class="twitch-title">${escapeHTML(title)}</div>
                                 <div class="twitch-meta">${escapeHTML(meta)}</div>
                             </div>
-                            <a href="${escapeHTML(data.url || `https://twitch.tv/${CONFIG.twitch_user}`)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                            <a href="${escapeHTML(safeTwitchUrl)}" target="_blank" rel="noopener noreferrer" class="btn-action">
                                 ${live ? 'Смотреть стрим ↗' : 'Открыть канал ↗'}
                             </a>
                         </div>`;
@@ -825,7 +828,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <a href="${escapeHTML(info.url || `https://discord.gg/${code}`)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                            <a href="${escapeHTML(window.KrafenUI.safeHttpUrl(info.url, `https://discord.gg/${encodeURIComponent(code)}`))}" target="_blank" rel="noopener noreferrer" class="btn-action">
                                 Вступить на сервер ↗
                             </a>
                         </div>`;

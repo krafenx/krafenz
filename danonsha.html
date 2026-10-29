@@ -1187,6 +1187,18 @@
             }[char]));
         }
 
+        function safeHttpUrl(value, fallback = '') {
+            const raw = String(value ?? '').trim();
+            if (!raw) return fallback;
+            try {
+                const parsed = new URL(raw, location.origin);
+                if (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && parsed.origin === location.origin)) {
+                    return parsed.href;
+                }
+            } catch {}
+            return fallback;
+        }
+
         function setCard(id, html) {
             const node = document.getElementById(id);
             if (node) node.innerHTML = html;
@@ -1300,8 +1312,9 @@
                 const live = Boolean(data.live);
                 setHeroStatus(live);
                 const stream = data.stream || {};
-                const avatar = data.profileImage
-                    ? `<img src="${escapeHTML(data.profileImage)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
+                const safeAvatarUrl = safeHttpUrl(data.profileImage);
+                const avatar = safeAvatarUrl
+                    ? `<img src="${escapeHTML(safeAvatarUrl)}" class="avatar" alt="${escapeHTML(data.displayName || CONFIG.twitch_user)}">`
                     : '<div class="avatar" style="background:rgba(255,255,255,.05);"></div>';
                 const statusClass = live ? 'live' : 'idle';
                 const statusText = live ? 'Live now' : 'Offline';
@@ -1309,6 +1322,7 @@
                 const meta = live
                     ? `${formatMetric(stream.viewerCount)} viewers${stream.gameName ? ` / ${stream.gameName}` : ''}${stream.startedAt ? ` / ${twitchLiveDuration(stream.startedAt)}` : ''}`
                     : `${formatMetric(data.viewCount)} total views`;
+                const safeChannelUrl = safeHttpUrl(data.url, `https://twitch.tv/${encodeURIComponent(CONFIG.twitch_user)}`);
 
                 setCard('twitch-card', `
                     <div class="stack">
@@ -1322,7 +1336,7 @@
                         </div>
                         <div class="twitch-title">${escapeHTML(title)}</div>
                         <div class="twitch-meta">${escapeHTML(meta)}</div>
-                        <a href="${escapeHTML(data.url || `https://twitch.tv/${CONFIG.twitch_user}`)}" target="_blank" rel="noopener noreferrer" class="btn-action">
+                        <a href="${escapeHTML(safeChannelUrl)}" target="_blank" rel="noopener noreferrer" class="btn-action">
                             ${live ? 'Watch stream' : 'Open channel'}
                         </a>
                     </div>`);
@@ -2256,8 +2270,9 @@
         }
 
         function showDriveFallback() {
-            if (!activeVod || !activeVod.embed_url || !watchDriveIframe) return;
-            watchDriveIframe.src = activeVod.embed_url;
+            const safeEmbed = activeVod ? safeHttpUrl(activeVod.embed_url) : '';
+            if (!safeEmbed || !watchDriveIframe) return;
+            watchDriveIframe.src = safeEmbed;
             watchDriveIframe.style.display = 'block';
             if (watchDriveClose) watchDriveClose.style.display = 'block';
             if (chatLines.length) {
@@ -2419,7 +2434,7 @@
 
             const dlHref = vod.source === 'local'
                 ? `/vods/${encodeURIComponent(vod.id)}/${encodeURIComponent(vod.video_file || 'video.mp4')}`
-                : (vod.download_url || vod.view_url || '#');
+                : (safeHttpUrl(vod.download_url || vod.view_url) || '#');
             watchDownload.href = dlHref;
 
             vodWatch.classList.add('open');
@@ -2812,7 +2827,8 @@
                 if (res.ok) {
                     const data = await res.json();
                     if (Array.isArray(data.vods) && data.vods.length) vods = data.vods;
-                    if (data.folder_url && driveFolderLink) driveFolderLink.href = data.folder_url;
+                    const safeFolder = safeHttpUrl(data.folder_url);
+                    if (safeFolder && driveFolderLink) driveFolderLink.href = safeFolder;
                 }
             } catch (e) {}
             if (!vods.length) vods = FALLBACK_VODS;

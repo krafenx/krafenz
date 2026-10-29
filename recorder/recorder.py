@@ -689,19 +689,21 @@ def remux_mpegts_to_mp4(video: Path) -> bool:
     tmp = video.with_suffix(".remux.mp4")
     cmds = [
         [
-            ffmpeg_exe, "-y",
-            "-i", str(video),
+            ffmpeg_exe, "-nostdin", "-y",
+            "-protocol_whitelist", "file,crypto,data",
+            "-i", str(video.resolve()),
             "-c", "copy",
             "-bsf:a", "aac_adtstoasc",
             "-movflags", "+faststart",
-            str(tmp),
+            str(tmp.resolve()),
         ],
         [
-            ffmpeg_exe, "-y",
-            "-i", str(video),
+            ffmpeg_exe, "-nostdin", "-y",
+            "-protocol_whitelist", "file,crypto,data",
+            "-i", str(video.resolve()),
             "-c", "copy",
             "-movflags", "+faststart",
-            str(tmp),
+            str(tmp.resolve()),
         ],
     ]
     try:
@@ -739,13 +741,14 @@ def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
         try:
             subprocess.run(
                 [
-                    ffmpeg_exe, "-y",
-                    "-ss", str(ss),
-                    "-i", str(video),
+                    ffmpeg_exe, "-nostdin", "-y",
+                    "-protocol_whitelist", "file,crypto,data",
+                    "-ss", str(int(ss)),
+                    "-i", str(video.resolve()),
                     "-frames:v", "1",
                     "-vf", "scale=960:-2",
                     "-q:v", "3",
-                    str(tmp),
+                    str(tmp.resolve()),
                 ],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
