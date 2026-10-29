@@ -1,34 +1,234 @@
-# krafen.me
+<div align="center">
 
-Личный сайт, коллекции и архив трансляций на едином сервере **Python FastAPI + SQLite**.
+# KRAFEN.ME
 
-## Архитектура
+**Личный сайт, живые коллекции и облачный кинотеатр записей стримов**  
+На едином автономном сервере **Python FastAPI + SQLite (WAL)** без внешних облачных воркеров
 
-- **`server.py`** — FastAPI-приложение, отдающее все страницы с динамическим CSP-nonce, статические ассеты, REST API `/api/*`, OAuth-авторизацию Spotify и потоковую раздачу записей стримов с поддержкой HTTP Range.
-- **`data/krafen.db`** — локальная база данных SQLite (WAL) для коллекций (`watchlist`, `gamelist`, `setup`, `wishlist`), токенов и метаданных. Существующие JSON-файлы в `data/*.json` автоматически мигрируются при первом запуске.
-- **`style.css` + `app.js`** — единая дизайн-система и клиентский рантайм в эстетике `danonsha` (тёмный обсидиан, багрянец, серебро, холст дождя, туман, молнии, плавная прокрутка и нижний док).
-- **`recorder/recorder.py`** — фоновый рекордер эфиров и IRC-чата Twitch в каталог `vods/` для страницы `/danonsha`.
+![Python](https://img.shields.io/badge/Python-3.10%2B-111318?style=flat-square&logo=python&logoColor=e5e7eb)
+![FastAPI](https://img.shields.io/badge/FastAPI-Uvicorn-111318?style=flat-square&logo=fastapi&logoColor=c81e3a)
+![SQLite](https://img.shields.io/badge/SQLite-WAL-111318?style=flat-square&logo=sqlite&logoColor=9ca3af)
+![VOD](https://img.shields.io/badge/VOD-Streamlink%20%2B%20FFmpeg%20%2B%20Rclone-111318?style=flat-square)
+![UI](https://img.shields.io/badge/UI-60–360Hz%20Smooth-111318?style=flat-square)
 
-## Страницы
+[**Страницы**](#-страницы-сайта) · [**Архитектура**](#-архитектура) · [**Быстрый старт**](#-быстрый-старт) · [**Автозапись и автозапуск Windows**](#-автозапись-стримов-и-тихий-автозапуск-windows) · [**Деплой H1Cloud / Linux**](#-развёртывание-на-хостинге) · [**Переменные `.env`**](#️-переменные-окружения-env)
 
-| Маршрут | Файл | Описание |
-| --- | --- | --- |
-| `/` | `index.html` | Главная страница: музыка Spotify/Last.fm, часы (МСК), Twitch, Discord, соцсети и реквизиты |
-| `/watchlist` | `watchlist.html` | Коллекция аниме, фильмов и сериалов (поиск через TMDB и Shikimori) |
-| `/gamelist` | `gamelist.html` | Игры с оценками 0–10 и отзывами (поиск через IGDB) |
-| `/setup` | `setup.html` | Конфигурация системного блока и периферии |
-| `/wishlist` | `wishlist.html` | Список желаемых покупок с приоритетами и суммами по валютам |
-| `/tasks` | `tasks.html` | Калькулятор ежедневных заданий BP и таймеры клубных квестов |
-| `/danonsha` | `danonsha.html` | Страница danonsha: статус эфира, архив VOD с синхронизацией чата |
+</div>
 
-## Быстрый старт
+---
+
+## ✦ Ключевые возможности
+
+- **Атмосферный интерфейс `danonsha` (60–360 Гц)** — единая обсидианово-багряная эстетика на всех страницах без тяжёлых CSS-фреймворков: процедурный холст дождя, туман, вспышки молний, кастомный тёмный скроллбар, dt-независимая инерционная прокрутка, плавные переходы `View Transitions`, мгновенный prefetch внутренних страниц и нижний док (`Наверх` · `♥` · `Атмосфера`).
+- **Живые интеграции на главной** — статус и текущий трек **Spotify** со шкалой прогресса (с автоматическим откатом на **Last.fm**), статус эфира **Twitch Helix**, онлайн **Discord**-сообщества и московское время.
+- **Коллекции с защитой от конфликтов (`SQLite WAL`)** — списки фильмов/аниме (`TMDB` + `Shikimori`), игр с оценками и рецензиями (`IGDB`), комплектующих ПК и периферии, а также вишлист с автоматическим пересчётом сумм по валютам и оптимистичной блокировкой по `revision`.
+- **Полноэкранный кинотеатр записей эфиров (`/danonsha`)** — кастомный плеер 16:9 с потоковой перемоткой через `HTTP Range`, прозрачной поддержкой как `MP4 (+faststart)`, так и сырых потоков `MPEG-TS` (`mpegts.min.js`), синхронизированной панелью **`ЧАТ ЗАПИСИ`** с переходом по таймкодам и автоматическим извлечением реальных кадров VOD для обложек.
+- **Приватная схема записи стримов** — домашний ПК в тихом фоновом режиме пишет видео (`streamlink`) и IRC-чат (`chat.jsonl`), перепаковывает контейнер через `ffmpeg`, создаёт `thumb.jpg` и выгружает папку эфира в **Google Drive** через `rclone`, после чего удаляет локальную копию. Публичный сайт работает за Cloudflare и забирает записи из облака — **домашний IP остаётся полностью скрытым**.
+- **Безопасность и автономность** — изолированное хранение секретов и OAuth-токенов в `data/auth.db` (`0600`), одноразовый криптографический `CSP nonce` на каждый запрос, `HSTS` / `COOP` / `X-Frame-Options: SAMEORIGIN`, проверка `CSRF` (`Origin` + `Sec-Fetch-Site`), защита от перебора пароля с учётом подсетей Cloudflare, потоковые лимиты тела запроса и встроенное автообновление с GitHub (`/zipball`) без `git`.
+
+---
+
+## ◈ Архитектура
+
+```mermaid
+flowchart LR
+    Twitch["Twitch Helix + IRC"] -->|streamlink + ChatRecorder| PC["Домашний ПК (Windows)<br/>recorder/recorder.py"]
+    PC -->|ffmpeg MP4 + thumb.jpg<br/>rclone move| GDrive[("Google Drive<br/>папка VOD-архива")]
+    GDrive -->|HTTP Range + кэш чата/превью| Server["Сервер сайта (H1Cloud / VPS)<br/>server.py + SQLite WAL"]
+    GitHub["GitHub (main)"] -->|/zipball auto-update| Server
+    Server <-->|HTTPS| CF["Cloudflare"]
+    CF <-->|krafen.me| User["Браузер посетителя"]
+```
+
+---
+
+## ▤ Страницы сайта
+
+| Маршрут | Файл | Назначение |
+| :--- | :--- | :--- |
+| `/` | `index.html` | Главная: живой плеер Spotify / Last.fm, часы (МСК), карточки Twitch и Discord, соцсети и реквизиты |
+| `/watchlist` | `watchlist.html` | Архив аниме, фильмов и сериалов с фильтрами и поиском через **TMDB** и **Shikimori** |
+| `/gamelist` | `gamelist.html` | Библиотека пройденных и активных игр с оценками `0–10`, отзывами и поиском в **IGDB** |
+| `/setup` | `setup.html` | Конфигурация системного блока и рабочей периферии с быстрыми ссылками |
+| `/wishlist` | `wishlist.html` | Список желаемых покупок с приоритетами, статусами и подсчётом бюджета в `RUB` / `USD` / `EUR` |
+| `/tasks` | `tasks.html` | Интерактивный калькулятор ежедневных заданий BP (VIP / X2) и таймеры клубных квестов |
+| `/danonsha` | `danonsha.html` | Страница **danonsha**: статус канала, архив стримов из Google Drive, кинотеатр VOD и `ЧАТ ЗАПИСИ` |
+
+---
+
+## 🗂 Структура проекта
+
+```text
+krafenz/
+├── server.py               # Единый FastAPI-бэкенд, SQLite, API-прокси, VOD-стриминг, автообновление и CLI
+├── app.js                  # Общее клиентское ядро: атмосфера, скролл 60–360 Гц, модалки, админ-сессия
+├── style.css               # Единая дизайн-система в эстетике danonsha
+├── mpegts.min.js           # Локальный MSE-движок для воспроизведения MPEG-TS записей
+├── index.html              # Главная страница
+├── danonsha.html           # Страница danonsha и полноэкранный VOD-кинотеатр
+├── watchlist.html          # Коллекция фильмов, сериалов и аниме
+├── gamelist.html           # Коллекция игр и рецензий
+├── setup.html              # Конфигурация ПК и девайсов
+├── wishlist.html           # Вишлист
+├── tasks.html              # Трекер заданий и таймеров
+├── recorder/
+│   ├── recorder.py         # Фоновый рекордер Twitch + IRC-чата + ремукс ffmpeg + выгрузка rclone
+│   └── requirements.txt    # Зависимости рекордера (streamlink, websocket-client, requests, telethon)
+├── data/
+│   ├── krafen.db           # Публичная БД коллекций и индекса VOD (SQLite WAL)
+│   ├── seed.sql            # Начальный SQL-сид коллекций
+│   ├── auth.db             # Изолированное хранилище OAuth-токенов и ключа сессий (в .gitignore)
+│   └── server.log          # Лог работы сервера и рекордера с авто-ротацией 10 МБ (в .gitignore)
+├── .env.example            # Шаблон переменных окружения
+├── krafen.service          # Защищённый systemd-юнит для Linux-сервера
+├── SETUP.md                # Инструкция по развёртыванию через systemd + Caddy / Nginx
+└── SPOTIFY_SETUP.md        # Инструкция по привязке Spotify OAuth
+```
+
+---
+
+## ⚡ Быстрый старт
+
+### Windows (PowerShell)
+
+```powershell
+py -m pip install -r requirements.txt
+Copy-Item .env.example .env
+# Заполните нужные ключи в .env
+py server.py
+```
+
+### Linux / macOS
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env
-# Заполните переменные окружения в .env
+chmod 600 .env
 .venv/bin/python server.py
 ```
 
-По умолчанию сервер поднимается на `http://0.0.0.0:8080`. Подробное руководство по продакшен-развёртыванию через `systemd` и `nginx`/`Caddy` — в [`SETUP.md`](SETUP.md), настройка интеграции со Spotify — в [`SPOTIFY_SETUP.md`](SPOTIFY_SETUP.md).
+По умолчанию сервер открывается на `http://127.0.0.1:8080` (или на порту, указанном в `PORT`).
+
+---
+
+## 🎥 Автозапись стримов и тихий автозапуск (Windows)
+
+На домашнем ПК `server.py` при `RECORDER=1` автоматически поднимает `recorder/recorder.py`, который следит за каналом Twitch и после завершения стрима выгружает готовую папку эфира на Google Drive:
+
+```text
+2026-10-28_23-54_stream-title/
+├── video.mp4     # Перепакованный MP4 (+faststart) без потерь качества
+├── chat.jsonl    # Лог чата с таймкодами от начала эфира
+├── thumb.jpg     # Реальный кадр стрима для обложки на сайте
+└── meta.json     # Название, категория, длительность и время старта
+```
+
+### 1. Подготовка окружения на ПК
+
+1. Установите зависимости рекордера:
+   ```powershell
+   py -m pip install -r requirements.txt -r recorder\requirements.txt
+   ```
+2. Положите `rclone.exe` и `ffmpeg.exe` прямо в корень проекта (или добавьте их в системный `PATH`) и один раз авторизуйте Google Drive через `.\rclone.exe config` (название remote — `gdrive`).
+3. Убедитесь, что в `.env` указаны:
+   ```dotenv
+   RECORDER=1
+   RECORDER_CHANNEL=danonsha
+   TWITCH_CLIENT_ID=...
+   TWITCH_CLIENT_SECRET=...
+   GDRIVE_FOLDER_ID=1e417_q9s6SjcZHyqMYzbVs8OHqfY5Ifk
+   ```
+4. Проверьте подключение к Google Drive одной командой (без ожидания начала эфира):
+   ```powershell
+   py recorder\recorder.py --test-cloud
+   ```
+
+### 2. Управление тихим фоновым режимом в Windows
+
+Все дочерние процессы (`recorder.py`, `streamlink`, `ffmpeg`, `rclone`) запускаются с флагом `CREATE_NO_WINDOW` через `pythonw.exe` — чёрные окна консоли никогда не всплывают поверх игр и полноэкранных приложений.
+
+| Команда | Действие |
+| :--- | :--- |
+| `py server.py --install-autostart` | Включает автозапуск при входе в Windows (`HKCU\...\Run\KrafenServer`) и сразу запускает сервер в фоне |
+| `py server.py --status` | Показывает состояние автозапуска, статус порта/PID и последние 15 строк лога |
+| `py server.py --restart` | Подтягивает обновления (если включён auto-update) и перезапускает фоновый сервер |
+| `py server.py --stop` | Аккуратно останавливает фоновый сервер и дочерний процесс рекордера |
+| `py server.py --uninstall-autostart` | Удаляет запись из автозагрузки Windows и останавливает фоновый процесс |
+| `Get-Content data\server.log -Tail 30 -Wait` | Просмотр живого лога сервера и рекордера в реальном времени |
+
+---
+
+## ☁️ Развёртывание на хостинге
+
+### Контейнер Pterodactyl / H1Cloud + Cloudflare
+1. Загрузите файлы репозитория в контейнер и создайте `.env` на основе `.env.example` (на хостинге сайта оставьте `RECORDER=0`).
+2. Для автоматического скачивания обновлений из приватного репозитория при рестарте контейнера укажите в `.env` токен чтения (`Contents: Read-only`):
+   ```dotenv
+   KRAFEN_AUTO_UPDATE=1
+   GITHUB_TOKEN=github_pat_...
+   PUBLIC_ORIGIN=https://krafen.me
+   ADMIN_PASSWORD=ваш_длинный_надёжный_пароль
+   ```
+3. В панели **Cloudflare** направьте домен на сервер и включите **SSL/TLS → Full (strict)** и **Always Use HTTPS**.
+
+### Выделенный Linux VPS (`systemd` + `Caddy` / `Nginx`)
+Подробная пошаговая настройка сервиса `krafen.service` и обратного прокси с `proxy_buffering off` описана в [**`SETUP.md`**](SETUP.md), а подключение живого виджета Spotify — в [**`SPOTIFY_SETUP.md`**](SPOTIFY_SETUP.md).
+
+---
+
+## ⚙️ Переменные окружения (`.env`)
+
+| Переменная | По умолчанию | Описание |
+| :--- | :--- | :--- |
+| `HOST` / `PORT` | `0.0.0.0` / `8080` | Адрес и TCP-порт HTTP-сервера |
+| `PUBLIC_ORIGIN` | *(авто)* | Канонический адрес сайта (например, `https://krafen.me`) для проверки `Origin` и Spotify OAuth |
+| `ADMIN_PASSWORD` | — | Пароль входа в режим редактирования коллекций (значение `change-me` блокируется) |
+| `SECRET_KEY` | *(авто в `auth.db`)* | Секрет HMAC-подписи сессий; если пуст — генерируется автоматически (256 бит) |
+| `SECURE_COOKIES` | `auto` | Флаг `Secure` для кук (`auto` — по схеме HTTPS, `1` — всегда, `0` — выкл) |
+| `TRUST_PROXY_HEADERS` | `auto` | Доверие заголовкам `CF-Connecting-IP` / `X-Forwarded-*` (`auto` — локальные прокси и подсети Cloudflare) |
+| `GDRIVE_FOLDER_ID` | `1e417_q9...` | ID публичной папки Google Drive с записями эфиров |
+| `GDRIVE_API_KEY` | — | Опциональный ключ Google Drive API v3 (для папок >100 элементов и мгновенного получения размеров) |
+| `TWITCH_CHANNEL` | `krafen` | Канал Twitch по умолчанию для виджета на главной |
+| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | — | Ключи приложения Twitch Dev Console (статус стрима, рекордер и поиск игр IGDB) |
+| `TMDB_ACCESS_TOKEN` / `TMDB_API_KEY` | — | Ключ TheMovieDB для поиска фильмов и сериалов в `/watchlist` |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Ключи приложения Spotify Developer Dashboard |
+| `LASTFM_USER` / `LASTFM_API_KEY` | `krafen` / — | Резервный источник скробблов музыки при отключённом Spotify |
+| `DISCORD_INVITE_CODE` | `kGdxDzxtmK` | Код приглашения Discord для карточки сообщества на главной |
+| `KRAFEN_AUTO_UPDATE` | `auto` | Автообновление кода с GitHub (`1` — вкл, `0` — выкл; в Pterodactyl включено по умолчанию) |
+| `AUTO_UPDATE_INTERVAL` | `0` | Фоновая проверка обновлений в секундах (`0` — проверять только при запуске) |
+| `GITHUB_TOKEN` | — | Read-only токен GitHub для скачивания обновлений из приватного репозитория |
+| `RECORDER` / `RECORDER_CHANNEL` | `0` / `danonsha` | Запуск фонового рекордера эфиров (`1` — включить) и логин записываемого канала |
+| `RCLONE_REMOTE` | *(авто `gdrive:`)* | Имя remote в `rclone` для выгрузки записей в облако (`0` — хранить только локально) |
+| `MIN_FREE_GB` | `10` | Порог свободного места на диске (ГБ) для авто-ротации старых локальных папок |
+
+---
+
+## 🔌 Основные эндпоинты API
+
+<details>
+<summary>Развернуть список маршрутов <code>/api/*</code></summary>
+
+| Метод и маршрут | Доступ | Описание |
+| :--- | :--- | :--- |
+| `GET /api/health` | Публичный | Проверка работоспособности сервера (`{"ok": true}`) |
+| `GET /api/{collection}` | Публичный | Получение элементов и текущей `revision` (`watchlist`, `gamelist`, `setup`, `wishlist`) |
+| `PUT /api/{collection}` | Админ + CSRF | Атомарное сохранение коллекции с проверкой `revision` |
+| `GET / POST / DELETE /api/admin` | Публичный / Админ | Проверка сессии, вход по паролю и выход с серверным отзывом токена |
+| `POST /api/admin/update` | Админ + CSRF | Принудительное обновление файлов с GitHub и перезапуск при изменении `server.py` |
+| `GET /api/search` · `GET /api/game-search` | Публичный | Поиск тайтлов в TMDB / Shikimori и игр в IGDB |
+| `GET /api/spotify` · `GET /api/lastfm` | Публичный | Текущий или недавний трек с кэшированием |
+| `GET /api/twitch` · `GET /api/discord` | Публичный | Статус канала Twitch и статистика сервера Discord |
+| `GET /api/vods` | Публичный | Список записей эфиров (локальные + Google Drive; `?refresh=1` для синхронизации) |
+| `GET /api/vods/{vod_id}/stream` | Публичный | Потоковое видео с поддержкой `HTTP Range` (`206 Partial Content`) |
+| `GET /api/vods/{vod_id}/chat` | Публичный | Лог чата записи в формате `NDJSON` (`chat.jsonl`) |
+| `GET / POST /api/vods/{vod_id}/thumb` | Публичный / Same-Origin | Обложка из реального кадра VOD (кэширование и генерация) |
+
+</details>
+
+---
+
+## 📄 Лицензия
+
+© 2026 **Krafen**. Все права защищены — подробности в файле [**`LICENSE`**](LICENSE).  
+Связь: [**@krafen в Telegram**](https://t.me/krafen).
