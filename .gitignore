@@ -25,6 +25,7 @@ data/tokens.json
 data/.update_sha
 data/vod_thumbs/
 data/vod_chats/
+data/img_cache/
 vods/
 recorder/.tg_session*
 

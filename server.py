@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import gzip
 import hashlib
 import html
 import hmac
@@ -33,6 +34,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -102,6 +105,7 @@ AUTH_DB_PATH = DATA_DIR / "auth.db"
 SEED_SQL_PATH = DATA_DIR / "seed.sql"
 THUMB_CACHE_DIR = DATA_DIR / "vod_thumbs"
 CHAT_CACHE_DIR = DATA_DIR / "vod_chats"
+IMG_CACHE_DIR = DATA_DIR / "img_cache"
 RECORD_DIR = _resolve_root_path(os.environ.get("RECORD_DIR", ROOT / "vods"))
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
@@ -210,7 +214,7 @@ def _is_protected_update_path(rel_posix: str, target: Path) -> bool:
     if len(parts) == 1 and (top == ".env" or (top.startswith(".env.") and top != ".env.example")):
         return True
     if top == "data":
-        if len(parts) >= 2 and parts[1] in {".update_sha", "vod_thumbs", "vod_chats"}:
+        if len(parts) >= 2 and parts[1] in {".update_sha", "vod_thumbs", "vod_chats", "img_cache"}:
             return True
         name_lower = parts[-1].lower()
         is_user_db_or_json = (
@@ -815,10 +819,143 @@ def _maybe_run_startup_auto_update() -> None:
         _reexec_current_process()
 
 
+def _cf_api_call(method: str, url: str, auth_headers: dict[str, str], payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "krafen-cf-helper/1.0",
+        **auth_headers,
+    }
+    raw_body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=raw_body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            return json.loads(body)
+        except Exception:
+            return {"success": False, "errors": [{"code": exc.code, "message": body[:200]}]}
+    except Exception as exc:
+        return {"success": False, "errors": [{"message": str(exc)}]}
+
+
+def _disable_cloudflare_ech_cli(extra_args: list[str]) -> int:
+    """
+    Отключает TLS ECH (Encrypted Client Hello) и включает HTTP/3 (QUIC) + 0-RTT
+    в бесплатной зоне Cloudflare через официальный API v4 (для обхода блокировки ECH на ТСПУ в РФ).
+    """
+    print("=== Настройка зоны Cloudflare для работы из РФ (отключение TLS ECH + включение HTTP/3) ===")
+    domain = (
+        os.environ.get("CF_DOMAIN")
+        or (urlsplit(PUBLIC_ORIGIN).hostname if PUBLIC_ORIGIN else "")
+        or "krafen.me"
+    ).strip().lower()
+    zone_id = (os.environ.get("CF_ZONE_ID") or "").strip()
+    api_token = (os.environ.get("CF_API_TOKEN") or "").strip()
+    cf_email = (os.environ.get("CF_EMAIL") or "").strip()
+    cf_global_key = (os.environ.get("CF_GLOBAL_KEY") or "").strip()
+
+    pos = [a.strip() for a in extra_args if a.strip() and not a.startswith("-")]
+    if len(pos) == 1:
+        api_token = pos[0]
+    elif len(pos) >= 2:
+        if "@" in pos[0]:
+            cf_email, cf_global_key = pos[0], pos[1]
+            if len(pos) >= 3:
+                domain = pos[2].lower()
+        else:
+            zone_id, api_token = pos[0], pos[1]
+
+    if not api_token and not (cf_email and cf_global_key):
+        print(f"Домен: {domain}")
+        print("В бесплатном тарифе Cloudflare переключатель ECH в браузере закрыт, но через API он отключается бесплатно.")
+        print("Где взять ключ (любой из двух вариантов за 15 секунд):")
+        print("  Вариант А (проще всего): Cloudflare → My Profile → API Tokens → Global API Key → View")
+        print("  Вариант Б: API Token с правами Zone → Zone Settings → Edit и Zone → SSL and Certificates → Edit\n")
+        try:
+            entered = input("Введите API Token ИЛИ ваш Email от Cloudflare: ").strip()
+        except EOFError:
+            entered = ""
+        if not entered:
+            print("Отменено: ключ не указан.")
+            return 1
+        if "@" in entered:
+            cf_email = entered
+            try:
+                cf_global_key = input("Введите Global API Key: ").strip()
+            except EOFError:
+                cf_global_key = ""
+        else:
+            api_token = entered
+
+    if cf_email and cf_global_key:
+        auth_headers = {"X-Auth-Email": cf_email, "X-Auth-Key": cf_global_key}
+    elif api_token:
+        auth_headers = {"Authorization": f"Bearer {api_token}"}
+    else:
+        print("Ошибка: не указан API Token или пара Email + Global API Key.")
+        return 1
+
+    if not zone_id:
+        z_resp = _cf_api_call("GET", f"https://api.cloudflare.com/client/v4/zones?name={quote(domain)}", auth_headers)
+        zones = z_resp.get("result") if isinstance(z_resp.get("result"), list) else []
+        if not zones:
+            z_all = _cf_api_call("GET", "https://api.cloudflare.com/client/v4/zones?per_page=50", auth_headers)
+            all_list = z_all.get("result") if isinstance(z_all.get("result"), list) else []
+            for z in all_list:
+                if isinstance(z, dict) and str(z.get("name") or "").lower() == domain:
+                    zones = [z]
+                    break
+            if not zones and len(all_list) == 1:
+                zones = all_list
+        if not zones:
+            errs = z_resp.get("errors") or []
+            print(f"Не удалось найти зону {domain} в Cloudflare: {errs or 'проверьте права ключа'}")
+            return 1
+        zone_id = str(zones[0].get("id") or "").strip()
+        domain = str(zones[0].get("name") or domain)
+
+    print(f"Зона найдена: {domain} ({zone_id})")
+    settings_to_apply = [
+        ("ech", "off", "TLS ECH (Encrypted Client Hello)"),
+        ("http3", "on", "HTTP/3 (QUIC поверх UDP)"),
+        ("0rtt", "on", "0-RTT Connection Resumption"),
+    ]
+    ech_ok = False
+    for setting_id, target_val, label in settings_to_apply:
+        res = _cf_api_call(
+            "PATCH",
+            f"https://api.cloudflare.com/client/v4/zones/{zone_id}/settings/{setting_id}",
+            auth_headers,
+            {"id": setting_id, "value": target_val},
+        )
+        if res.get("success"):
+            actual = (res.get("result") or {}).get("value", target_val)
+            print(f"  [OK] {label}: {actual}")
+            if setting_id == "ech" and actual == "off":
+                ech_ok = True
+        else:
+            errs = res.get("errors") or []
+            print(f"  [!] {label}: не удалось изменить ({errs})")
+
+    if ech_ok:
+        print("\nГотово! ECH отключён. Запись HTTPS в DNS обновится за 1–3 минуты.")
+        print("Чтобы проверить сразу без ожидания кэша браузера — откройте сайт в режиме Инкогнито")
+        print("или очистите DNS-кэш браузера (chrome://net-internals/#dns → Clear host cache).")
+        return 0
+    print("\nВнимание: параметр ECH не изменился. Попробуйте использовать Global API Key (Email + Global API Key).")
+    return 1
+
+
 if __name__ == "__main__":
     with contextlib.suppress(OSError):
         os.chdir(ROOT)
     _configure_stdio_utf8()
+    if "--disable-cf-ech" in sys.argv[1:]:
+        _idx = sys.argv.index("--disable-cf-ech")
+        raise SystemExit(_disable_cloudflare_ech_cli(sys.argv[_idx + 1 :]))
     for _fast_flag in ("--stop", "--status", "--uninstall-autostart"):
         if _fast_flag in sys.argv[1:]:
             raise SystemExit(_manage_autostart_cli(_CLI_MGMT_FLAGS[_fast_flag]))
@@ -1981,7 +2118,7 @@ def security_headers(
         "media-src 'self' blob: https:",
         "worker-src 'self' blob:",
         "frame-src 'self' https://drive.google.com https://*.google.com https://*.googleusercontent.com",
-        "connect-src 'self' https://discord.com",
+        "connect-src 'self'",
     ]
     if not allow_frame:
         csp_parts.append("frame-ancestors 'self'")
@@ -1997,6 +2134,24 @@ def security_headers(
     if is_https:
         out["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return out
+
+
+def _accepts_gzip(request: Request) -> bool:
+    enc = (request.headers.get("accept-encoding") or "").lower()
+    return "gzip" in enc
+
+
+_GZIPPABLE_CONTENT_TYPES = (
+    "application/json",
+    "application/x-ndjson",
+    "text/html",
+    "text/css",
+    "application/javascript",
+    "text/javascript",
+    "image/svg+xml",
+    "application/xml",
+    "text/plain",
+)
 
 
 @app.middleware("http")
@@ -2039,6 +2194,26 @@ async def add_security_headers(request: Request, call_next):
         response = await call_next(request)
     except _PayloadTooLargeError:
         response = j({"error": "payload_too_large"}, 413)
+
+    # Сжимаем JSON/текстовые ответы в памяти (не трогая потоковое видео и Range 206)
+    if (
+        request.method == "GET"
+        and getattr(response, "status_code", 0) == 200
+        and not isinstance(response, (StreamingResponse, FileResponse))
+        and "content-encoding" not in response.headers
+    ):
+        ctype = (response.headers.get("content-type") or "").lower()
+        body_bytes = getattr(response, "body", None)
+        if isinstance(body_bytes, (bytes, bytearray)) and any(ctype.startswith(t) for t in _GZIPPABLE_CONTENT_TYPES):
+            prev_vary = response.headers.get("vary") or ""
+            if "accept-encoding" not in prev_vary.lower():
+                response.headers["Vary"] = f"{prev_vary}, Accept-Encoding" if prev_vary else "Accept-Encoding"
+            if len(body_bytes) >= 512 and _accepts_gzip(request):
+                compressed = gzip.compress(bytes(body_bytes), compresslevel=5)
+                if len(compressed) < len(body_bytes):
+                    response.body = compressed
+                    response.headers["Content-Encoding"] = "gzip"
+                    response.headers["Content-Length"] = str(len(compressed))
 
     for key, value in hdrs.items():
         response.headers.setdefault(key, value)
@@ -2700,7 +2875,8 @@ def discord_invite(request: Request, code: str = DISCORD_INVITE_CODE) -> JSONRes
         icon_hash = text(guild.get("icon"), 80)
         guild_id = text(guild.get("id"), 40)
         valid_icon = re.fullmatch(r"[A-Za-z0-9_]+", icon_hash) and re.fullmatch(r"\d+", guild_id)
-        icon_url = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128" if valid_icon else None
+        raw_icon_url = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.png?size=128" if valid_icon else None
+        icon_url = f"/api/img?u={quote(raw_icon_url, safe='')}" if raw_icon_url else None
         payload = {
             "code": clean_code,
             "name": text(guild.get("name"), 120) or "Discord Server",
@@ -2713,6 +2889,161 @@ def discord_invite(request: Request, code: str = DISCORD_INVITE_CODE) -> JSONRes
         return j(payload)
     except Exception:
         return j({"error": "discord_unavailable"}, 502)
+
+
+# ----------------------------- Прокси обложек для РФ (/api/img) -----------------------------
+
+_PROXY_IMG_HOSTS = frozenset({
+    "cdn.discordapp.com",
+    "media.discordapp.net",
+    "shikimori.one",
+    "nyaa.shikimori.one",
+    "desu.shikimori.one",
+    "dere.shikimori.one",
+    "kawai.shikimori.one",
+    "image.tmdb.org",
+    "images.igdb.com",
+    "i.scdn.co",
+    "lastfm.freetls.fastly.net",
+    "lastfm-img2.akamaized.net",
+    "static-cdn.jtvnw.net",
+    "drive.google.com",
+    "lh3.googleusercontent.com",
+})
+_SAFE_IMG_MIMES = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/avif": ".avif",
+}
+_MAX_PROXY_IMG_BYTES = 4 * 1024 * 1024
+_IMG_CACHE_PRUNE_LOCK = threading.Lock()
+
+
+def _is_allowed_proxy_img_url(raw_url: str) -> bool:
+    cleaned = clean_url(raw_url)
+    if not cleaned:
+        return False
+    parsed = urlsplit(cleaned)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return parsed.scheme == "https" and host in _PROXY_IMG_HOSTS
+
+
+def _prune_img_cache() -> None:
+    if not _IMG_CACHE_PRUNE_LOCK.acquire(blocking=False):
+        return
+    try:
+        files = [p for p in IMG_CACHE_DIR.glob("img_*.*") if p.is_file()]
+        if len(files) <= 600:
+            return
+        files.sort(key=lambda p: p.stat().st_mtime)
+        for old in files[:150]:
+            with contextlib.suppress(OSError):
+                old.unlink()
+    except OSError:
+        pass
+    finally:
+        _IMG_CACHE_PRUNE_LOCK.release()
+
+
+@app.api_route("/api/img", methods=["GET", "HEAD"])
+def proxy_external_image(request: Request, u: str = "") -> Response:
+    rate_limit(request, "img_proxy", 240, 60)
+    target = clean_url(u)
+    if not target or not _is_allowed_proxy_img_url(target):
+        return j({"error": "invalid_image_url"}, 400)
+
+    digest = hashlib.sha256(target.encode("utf-8")).hexdigest()[:32]
+    etag = f'"{digest}"'
+    if (request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(
+            status_code=304,
+            headers={"ETag": etag, "Cache-Control": "public, max-age=604800, immutable"},
+        )
+
+    IMG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    for ext, mime in (
+        (".jpg", "image/jpeg"),
+        (".webp", "image/webp"),
+        (".png", "image/png"),
+        (".gif", "image/gif"),
+        (".avif", "image/avif"),
+    ):
+        cached_path = IMG_CACHE_DIR / f"img_{digest}{ext}"
+        if cached_path.is_file():
+            headers = {
+                "Cache-Control": "public, max-age=604800, immutable",
+                "ETag": etag,
+                "X-Content-Type-Options": "nosniff",
+            }
+            if request.method == "HEAD":
+                return Response(status_code=200, media_type=mime, headers=headers)
+            return FileResponse(cached_path, media_type=mime, headers=headers)
+
+    cur_url = target
+    try:
+        for _hop in range(4):
+            if not _is_allowed_proxy_img_url(cur_url):
+                return j({"error": "disallowed_redirect"}, 400)
+            with requests.get(
+                cur_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; KrafenImgProxy/1.0)",
+                    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                },
+                stream=True,
+                timeout=(3.5, 10),
+                allow_redirects=False,
+            ) as resp:
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    loc = (resp.headers.get("location") or "").strip()
+                    if not loc:
+                        return j({"error": "upstream_bad_redirect"}, 502)
+                    if loc.startswith("/"):
+                        p = urlsplit(cur_url)
+                        loc = f"{p.scheme}://{p.netloc}{loc}"
+                    cur_url = loc
+                    continue
+                if resp.status_code != 200:
+                    return j({"error": "upstream_not_found"}, 404 if resp.status_code == 404 else 502)
+                raw_ct = (resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+                ext = _SAFE_IMG_MIMES.get(raw_ct)
+                if not ext:
+                    return j({"error": "unsupported_media_type"}, 502)
+                buf = io.BytesIO()
+                total = 0
+                for chunk in resp.iter_content(chunk_size=32 * 1024):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > _MAX_PROXY_IMG_BYTES:
+                        return j({"error": "image_too_large"}, 502)
+                    buf.write(chunk)
+                img_bytes = buf.getvalue()
+                if not img_bytes:
+                    return j({"error": "empty_image"}, 502)
+
+                out_mime = "image/jpeg" if raw_ct == "image/jpg" else raw_ct
+                final_path = IMG_CACHE_DIR / f"img_{digest}{ext}"
+                tmp_path = IMG_CACHE_DIR / f".tmp_{digest}_{secrets.token_hex(4)}{ext}"
+                with contextlib.suppress(OSError):
+                    tmp_path.write_bytes(img_bytes)
+                    os.replace(tmp_path, final_path)
+                    _prune_img_cache()
+                headers = {
+                    "Cache-Control": "public, max-age=604800, immutable",
+                    "ETag": etag,
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Length": str(len(img_bytes)),
+                }
+                if request.method == "HEAD":
+                    return Response(status_code=200, media_type=out_mime, headers=headers)
+                return Response(content=img_bytes, status_code=200, media_type=out_mime, headers=headers)
+        return j({"error": "too_many_redirects"}, 502)
+    except (requests.RequestException, OSError):
+        return j({"error": "upstream_unreachable"}, 502)
 
 
 # ----------------------------- VOD архив -----------------------------
@@ -3361,12 +3692,13 @@ def list_vods(force_sync: bool = False) -> list[dict[str, Any]]:
             chat_drive_id = r["chat_drive_id"] or ""
             folder_drive_id = r["folder_drive_id"] or ""
 
-            fallbacks: list[str] = []
+            raw_fallbacks: list[str] = []
             if thumb_drive_id:
-                fallbacks.append(f"https://drive.google.com/thumbnail?id={thumb_drive_id}&sz=w960")
-                fallbacks.append(f"https://lh3.googleusercontent.com/d/{thumb_drive_id}=w960")
-            fallbacks.append(f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960")
-            fallbacks.append(f"https://lh3.googleusercontent.com/d/{drive_id}=w960")
+                raw_fallbacks.append(f"https://drive.google.com/thumbnail?id={thumb_drive_id}&sz=w960")
+                raw_fallbacks.append(f"https://lh3.googleusercontent.com/d/{thumb_drive_id}=w960")
+            raw_fallbacks.append(f"https://drive.google.com/thumbnail?id={drive_id}&sz=w960")
+            raw_fallbacks.append(f"https://lh3.googleusercontent.com/d/{drive_id}=w960")
+            fallbacks = [f"/api/img?u={quote(u, safe='')}" for u in raw_fallbacks]
 
             vods_by_id[vid] = {
                 "id": vid,
@@ -3380,7 +3712,7 @@ def list_vods(force_sync: bool = False) -> list[dict[str, Any]]:
                 "size_label": r["size_label"] or "",
                 "note": r["note"] or "",
                 "stream_url": f"/api/vods/{q_vid}/stream",
-                "download_url": f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t",
+                "download_url": f"/api/vods/{q_vid}/stream?download=1",
                 "embed_url": f"https://drive.google.com/file/d/{drive_id}/preview",
                 "view_url": (
                     f"https://drive.google.com/drive/folders/{folder_drive_id}"
@@ -3880,10 +4212,12 @@ def vod_stream(vod_id: str, request: Request) -> Response:
         session.close()
         return j({"error": "upstream_unreachable"}, 502)
 
+    want_download = (request.query_params.get("download") or "").strip() == "1"
+    dl_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", vod_id)[:80].strip("_.") or "stream"
     out_headers: dict[str, str] = {
         "Accept-Ranges": "bytes",
         "X-Content-Type-Options": "nosniff",
-        "Content-Disposition": "inline",
+        "Content-Disposition": f'attachment; filename="{dl_name}.mp4"' if want_download else "inline",
     }
     for h_name in ("Content-Length", "Content-Range"):
         val = upstream.headers.get(h_name)
@@ -3968,7 +4302,8 @@ def static_file(full_path: str, request: Request) -> Response:
     path = resolve_static(full_path)
     if not path:
         return j({"error": "not found"}, 404)
-    if path.suffix.lower() == ".html":
+    ext = path.suffix.lower()
+    if ext == ".html":
         nonce = b64url(secrets.token_bytes(16))
         body = path.read_text(encoding="utf-8", errors="replace").replace("__CSP_NONCE__", nonce)
         encoded = body.encode("utf-8")
@@ -3983,8 +4318,30 @@ def static_file(full_path: str, request: Request) -> Response:
         if request.method == "HEAD":
             return Response(status_code=200, media_type=MIME[".html"], headers=headers)
         return Response(content=encoded, status_code=200, media_type=MIME[".html"], headers=headers)
-    media_type = MIME.get(path.suffix.lower(), "text/plain; charset=utf-8")
-    extra_headers = {"Cache-Control": "no-cache"} if path.suffix.lower() in {".css", ".js"} else None
+
+    media_type = MIME.get(ext, "text/plain; charset=utf-8")
+    try:
+        st = path.stat()
+        etag = f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
+    except OSError:
+        etag = ""
+
+    cache_ctrl = "no-cache" if ext in {".css", ".js"} else "public, max-age=86400"
+    if etag and (request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache_ctrl})
+
+    if ext in {".css", ".js", ".svg", ".xml", ".txt"} and st.st_size <= 2 * 1024 * 1024:
+        raw_bytes = path.read_bytes()
+        headers = {"Cache-Control": cache_ctrl, "Content-Length": str(len(raw_bytes))}
+        if etag:
+            headers["ETag"] = etag
+        if request.method == "HEAD":
+            return Response(status_code=200, media_type=media_type, headers=headers)
+        return Response(content=raw_bytes, status_code=200, media_type=media_type, headers=headers)
+
+    extra_headers: dict[str, str] = {"Cache-Control": cache_ctrl}
+    if etag:
+        extra_headers["ETag"] = etag
     return FileResponse(path, media_type=media_type, headers=extra_headers)
 
 
@@ -4046,12 +4403,22 @@ def main() -> None:
         print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, вход в админ-режим отключён", flush=True)
     rec_proc = start_recorder() if os.environ.get("RECORDER") == "1" else None
     _ACTIVE_REC_PROC = rec_proc
-    print(f"krafen server → http://{HOST}:{PORT}", flush=True)
+    ssl_certfile = (os.environ.get("SSL_CERTFILE") or "").strip() or None
+    ssl_keyfile = (os.environ.get("SSL_KEYFILE") or "").strip() or None
+    scheme_lbl = "https" if (ssl_certfile and ssl_keyfile) else "http"
+    print(f"krafen server → {scheme_lbl}://{HOST}:{PORT}", flush=True)
     print(f"статика: {ROOT}", flush=True)
     print(f"база данных: {DB_PATH}", flush=True)
     print(f"папка записей: {RECORD_DIR}", flush=True)
     try:
-        uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+        uvicorn.run(
+            app,
+            host=HOST,
+            port=PORT,
+            log_level="info",
+            ssl_certfile=ssl_certfile,
+            ssl_keyfile=ssl_keyfile,
+        )
     finally:
         _ACTIVE_REC_PROC = None
         if _read_pid_file() == os.getpid():

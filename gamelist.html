@@ -8,7 +8,8 @@
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" media="print" data-async-css>
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"></noscript>
     <link rel="stylesheet" href="/style.css">
     <style nonce="__CSP_NONCE__">
         .stats-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
@@ -301,7 +302,7 @@
 
     <script nonce="__CSP_NONCE__">
         document.addEventListener('DOMContentLoaded', () => {
-            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
 
             const STATUS = {
                 all: { label: 'Все', badge: 'muted' },
@@ -350,8 +351,9 @@
             function coverHTML(item, cls = 'cover') {
                 const title = escapeHTML(item.title);
                 const fbCls = cls === 'cover' ? 'cover-empty' : 'search-cover';
-                return item.cover
-                    ? `<img class="${cls}" src="${escapeHTML(item.cover)}" alt="${title}" loading="lazy" decoding="async" data-fallback-cover="${fbCls}">`
+                const coverSrc = proxyImgUrl(item.cover);
+                return coverSrc
+                    ? `<img class="${cls}" src="${escapeHTML(coverSrc)}" alt="${title}" loading="lazy" decoding="async" data-fallback-cover="${fbCls}">`
                     : `<div class="${fbCls}">GL</div>`;
             }
 

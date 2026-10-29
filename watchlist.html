@@ -8,7 +8,8 @@
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" media="print" data-async-css>
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"></noscript>
     <link rel="stylesheet" href="/style.css">
     <style nonce="__CSP_NONCE__">
         .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
@@ -324,7 +325,7 @@
 
     <script nonce="__CSP_NONCE__">
         document.addEventListener('DOMContentLoaded', () => {
-            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
 
             const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
             const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };
@@ -450,11 +451,12 @@
                 const typeL = escapeHTML(TYPE_LABEL[item.type] || item.type);
                 const statL = escapeHTML(STATUS_LABEL[item.status] || item.status);
                 const badgeCls = STATUS_BADGE[item.status] || 'muted';
+                const posterSrc = proxyImgUrl(item.poster);
                 return `
                     <article class="media-card kf-stagger-item" style="--i:${Math.min(idx || 0, 12)}">
                         <div class="poster-wrap">
-                            ${item.poster
-                                ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" decoding="async" data-fallback-text="${typeL}">`
+                            ${posterSrc
+                                ? `<img src="${escapeHTML(posterSrc)}" alt="${title}" loading="lazy" decoding="async" data-fallback-text="${typeL}">`
                                 : `<div class="no-poster">${typeL}</div>`}
                             <div class="card-overlay">
                                 <button class="ov-btn watched" type="button" data-card-action="status" data-id="${id}" data-status="watched">Просмотрено</button>
@@ -554,10 +556,11 @@
                     el.innerHTML = data.results.map((item, idx) => {
                         const title = escapeHTML(item.titleRu || item.title);
                         const orig = item.titleRu && item.title ? escapeHTML(item.title) : '';
+                        const posterSrc = proxyImgUrl(item.poster);
                         return `
                             <div class="search-item">
                                 <div class="search-poster">
-                                    ${item.poster ? `<img src="${escapeHTML(item.poster)}" alt="${title}" loading="lazy" data-fallback-search="1">` : '—'}
+                                    ${posterSrc ? `<img src="${escapeHTML(posterSrc)}" alt="${title}" loading="lazy" data-fallback-search="1">` : '—'}
                                 </div>
                                 <div class="col">
                                     <div class="search-title">${title}</div>

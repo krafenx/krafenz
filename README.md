@@ -170,7 +170,8 @@ chmod 600 .env
    PUBLIC_ORIGIN=https://krafen.me
    ADMIN_PASSWORD=ваш_длинный_надёжный_пароль
    ```
-3. В панели **Cloudflare** направьте домен на сервер и включите **SSL/TLS → Full (strict)** и **Always Use HTTPS**.
+3. В панели **Cloudflare** направьте домен на сервер и включите **SSL/TLS → Full** (или **Full (strict)** при наличии SSL на origin) и **Always Use HTTPS**.
+4. **Доступность из РФ:** для отключения блокируемого на ТСПУ расширения **TLS ECH** и включения **HTTP/3 (QUIC)** на бесплатном тарифе Cloudflare выполните на ПК команду `py server.py --disable-cf-ech` (либо переключите DNS-запись на `DNS only` при использовании прямого reverse-proxy хостинга).
 
 ### Выделенный Linux VPS (`systemd` + `Caddy` / `Nginx`)
 Подробная пошаговая настройка сервиса `krafen.service` и обратного прокси с `proxy_buffering off` описана в [**`SETUP.md`**](SETUP.md), а подключение живого виджета Spotify — в [**`SPOTIFY_SETUP.md`**](SPOTIFY_SETUP.md).
