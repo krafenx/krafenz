@@ -37,26 +37,45 @@ import requests
 import websocket
 
 
-def _load_dotenv(env_file: Path) -> None:
+def _read_dotenv_lines(env_file: Path) -> list[str]:
     if not env_file.is_file():
-        return
+        return []
     try:
-        lines = env_file.read_text(encoding="utf-8").splitlines()
+        raw = env_file.read_bytes()
     except OSError:
-        return
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+        return []
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text_content = raw.decode("utf-16", errors="ignore")
+    else:
+        text_content = raw.decode("utf-8-sig", errors="ignore")
+        if "\x00" in text_content:
+            text_content = text_content.replace("\x00", "")
+    return text_content.splitlines()
+
+
+def _load_dotenv(env_file: Path) -> None:
+    for raw_line in _read_dotenv_lines(env_file):
+        line = raw_line.strip().lstrip("\ufeff")
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
             continue
         k, _, v = line.partition("=")
         k = k.strip()
-        v = v.strip().strip('"').strip("'")
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in {'"', "'"}:
+            v = v[1:-1]
+        elif " #" in v:
+            v = v.split(" #", 1)[0].strip()
         if k and k not in os.environ:
             os.environ[k] = v
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 _load_dotenv(ROOT_DIR / ".env")
+_load_dotenv(Path(__file__).resolve().parent / ".env")
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -80,6 +99,7 @@ FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 # улетает в облако (rclone move), локальная копия удаляется.
 RCLONE_REMOTE = os.environ.get("RCLONE_REMOTE", "").strip()
 RCLONE_BIN = os.environ.get("RCLONE_BIN", "rclone")
+GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID", "").strip()
 # Сколько ГБ должно остаться свободно на диске: перед стартом записи старые
 # папки удаляются, пока места не станет достаточно (работает и без rclone).
 MIN_FREE_GB = float(os.environ.get("MIN_FREE_GB", "10"))
@@ -117,7 +137,8 @@ def slugify(text: str) -> str:
 def _resolve_bin(configured: str, default_name: str) -> str | None:
     """Ищет исполняемый файл: явный путь, корень проекта, recorder/, .venv и PATH."""
     raw = (configured or default_name).strip().strip('"').strip("'")
-    if raw:
+    is_explicit_path = bool(raw and (Path(raw).parent != Path(".") or raw != default_name))
+    if is_explicit_path:
         cand = Path(raw)
         if cand.is_file():
             return str(cand.resolve())
@@ -126,7 +147,7 @@ def _resolve_bin(configured: str, default_name: str) -> str | None:
             return str(rel.resolve())
         found_cfg = shutil.which(raw)
         if found_cfg:
-            return found_cfg
+            return str(Path(found_cfg).resolve())
 
     stem = Path(default_name).stem
     local_dirs = [
@@ -142,16 +163,68 @@ def _resolve_bin(configured: str, default_name: str) -> str | None:
             p = d / f"{stem}{ext}"
             if p.is_file():
                 return str(p.resolve())
-    return shutil.which(default_name)
+    found = shutil.which(raw or default_name)
+    return str(Path(found).resolve()) if found else None
 
 
 def _normalize_rclone_remote(remote: str) -> str:
     r = (remote or "").strip().strip('"').strip("'")
-    if not r:
+    if not r or r.lower() in {"0", "false", "off", "no", "none"}:
         return ""
     if ":" not in r:
         return f"{r}:"
     return r
+
+
+_detected_remote_cache: str | None = None
+
+
+def _list_rclone_remotes(rclone_exe: str) -> list[str]:
+    cmd = [rclone_exe, "listremotes"]
+    local_conf = ROOT_DIR / "rclone.conf"
+    if local_conf.is_file():
+        cmd.extend(["--config", str(local_conf)])
+    try:
+        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            return [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip().endswith(":")]
+    except Exception:
+        pass
+    return []
+
+
+def _effective_rclone_remote() -> str:
+    global _detected_remote_cache
+    raw = (RCLONE_REMOTE or "").strip()
+    if raw.lower() in {"0", "false", "off", "no", "none"}:
+        return ""
+    norm = _normalize_rclone_remote(raw)
+    if norm:
+        return norm
+    if _detected_remote_cache is not None:
+        return _detected_remote_cache
+    rclone_exe = _resolve_bin(RCLONE_BIN, "rclone")
+    if not rclone_exe:
+        _detected_remote_cache = ""
+        return ""
+    remotes = _list_rclone_remotes(rclone_exe)
+    if "gdrive:" in remotes:
+        _detected_remote_cache = "gdrive:"
+    elif len(remotes) == 1:
+        _detected_remote_cache = remotes[0]
+    else:
+        _detected_remote_cache = ""
+    return _detected_remote_cache
+
+
+def _rclone_extra_flags(remote: str) -> list[str]:
+    flags: list[str] = []
+    local_conf = ROOT_DIR / "rclone.conf"
+    if local_conf.is_file():
+        flags.extend(["--config", str(local_conf)])
+    if remote.endswith(":") and re.fullmatch(r"[A-Za-z0-9_-]{10,80}", GDRIVE_FOLDER_ID):
+        flags.extend(["--drive-root-folder-id", GDRIVE_FOLDER_ID])
+    return flags
 
 
 def _rclone_dest(remote: str, sub_name: str) -> str:
@@ -388,7 +461,7 @@ def _format_size(num_bytes: int) -> str:
 
 def upload_to_cloud(folder: Path) -> bool:
     """rclone move папки записи в облако. True — успех, локальная копия снесена."""
-    remote = _normalize_rclone_remote(RCLONE_REMOTE)
+    remote = _effective_rclone_remote()
     if not remote:
         return False
     rclone_exe = _resolve_bin(RCLONE_BIN, "rclone")
@@ -399,10 +472,8 @@ def upload_to_cloud(folder: Path) -> bool:
     cmd = [
         rclone_exe, "move", str(folder), dest,
         "--delete-empty-src-dirs", "--transfers", "4", "--checkers", "8", "--stats-one-line", "-v",
+        *_rclone_extra_flags(remote),
     ]
-    local_conf = ROOT_DIR / "rclone.conf"
-    if local_conf.is_file():
-        cmd.extend(["--config", str(local_conf)])
     try:
         log(f"cloud: заливаю {folder.name} → {dest} ...")
         res = subprocess.run(
@@ -423,7 +494,7 @@ def upload_to_cloud(folder: Path) -> bool:
 
 def sync_pending_uploads() -> None:
     """Дозагружает завершённые локальные записи (с meta.json), если прошлая выгрузка прервалась."""
-    if not _normalize_rclone_remote(RCLONE_REMOTE) or not RECORD_DIR.exists():
+    if not _effective_rclone_remote() or not RECORD_DIR.exists():
         return
     pending = sorted(
         (p for p in RECORD_DIR.iterdir() if p.is_dir() and (p / "meta.json").is_file()),
@@ -436,21 +507,26 @@ def sync_pending_uploads() -> None:
 
 
 def test_cloud_connection() -> int:
-    """Проверяет найденный rclone и доступ к RCLONE_REMOTE без ожидания стрима."""
+    """Проверяет найденный rclone и доступ к Google Drive без ожидания стрима."""
     rclone_exe = _resolve_bin(RCLONE_BIN, "rclone")
     if not rclone_exe:
         log("ОШИБКА: rclone не найден ни в папке проекта, ни в PATH.")
         return 1
     log(f"rclone найден: {rclone_exe}")
-    remote = _normalize_rclone_remote(RCLONE_REMOTE)
+    remote = _effective_rclone_remote()
     if not remote:
-        log("ОШИБКА: RCLONE_REMOTE не задан в .env (например: RCLONE_REMOTE=gdrive:)")
+        remotes = _list_rclone_remotes(rclone_exe)
+        if remotes:
+            log(f"Найдены remotes в rclone: {', '.join(remotes)} — укажите нужный в .env, например: RCLONE_REMOTE={remotes[0]}")
+        else:
+            log("ОШИБКА: в rclone ещё не сохранён ни один remote (запустите .\\rclone.exe config) и RCLONE_REMOTE не задан в .env")
         return 1
-    cmd = [rclone_exe, "lsd", remote, "--max-depth", "1"]
-    local_conf = ROOT_DIR / "rclone.conf"
-    if local_conf.is_file():
-        cmd.extend(["--config", str(local_conf)])
-    log(f"проверяю доступ к {remote} ...")
+    if not _normalize_rclone_remote(RCLONE_REMOTE):
+        log(f"RCLONE_REMOTE в .env не указан — автоматически выбран remote из rclone: {remote}")
+    extra = _rclone_extra_flags(remote)
+    cmd = [rclone_exe, "lsd", remote, "--max-depth", "1", *extra]
+    folder_note = f" (папка Drive ID: {GDRIVE_FOLDER_ID})" if "--drive-root-folder-id" in extra else ""
+    log(f"проверяю доступ к {remote}{folder_note} ...")
     res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     if res.returncode != 0:
         log(f"ОШИБКА rclone: {(res.stderr or res.stdout or '').strip()}")
@@ -738,7 +814,7 @@ def record_session(stream: dict) -> None:
             # 1) Telegram (нужен локальный файл) → 2) Drive (rclone move) → 3) ротация
             if tg_configured():
                 upload_to_telegram(folder, meta)
-            if RCLONE_REMOTE:
+            if _effective_rclone_remote():
                 upload_to_cloud(folder)
             rotate_old_recordings()
 
@@ -771,9 +847,10 @@ def main() -> None:
     signal.signal(signal.SIGINT, _sigterm)
     signal.signal(signal.SIGTERM, _sigterm)
 
-    if _normalize_rclone_remote(RCLONE_REMOTE):
+    eff_remote = _effective_rclone_remote()
+    if eff_remote:
         rc_path = _resolve_bin(RCLONE_BIN, "rclone")
-        log(f"облако: {_normalize_rclone_remote(RCLONE_REMOTE)} "
+        log(f"облако: {eff_remote} "
             f"({'rclone: ' + rc_path if rc_path else 'ВНИМАНИЕ: rclone не найден!'})")
         sync_pending_uploads()
 
