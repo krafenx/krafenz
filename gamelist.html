@@ -108,7 +108,7 @@
             .range-row { grid-template-columns: 1fr; gap: 10px; }
         }
     </style>
-    <script nonce="__CSP_NONCE__" src="/app.js" defer></script>
+    <script data-cfasync="false" nonce="__CSP_NONCE__" src="/app.js" defer></script>
 </head>
 <body>
     <div id="glow"></div>
@@ -300,8 +300,12 @@
         </div>
     </div>
 
-    <script nonce="__CSP_NONCE__">
-        document.addEventListener('DOMContentLoaded', () => {
+    <script data-cfasync="false" nonce="__CSP_NONCE__">
+        ((fn) => {
+            const start = () => (window.KrafenUI ? fn() : document.querySelector('script[src="/app.js"]')?.addEventListener('load', fn, { once: true }));
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+            else start();
+        })(() => {
             const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
 
             const STATUS = {

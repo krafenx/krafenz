@@ -924,6 +924,8 @@ def _disable_cloudflare_ech_cli(extra_args: list[str]) -> int:
     print(f"Зона найдена: {domain} ({zone_id})")
     settings_to_apply = [
         ("ech", "off", "TLS ECH (Encrypted Client Hello)"),
+        ("rocket_loader", "off", "Rocket Loader (совместимость со строгим CSP nonce)"),
+        ("email_obfuscation", "off", "Email Obfuscation (защита целостности скриптов)"),
         ("http3", "on", "HTTP/3 (QUIC поверх UDP)"),
         ("0rtt", "on", "0-RTT Connection Resumption"),
     ]
@@ -1679,6 +1681,22 @@ _CLOUDFLARE_NETS = tuple(
 )
 
 
+def _parse_extra_trusted_nets(raw: str) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    if not raw or raw in {"0", "1", "true", "false", "yes", "no", "on", "off", "auto"}:
+        return ()
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for part in raw.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        with contextlib.suppress(ValueError):
+            nets.append(ipaddress.ip_network(item, strict=False))
+    return tuple(nets)
+
+
+_EXTRA_TRUSTED_PROXY_NETS = _parse_extra_trusted_nets(TRUST_PROXY_MODE)
+
+
 def _is_trusted_proxy_peer(request: Request) -> bool:
     if TRUST_PROXY_MODE in {"0", "false", "no", "off"}:
         return False
@@ -1691,6 +1709,8 @@ def _is_trusted_proxy_peer(request: Request) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(peer)
+        if _EXTRA_TRUSTED_PROXY_NETS:
+            return any(ip in net for net in _EXTRA_TRUSTED_PROXY_NETS) or ip.is_loopback
         if ip.is_loopback or ip.is_private or ip.is_link_local:
             return True
         return any(ip in net for net in _CLOUDFLARE_NETS)
@@ -5915,7 +5935,7 @@ def static_file(full_path: str, request: Request) -> Response:
         nonce = b64url(secrets.token_bytes(16))
         body = path.read_text(encoding="utf-8", errors="replace").replace("__CSP_NONCE__", nonce)
         encoded = body.encode("utf-8")
-        headers = {"Cache-Control": "no-cache", "Content-Length": str(len(encoded))}
+        headers = {"Cache-Control": "private, no-cache, no-transform", "Content-Length": str(len(encoded))}
         if path.name.lower() == "admin.html":
             headers["X-Robots-Tag"] = "noindex, nofollow"
         headers.update(

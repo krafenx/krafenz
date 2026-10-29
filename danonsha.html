@@ -1164,7 +1164,7 @@
         </div>
     </div>
 
-    <script nonce="__CSP_NONCE__">
+    <script data-cfasync="false" nonce="__CSP_NONCE__">
         document.querySelectorAll('link[data-async-css]').forEach((el) => { el.media = 'all'; });
         const CONFIG = {
             twitch_user: 'danonsha',
@@ -2143,6 +2143,7 @@
             if (mpegtsScriptPromise) return mpegtsScriptPromise;
             mpegtsScriptPromise = new Promise((resolve) => {
                 const s = document.createElement('script');
+                s.setAttribute('data-cfasync', 'false');
                 s.src = '/mpegts.min.js';
                 const nonceEl = document.querySelector('script[nonce]');
                 if (nonceEl && nonceEl.nonce) s.nonce = nonceEl.nonce;
