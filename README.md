@@ -53,6 +53,7 @@ flowchart LR
 | `/wishlist` | `wishlist.html` | Список желаемых покупок с приоритетами, статусами и подсчётом бюджета в `RUB` / `USD` / `EUR` |
 | `/tasks` | `tasks.html` | Интерактивный калькулятор ежедневных заданий BP (VIP / X2) и таймеры клубных квестов |
 | `/danonsha` | `danonsha.html` | Страница **danonsha**: статус канала, архив стримов из Google Drive, кинотеатр VOD и `ЧАТ ЗАПИСИ` |
+| `/admin` | `admin.html` | Панель управления: аналитика трафика и VOD, интеграции, кэш, резервные копии, аудит и `server.log` |
 
 ---
 
@@ -71,6 +72,7 @@ krafenz/
 ├── setup.html              # Конфигурация ПК и девайсов
 ├── wishlist.html           # Вишлист
 ├── tasks.html              # Трекер заданий и таймеров
+├── admin.html              # Панель управления, телеметрия трафика/VOD, кэш, бэкапы и логи
 ├── recorder/
 │   ├── recorder.py         # Фоновый рекордер Twitch + IRC-чата + ремукс ffmpeg + выгрузка rclone
 │   └── requirements.txt    # Зависимости рекордера (streamlink, websocket-client, requests, telethon)
@@ -78,6 +80,7 @@ krafenz/
 │   ├── krafen.db           # Публичная БД коллекций и индекса VOD (SQLite WAL)
 │   ├── seed.sql            # Начальный SQL-сид коллекций
 │   ├── auth.db             # Изолированное хранилище OAuth-токенов и ключа сессий (в .gitignore)
+│   ├── analytics.db        # База статистики посещений, VOD и журнала аудита (в .gitignore)
 │   └── server.log          # Лог работы сервера и рекордера с авто-ротацией 10 МБ (в .gitignore)
 ├── .env.example            # Шаблон переменных окружения
 ├── krafen.service          # Защищённый systemd-юнит для Linux-сервера
@@ -216,6 +219,10 @@ chmod 600 .env
 | `GET /api/{collection}` | Публичный | Получение элементов и текущей `revision` (`watchlist`, `gamelist`, `setup`, `wishlist`) |
 | `PUT /api/{collection}` | Админ + CSRF | Атомарное сохранение коллекции с проверкой `revision` |
 | `GET / POST / DELETE /api/admin` | Публичный / Админ | Проверка сессии, вход по паролю и выход с серверным отзывом токена |
+| `GET /api/admin/overview` | Админ | Сводная телеметрия трафика, графиков, коллекций, VOD, системы, интеграций и аудита |
+| `GET /api/admin/backup` · `POST /api/admin/restore` | Админ + CSRF | Экспорт и атомарное восстановление JSON-бэкапа коллекций и правок VOD |
+| `POST /api/admin/vods/sync` · `/override` · `/reset-thumb` | Админ + CSRF | Принудительная синхронизация Google Drive, правка/скрытие VOD и сброс превью |
+| `POST /api/admin/cache/clear` · `GET /api/admin/logs` | Админ + CSRF | Очистка кэшей и просмотр хвоста `data/server.log` |
 | `POST /api/admin/update` | Админ + CSRF | Принудительное обновление файлов с GitHub и перезапуск при изменении `server.py` |
 | `GET /api/search` · `GET /api/game-search` | Публичный | Поиск тайтлов в TMDB / Shikimori и игр в IGDB |
 | `GET /api/spotify` · `GET /api/lastfm` | Публичный | Текущий или недавний трек с кэшированием |
