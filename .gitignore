@@ -19,6 +19,8 @@ rclone.conf
 data/auth.db*
 data/*.db-wal
 data/*.db-shm
+data/*.log*
+data/*.pid
 data/tokens.json
 data/.update_sha
 data/vod_thumbs/

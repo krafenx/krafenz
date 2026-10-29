@@ -26,6 +26,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -89,13 +90,18 @@ def load_dotenv(env_file: Path) -> None:
 
 load_dotenv(ROOT / ".env")
 
-DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "data"))
+def _resolve_root_path(raw_value: str | Path) -> Path:
+    p = Path(raw_value)
+    return p if p.is_absolute() else (ROOT / p).resolve()
+
+
+DATA_DIR = _resolve_root_path(os.environ.get("DATA_DIR", ROOT / "data"))
 DB_PATH = DATA_DIR / "krafen.db"
 AUTH_DB_PATH = DATA_DIR / "auth.db"
 SEED_SQL_PATH = DATA_DIR / "seed.sql"
 THUMB_CACHE_DIR = DATA_DIR / "vod_thumbs"
 CHAT_CACHE_DIR = DATA_DIR / "vod_chats"
-RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT / "vods"))
+RECORD_DIR = _resolve_root_path(os.environ.get("RECORD_DIR", ROOT / "vods"))
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 PUBLIC_ORIGIN = os.environ.get("PUBLIC_ORIGIN", "").strip().rstrip("/")
@@ -399,22 +405,204 @@ def perform_github_update(*, force: bool = False, allow_zip_fallback_on_api_erro
             return {"ok": False, "error": str(exc), "updated": [], "server_changed": False}
 
 
+_HEADLESS_LOG_FH: Any = None
+_WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+_AUTOSTART_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_AUTOSTART_REG_NAME = "KrafenServer"
+PID_FILE_PATH = DATA_DIR / "server.pid"
+
+
 def _reexec_current_process() -> None:
     os.environ["_KRAFEN_REEXEC"] = "1"
     script_path = str(ROOT / "server.py")
     print("автообновление: server.py изменился — перезапускаю процесс...", flush=True)
     if os.name != "nt":
         os.execv(sys.executable, [sys.executable, script_path, *sys.argv[1:]])
+    elif _HEADLESS_LOG_FH is not None:
+        with contextlib.suppress(Exception):
+            _HEADLESS_LOG_FH.flush()
+            _HEADLESS_LOG_FH.close()
+        flags = _WIN_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen(
+            [sys.executable, script_path, *sys.argv[1:]],
+            cwd=str(ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+        raise SystemExit(0)
     else:
         code = subprocess.call([sys.executable, script_path, *sys.argv[1:]])
         raise SystemExit(code)
 
 
 def _configure_stdio_utf8() -> None:
+    global _HEADLESS_LOG_FH
+    if sys.stdout is None or sys.stderr is None:
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            log_path = DATA_DIR / "server.log"
+            if log_path.is_file() and log_path.stat().st_size > 10 * 1024 * 1024:
+                bak = DATA_DIR / "server.log.old"
+                bak.unlink(missing_ok=True)
+                log_path.replace(bak)
+            _HEADLESS_LOG_FH = open(log_path, "a", encoding="utf-8", buffering=1, errors="replace")
+            if sys.stdout is None:
+                sys.stdout = _HEADLESS_LOG_FH
+            if sys.stderr is None:
+                sys.stderr = _HEADLESS_LOG_FH
+        except OSError:
+            pass
     for _stream in (sys.stdout, sys.stderr):
         if hasattr(_stream, "reconfigure"):
             with contextlib.suppress(Exception):
                 _stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def _is_local_port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.6):
+            return True
+    except OSError:
+        return False
+
+
+def _read_pid_file() -> int | None:
+    try:
+        if PID_FILE_PATH.is_file():
+            val = int(PID_FILE_PATH.read_text(encoding="utf-8").strip())
+            return val if val > 0 else None
+    except Exception:
+        pass
+    return None
+
+
+def _stop_running_server() -> bool:
+    pid = _read_pid_file()
+    if not pid or pid == os.getpid():
+        return False
+    stopped = False
+    if os.name == "nt":
+        # Безопасно проверяем, что этот PID действительно python/pythonw
+        chk = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            creationflags=_WIN_NO_WINDOW,
+            check=False,
+        )
+        out_lower = (chk.stdout or "").lower()
+        if "python" in out_lower or "py.exe" in out_lower or "pyw.exe" in out_lower:
+            res = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                creationflags=_WIN_NO_WINDOW,
+                check=False,
+            )
+            stopped = res.returncode == 0
+    else:
+        try:
+            os.kill(pid, 15)
+            stopped = True
+        except OSError:
+            pass
+    if stopped:
+        with contextlib.suppress(OSError):
+            PID_FILE_PATH.unlink(missing_ok=True)
+        for _ in range(15):
+            if not _is_local_port_open(PORT):
+                break
+            time.sleep(0.15)
+    return stopped
+
+
+def _manage_autostart_cli(action: str) -> int:
+    if action == "stop":
+        if _stop_running_server():
+            print("Фоновый сервер (и автозапись) остановлены.")
+        elif _is_local_port_open(PORT):
+            print(f"Порт {PORT} занят другим окном/процессом (PID-файл не найден) — закройте открытое окно терминала.")
+        else:
+            print("Сервер сейчас не запущен.")
+        return 0
+
+    if action == "status":
+        running = _is_local_port_open(PORT)
+        pid = _read_pid_file()
+        reg_val = None
+        if os.name == "nt":
+            import winreg
+
+            with contextlib.suppress(FileNotFoundError, OSError):
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH, 0, winreg.KEY_READ) as key:
+                    reg_val, _ = winreg.QueryValueEx(key, _AUTOSTART_REG_NAME)
+        print(f"Автозапуск Windows: {'ВКЛЮЧЁН (' + str(reg_val) + ')' if reg_val else 'выключен'}")
+        print(f"Статус сервера (порт {PORT}): {'РАБОТАЕТ' + (f' (PID {pid})' if pid else '') if running else 'не запущен'}")
+        log_path = DATA_DIR / "server.log"
+        if log_path.is_file():
+            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]
+            print(f"\nПоследние строки {log_path}:")
+            for ln in lines:
+                print(f"  {ln}")
+        return 0
+
+    if os.name != "nt":
+        print("На Linux используйте systemd-юнит krafen.service: sudo systemctl enable --now krafen")
+        return 0
+
+    import winreg  # стандартная библиотека Windows Python
+
+    exe_dir = Path(sys.executable).resolve().parent
+    pythonw = exe_dir / "pythonw.exe"
+    launcher_exe = pythonw if pythonw.is_file() else Path(sys.executable).resolve()
+    script_path = (ROOT / "server.py").resolve()
+    cmd_str = f'"{launcher_exe}" "{script_path}"'
+
+    if action == "install":
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, _AUTOSTART_REG_NAME, 0, winreg.REG_SZ, cmd_str)
+        print(f"Автозапуск включён в Windows (HKCU\\...\\Run -> {_AUTOSTART_REG_NAME}):")
+        print(f"  {cmd_str}")
+        print(f"Логи фонового режима пишутся в: {DATA_DIR / 'server.log'}")
+        if not _is_local_port_open(PORT):
+            flags = _WIN_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
+            subprocess.Popen(
+                [str(launcher_exe), str(script_path)],
+                cwd=str(ROOT),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+            print(f"Сервер сразу запущен в фоне (без окна) на порту {PORT}.")
+        else:
+            print(
+                f"Сервер сейчас уже запущен на порту {PORT}. "
+                "Если он открыт в соседнем окне консоли — закройте то окно и выполните команду ещё раз "
+                "(или просто перезагрузите ПК), чтобы перевести работу в тихий фоновый режим."
+            )
+        print("Управление: py server.py --status | py server.py --stop | py server.py --uninstall-autostart")
+        return 0
+
+    if action == "uninstall":
+        removed = False
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, _AUTOSTART_REG_NAME)
+                removed = True
+        except FileNotFoundError:
+            pass
+        stopped = _stop_running_server()
+        print("Автозапуск отключён." if removed else "Запись автозапуска не найдена (уже отключена).")
+        if stopped:
+            print("Фоновый сервер остановлен.")
+        return 0
+
+    return 1
 
 
 _startup_auto_update_done = False
@@ -436,7 +624,17 @@ def _maybe_run_startup_auto_update() -> None:
 
 
 if __name__ == "__main__":
+    with contextlib.suppress(OSError):
+        os.chdir(ROOT)
     _configure_stdio_utf8()
+    for _flag, _act in (
+        ("--install-autostart", "install"),
+        ("--uninstall-autostart", "uninstall"),
+        ("--stop", "stop"),
+        ("--status", "status"),
+    ):
+        if _flag in sys.argv[1:]:
+            raise SystemExit(_manage_autostart_cli(_act))
     _maybe_run_startup_auto_update()
 
 
@@ -2894,8 +3092,16 @@ def _atomic_write_bytes(dest: Path, payload: bytes) -> bool:
             tmp.unlink(missing_ok=True)
 
 
+def _find_ffmpeg_bin() -> str | None:
+    for candidate in (ROOT / "ffmpeg.exe", ROOT / "ffmpeg", ROOT / "recorder" / "ffmpeg.exe"):
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return shutil.which("ffmpeg")
+
+
 def _extract_ffmpeg_frame(input_target: str, dest: Path, seek_seconds: list[int]) -> bool:
-    if not shutil.which("ffmpeg"):
+    ffmpeg_exe = _find_ffmpeg_bin()
+    if not ffmpeg_exe:
         return False
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(f".{dest.stem}.{secrets.token_hex(4)}.jpg")
@@ -2903,7 +3109,7 @@ def _extract_ffmpeg_frame(input_target: str, dest: Path, seek_seconds: list[int]
         try:
             subprocess.run(
                 [
-                    "ffmpeg", "-y",
+                    ffmpeg_exe, "-y",
                     "-ss", str(ss),
                     "-i", input_target,
                     "-frames:v", "1",
@@ -2914,6 +3120,7 @@ def _extract_ffmpeg_frame(input_target: str, dest: Path, seek_seconds: list[int]
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                creationflags=_WIN_NO_WINDOW,
                 timeout=22,
                 check=False,
             )
@@ -3027,7 +3234,7 @@ def vod_thumb(vod_id: str) -> Response:
                         return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
 
             # 2) Локальный ffmpeg по прямому потоку видео
-            if shutil.which("ffmpeg"):
+            if _find_ffmpeg_bin():
                 direct_url = _resolve_gdrive_direct_url(drive_id)
                 if direct_url and _extract_ffmpeg_frame(direct_url, cached_path, [180, 30, 3]):
                     return FileResponse(cached_path, media_type="image/jpeg", headers=cache_headers)
@@ -3303,11 +3510,28 @@ def start_recorder() -> subprocess.Popen | None:
     env.setdefault("RECORD_DIR", str(RECORD_DIR))
     env.setdefault("PYTHONIOENCODING", "utf-8")
     print("автозапись: запускаю recorder/recorder.py", flush=True)
-    return subprocess.Popen([sys.executable, str(script)], env=env)
+    kwargs: dict[str, Any] = {
+        "env": env,
+        "cwd": str(ROOT),
+    }
+    if _HEADLESS_LOG_FH is not None:
+        exe = Path(sys.executable).resolve()
+        py_console = exe.with_name("python.exe")
+        runner = str(py_console if py_console.is_file() else exe)
+        kwargs["stdin"] = subprocess.DEVNULL
+        kwargs["stdout"] = _HEADLESS_LOG_FH
+        kwargs["stderr"] = _HEADLESS_LOG_FH
+        kwargs["creationflags"] = _WIN_NO_WINDOW
+    else:
+        runner = sys.executable
+    return subprocess.Popen([runner, str(script)], **kwargs)
 
 
 def main() -> None:
     _configure_stdio_utf8()
+    with contextlib.suppress(OSError):
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        PID_FILE_PATH.write_text(f"{os.getpid()}\n", encoding="utf-8")
     if is_auto_update_enabled() and AUTO_UPDATE_INTERVAL > 0:
         _start_auto_update_watcher()
     if not ADMIN_PASSWORD:
@@ -3320,6 +3544,9 @@ def main() -> None:
     try:
         uvicorn.run(app, host=HOST, port=PORT, log_level="info")
     finally:
+        if _read_pid_file() == os.getpid():
+            with contextlib.suppress(OSError):
+                PID_FILE_PATH.unlink(missing_ok=True)
         if rec_proc and rec_proc.poll() is None:
             rec_proc.terminate()
             try:
