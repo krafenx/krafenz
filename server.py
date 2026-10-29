@@ -406,58 +406,167 @@ def perform_github_update(*, force: bool = False, allow_zip_fallback_on_api_erro
 
 
 _HEADLESS_LOG_FH: Any = None
+_CONSOLE_TEE_LOG_FH: Any = None
+_ACTIVE_REC_PROC: subprocess.Popen | None = None
 _WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 _AUTOSTART_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _AUTOSTART_REG_NAME = "KrafenServer"
 PID_FILE_PATH = DATA_DIR / "server.pid"
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+_CLI_MGMT_FLAGS = {
+    "--install-autostart": "install",
+    "--uninstall-autostart": "uninstall",
+    "--restart": "restart",
+    "--stop": "stop",
+    "--status": "status",
+}
+
+
+class _TeeLogStream:
+    """Дублирует вывод обычной консоли в data/server.log без ANSI-кодов."""
+
+    def __init__(self, primary: Any, log_fh: Any) -> None:
+        self._primary = primary
+        self._log_fh = log_fh
+        self.encoding = getattr(primary, "encoding", "utf-8") or "utf-8"
+
+    def write(self, s: str) -> int:
+        n = self._primary.write(s)
+        if s:
+            with contextlib.suppress(Exception):
+                self._log_fh.write(_ANSI_ESCAPE_RE.sub("", s))
+                self._log_fh.flush()
+        return n
+
+    def flush(self) -> None:
+        with contextlib.suppress(Exception):
+            self._primary.flush()
+        with contextlib.suppress(Exception):
+            self._log_fh.flush()
+
+    def isatty(self) -> bool:
+        try:
+            return bool(self._primary.isatty())
+        except Exception:
+            return False
+
+    def fileno(self) -> int:
+        return self._primary.fileno()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._primary, name)
+
+
+def _has_cli_mgmt_flag() -> bool:
+    return any(flag in sys.argv[1:] for flag in _CLI_MGMT_FLAGS)
+
+
+def _is_headless_process() -> bool:
+    if _has_cli_mgmt_flag():
+        return False
+    if "--background" in sys.argv[1:] or os.environ.get("KRAFEN_HEADLESS") == "1":
+        return True
+    if sys.stdout is None or sys.stderr is None:
+        return True
+    exe_stem = Path(sys.executable).stem.lower()
+    if exe_stem.startswith(("pythonw", "pyw")):
+        return True
+    for stream in (sys.stdout, sys.stderr):
+        name = str(getattr(stream, "name", "") or "").lower()
+        if name in {"nul", "/dev/null"} or name.endswith(("\\nul", "/nul")):
+            return True
+    return False
+
+
+def _open_rotating_server_log() -> Any:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = DATA_DIR / "server.log"
+    if log_path.is_file() and log_path.stat().st_size > 10 * 1024 * 1024:
+        bak = DATA_DIR / "server.log.old"
+        with contextlib.suppress(OSError):
+            bak.unlink(missing_ok=True)
+            log_path.replace(bak)
+    return open(log_path, "a", encoding="utf-8", buffering=1, errors="replace")
 
 
 def _reexec_current_process() -> None:
     os.environ["_KRAFEN_REEXEC"] = "1"
-    script_path = str(ROOT / "server.py")
+    script_path = str((ROOT / "server.py").resolve())
     print("автообновление: server.py изменился — перезапускаю процесс...", flush=True)
+    if _ACTIVE_REC_PROC is not None and _ACTIVE_REC_PROC.poll() is None:
+        with contextlib.suppress(Exception):
+            _ACTIVE_REC_PROC.terminate()
+            _ACTIVE_REC_PROC.wait(timeout=3)
+    if _read_pid_file() == os.getpid():
+        with contextlib.suppress(OSError):
+            PID_FILE_PATH.unlink(missing_ok=True)
     if os.name != "nt":
         os.execv(sys.executable, [sys.executable, script_path, *sys.argv[1:]])
-    elif _HEADLESS_LOG_FH is not None:
-        with contextlib.suppress(Exception):
-            _HEADLESS_LOG_FH.flush()
-            _HEADLESS_LOG_FH.close()
+    elif _HEADLESS_LOG_FH is not None or threading.current_thread() is not threading.main_thread():
+        was_headless = _HEADLESS_LOG_FH is not None
+        for fh in (_HEADLESS_LOG_FH, _CONSOLE_TEE_LOG_FH):
+            if fh is not None:
+                with contextlib.suppress(Exception):
+                    fh.flush()
+                    fh.close()
+        exe_dir = Path(sys.executable).resolve().parent
+        py_console = exe_dir / "python.exe"
+        helper_py = str(py_console if py_console.is_file() else Path(sys.executable).resolve())
+        target_args = [sys.executable, script_path, *sys.argv[1:]]
+        if was_headless and "--background" not in target_args:
+            target_args.append("--background")
         flags = _WIN_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
+        helper_code = (
+            "import subprocess, time; "
+            "time.sleep(1.2); "
+            f"subprocess.Popen({target_args!r}, cwd={str(ROOT)!r}, "
+            "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, "
+            f"creationflags={flags})"
+        )
+        env = os.environ.copy()
+        if was_headless:
+            env["KRAFEN_HEADLESS"] = "1"
         subprocess.Popen(
-            [sys.executable, script_path, *sys.argv[1:]],
+            [helper_py, "-c", helper_code],
             cwd=str(ROOT),
+            env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=flags,
         )
-        raise SystemExit(0)
+        os._exit(0)
     else:
         code = subprocess.call([sys.executable, script_path, *sys.argv[1:]])
         raise SystemExit(code)
 
 
-def _configure_stdio_utf8() -> None:
-    global _HEADLESS_LOG_FH
-    if sys.stdout is None or sys.stderr is None:
-        try:
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            log_path = DATA_DIR / "server.log"
-            if log_path.is_file() and log_path.stat().st_size > 10 * 1024 * 1024:
-                bak = DATA_DIR / "server.log.old"
-                bak.unlink(missing_ok=True)
-                log_path.replace(bak)
-            _HEADLESS_LOG_FH = open(log_path, "a", encoding="utf-8", buffering=1, errors="replace")
-            if sys.stdout is None:
+def _configure_stdio_utf8(*, mirror_console_to_log: bool = False) -> None:
+    global _HEADLESS_LOG_FH, _CONSOLE_TEE_LOG_FH
+    if _is_headless_process():
+        if _HEADLESS_LOG_FH is None:
+            try:
+                _HEADLESS_LOG_FH = _open_rotating_server_log()
                 sys.stdout = _HEADLESS_LOG_FH
-            if sys.stderr is None:
                 sys.stderr = _HEADLESS_LOG_FH
-        except OSError:
-            pass
+            except OSError:
+                pass
+        return
+
     for _stream in (sys.stdout, sys.stderr):
         if hasattr(_stream, "reconfigure"):
             with contextlib.suppress(Exception):
                 _stream.reconfigure(encoding="utf-8", errors="replace")
+
+    if mirror_console_to_log and _CONSOLE_TEE_LOG_FH is None and not _has_cli_mgmt_flag():
+        try:
+            _CONSOLE_TEE_LOG_FH = _open_rotating_server_log()
+            if sys.stdout is not None and not isinstance(sys.stdout, _TeeLogStream):
+                sys.stdout = _TeeLogStream(sys.stdout, _CONSOLE_TEE_LOG_FH)
+            if sys.stderr is not None and not isinstance(sys.stderr, _TeeLogStream):
+                sys.stderr = _TeeLogStream(sys.stderr, _CONSOLE_TEE_LOG_FH)
+        except OSError:
+            pass
 
 
 def _is_local_port_open(port: int) -> bool:
@@ -513,11 +622,42 @@ def _stop_running_server() -> bool:
     if stopped:
         with contextlib.suppress(OSError):
             PID_FILE_PATH.unlink(missing_ok=True)
-        for _ in range(15):
+        for _ in range(20):
             if not _is_local_port_open(PORT):
                 break
             time.sleep(0.15)
     return stopped
+
+
+def _spawn_background_server() -> Path:
+    exe_dir = Path(sys.executable).resolve().parent
+    pythonw = exe_dir / "pythonw.exe"
+    launcher_exe = pythonw if pythonw.is_file() else Path(sys.executable).resolve()
+    script_path = (ROOT / "server.py").resolve()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = DATA_DIR / "server.log"
+    if not log_path.exists():
+        with contextlib.suppress(OSError):
+            log_path.touch()
+    env = os.environ.copy()
+    env["KRAFEN_HEADLESS"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
+    flags = _WIN_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
+    subprocess.Popen(
+        [str(launcher_exe), str(script_path), "--background"],
+        cwd=str(ROOT),
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+    )
+    for _ in range(30):
+        if _is_local_port_open(PORT):
+            break
+        time.sleep(0.1)
+    return launcher_exe
 
 
 def _manage_autostart_cli(action: str) -> int:
@@ -545,9 +685,10 @@ def _manage_autostart_cli(action: str) -> int:
         log_path = DATA_DIR / "server.log"
         if log_path.is_file():
             lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]
-            print(f"\nПоследние строки {log_path}:")
-            for ln in lines:
-                print(f"  {ln}")
+            if lines:
+                print(f"\nПоследние строки {log_path}:")
+                for ln in lines:
+                    print(f"  {ln}")
         return 0
 
     if os.name != "nt":
@@ -560,7 +701,24 @@ def _manage_autostart_cli(action: str) -> int:
     pythonw = exe_dir / "pythonw.exe"
     launcher_exe = pythonw if pythonw.is_file() else Path(sys.executable).resolve()
     script_path = (ROOT / "server.py").resolve()
-    cmd_str = f'"{launcher_exe}" "{script_path}"'
+    cmd_str = f'"{launcher_exe}" "{script_path}" --background'
+
+    if action == "restart":
+        # Если запись в автозагрузке уже есть — обновим команду до актуальной (--background)
+        with contextlib.suppress(FileNotFoundError, OSError):
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH, 0, winreg.KEY_READ) as rkey:
+                winreg.QueryValueEx(rkey, _AUTOSTART_REG_NAME)
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH, 0, winreg.KEY_SET_VALUE) as wkey:
+                winreg.SetValueEx(wkey, _AUTOSTART_REG_NAME, 0, winreg.REG_SZ, cmd_str)
+        was_stopped = _stop_running_server()
+        if not _is_local_port_open(PORT):
+            _spawn_background_server()
+            state_word = "перезапущен" if was_stopped else "запущен"
+            print(f"Фоновый сервер {state_word} на порту {PORT}.")
+            print(f"Логи пишутся в: {DATA_DIR / 'server.log'}")
+        else:
+            print(f"Порт {PORT} занят открытым окном терминала — закройте его и повторите команду.")
+        return 0
 
     if action == "install":
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
@@ -568,24 +726,19 @@ def _manage_autostart_cli(action: str) -> int:
         print(f"Автозапуск включён в Windows (HKCU\\...\\Run -> {_AUTOSTART_REG_NAME}):")
         print(f"  {cmd_str}")
         print(f"Логи фонового режима пишутся в: {DATA_DIR / 'server.log'}")
+        was_stopped = _stop_running_server()
         if not _is_local_port_open(PORT):
-            flags = _WIN_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
-            subprocess.Popen(
-                [str(launcher_exe), str(script_path)],
-                cwd=str(ROOT),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=flags,
-            )
-            print(f"Сервер сразу запущен в фоне (без окна) на порту {PORT}.")
+            _spawn_background_server()
+            if was_stopped:
+                print(f"Фоновый сервер перезапущен на порту {PORT}.")
+            else:
+                print(f"Сервер сразу запущен в фоне (без окна) на порту {PORT}.")
         else:
             print(
-                f"Сервер сейчас уже запущен на порту {PORT}. "
-                "Если он открыт в соседнем окне консоли — закройте то окно и выполните команду ещё раз "
-                "(или просто перезагрузите ПК), чтобы перевести работу в тихий фоновый режим."
+                f"Сервер сейчас уже запущен на порту {PORT} в открытом окне консоли. "
+                "Закройте то окно и выполните py server.py --restart, чтобы перевести работу в тихий фоновый режим."
             )
-        print("Управление: py server.py --status | py server.py --stop | py server.py --uninstall-autostart")
+        print("Управление: py server.py --status | py server.py --restart | py server.py --stop | py server.py --uninstall-autostart")
         return 0
 
     if action == "uninstall":
@@ -627,15 +780,13 @@ if __name__ == "__main__":
     with contextlib.suppress(OSError):
         os.chdir(ROOT)
     _configure_stdio_utf8()
-    for _flag, _act in (
-        ("--install-autostart", "install"),
-        ("--uninstall-autostart", "uninstall"),
-        ("--stop", "stop"),
-        ("--status", "status"),
-    ):
-        if _flag in sys.argv[1:]:
-            raise SystemExit(_manage_autostart_cli(_act))
+    for _fast_flag in ("--stop", "--status", "--uninstall-autostart"):
+        if _fast_flag in sys.argv[1:]:
+            raise SystemExit(_manage_autostart_cli(_CLI_MGMT_FLAGS[_fast_flag]))
     _maybe_run_startup_auto_update()
+    for _upd_flag in ("--install-autostart", "--restart"):
+        if _upd_flag in sys.argv[1:]:
+            raise SystemExit(_manage_autostart_cli(_CLI_MGMT_FLAGS[_upd_flag]))
 
 
 @contextlib.asynccontextmanager
@@ -3509,6 +3660,7 @@ def start_recorder() -> subprocess.Popen | None:
     env = os.environ.copy()
     env.setdefault("RECORD_DIR", str(RECORD_DIR))
     env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUNBUFFERED", "1")
     print("автозапись: запускаю recorder/recorder.py", flush=True)
     kwargs: dict[str, Any] = {
         "env": env,
@@ -3528,7 +3680,10 @@ def start_recorder() -> subprocess.Popen | None:
 
 
 def main() -> None:
-    _configure_stdio_utf8()
+    global _ACTIVE_REC_PROC
+    _configure_stdio_utf8(mirror_console_to_log=True)
+    mode_label = "фоновый режим" if _HEADLESS_LOG_FH is not None else "консоль"
+    print(f"\n=== [{time.strftime('%Y-%m-%d %H:%M:%S')}] запуск krafen ({mode_label}, PID {os.getpid()}) ===", flush=True)
     with contextlib.suppress(OSError):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         PID_FILE_PATH.write_text(f"{os.getpid()}\n", encoding="utf-8")
@@ -3537,6 +3692,7 @@ def main() -> None:
     if not ADMIN_PASSWORD:
         print("ВНИМАНИЕ: ADMIN_PASSWORD не задан, вход в админ-режим отключён", flush=True)
     rec_proc = start_recorder() if os.environ.get("RECORDER") == "1" else None
+    _ACTIVE_REC_PROC = rec_proc
     print(f"krafen server → http://{HOST}:{PORT}", flush=True)
     print(f"статика: {ROOT}", flush=True)
     print(f"база данных: {DB_PATH}", flush=True)
@@ -3544,6 +3700,7 @@ def main() -> None:
     try:
         uvicorn.run(app, host=HOST, port=PORT, log_level="info")
     finally:
+        _ACTIVE_REC_PROC = None
         if _read_pid_file() == os.getpid():
             with contextlib.suppress(OSError):
                 PID_FILE_PATH.unlink(missing_ok=True)

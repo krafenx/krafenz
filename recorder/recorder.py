@@ -79,15 +79,26 @@ _load_dotenv(Path(__file__).resolve().parent / ".env")
 
 _WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
-if sys.stdout is None or sys.stderr is None:
+
+def _recorder_needs_log_file() -> bool:
+    if sys.stdout is None or sys.stderr is None:
+        return True
+    if Path(sys.executable).stem.lower().startswith(("pythonw", "pyw")):
+        return True
+    for s in (sys.stdout, sys.stderr):
+        name = str(getattr(s, "name", "") or "").lower()
+        if name in {"nul", "/dev/null"} or name.endswith(("\\nul", "/nul")):
+            return True
+    return False
+
+
+if _recorder_needs_log_file():
     try:
         _log_dir = ROOT_DIR / "data"
         _log_dir.mkdir(parents=True, exist_ok=True)
-        _rec_log = open(_log_dir / "recorder.log", "a", encoding="utf-8", buffering=1, errors="replace")
-        if sys.stdout is None:
-            sys.stdout = _rec_log
-        if sys.stderr is None:
-            sys.stderr = _rec_log
+        _rec_log = open(_log_dir / "server.log", "a", encoding="utf-8", buffering=1, errors="replace")
+        sys.stdout = _rec_log
+        sys.stderr = _rec_log
     except OSError:
         pass
 
