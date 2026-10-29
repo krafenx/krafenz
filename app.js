@@ -744,7 +744,15 @@
         };
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function onReady(fn) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fn, { once: true });
+        } else {
+            fn();
+        }
+    }
+
+    onReady(() => {
         initGrain();
         observeReveals();
         initRain();
@@ -755,6 +763,7 @@
     });
 
     window.KrafenUI = {
+        onReady,
         escapeHTML,
         safeHttpUrl,
         proxyImgUrl,
