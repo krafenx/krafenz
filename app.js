@@ -96,12 +96,11 @@
             return;
         }
         if (!revealObserver) {
+            // Двусторонний reveal: блок появляется при входе в экран и снова
+            // скрывается при уходе из него, поэтому при прокрутке вверх анимация повторяется.
             revealObserver = new IntersectionObserver((entries) => {
                 entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('visible');
-                        revealObserver.unobserve(entry.target);
-                    }
+                    entry.target.classList.toggle('visible', entry.isIntersecting);
                 });
             }, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
         }
