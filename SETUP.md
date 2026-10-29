@@ -36,7 +36,7 @@ chmod 600 .env
 
 - `HOST=127.0.0.1` и `PORT=8080` (при работе за reverse-proxy `nginx` или `Caddy`, либо `0.0.0.0` для прямого доступа)
 - `PUBLIC_ORIGIN=https://krafen.me` — публичный адрес сайта (используется для проверки Origin и OAuth redirect Spotify)
-- `ADMIN_PASSWORD` и случайный `SECRET_KEY` (`python3 -c "import secrets; print(secrets.token_hex(32))"`, если не задан — генерируется автоматически и сохраняется в `data/krafen.db`) — для входа в админ-режим коллекций
+- `ADMIN_PASSWORD` и случайный `SECRET_KEY` (`python3 -c "import secrets; print(secrets.token_hex(32))"`, если не задан — генерируется автоматически и сохраняется в `data/auth.db`) — для входа в админ-режим коллекций
 - `TMDB_ACCESS_TOKEN` (или `TMDB_API_KEY`) — поиск фильмов и сериалов в `/watchlist`
 - `TWITCH_CLIENT_ID` и `TWITCH_CLIENT_SECRET` — статус Twitch на главной, `/danonsha` и поиск игр в IGDB (`/gamelist`)
 - `SPOTIFY_CLIENT_ID` и `SPOTIFY_CLIENT_SECRET` — текущий трек со шкалой прогресса (см. [`SPOTIFY_SETUP.md`](SPOTIFY_SETUP.md))
