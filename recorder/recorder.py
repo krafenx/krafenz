@@ -73,11 +73,12 @@ CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
 RECORD_DIR = Path(os.environ.get("RECORD_DIR", ROOT_DIR / "vods"))
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 STREAMLINK_BIN = os.environ.get("STREAMLINK_BIN", "streamlink")
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 
 # --- облако и ротация ---
-# RCLONE_REMOTE="gdrive:vods" — после завершения записи папка улетает в облако
-# (rclone move), локальная копия удаляется. ПК держит только запись в процессе.
-RCLONE_REMOTE = os.environ.get("RCLONE_REMOTE", "")
+# RCLONE_REMOTE="gdrive:" или "gdrive:vods" — после завершения записи папка
+# улетает в облако (rclone move), локальная копия удаляется.
+RCLONE_REMOTE = os.environ.get("RCLONE_REMOTE", "").strip()
 RCLONE_BIN = os.environ.get("RCLONE_BIN", "rclone")
 # Сколько ГБ должно остаться свободно на диске: перед стартом записи старые
 # папки удаляются, пока места не станет достаточно (работает и без rclone).
@@ -111,6 +112,53 @@ def slugify(text: str) -> str:
     text = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
     text = re.sub(r"[\s_]+", "-", text.strip())
     return (text or "stream")[:60].strip("-") or "stream"
+
+
+def _resolve_bin(configured: str, default_name: str) -> str | None:
+    """Ищет исполняемый файл: явный путь, корень проекта, recorder/, .venv и PATH."""
+    raw = (configured or default_name).strip().strip('"').strip("'")
+    if raw:
+        cand = Path(raw)
+        if cand.is_file():
+            return str(cand.resolve())
+        rel = ROOT_DIR / raw
+        if rel.is_file():
+            return str(rel.resolve())
+        found_cfg = shutil.which(raw)
+        if found_cfg:
+            return found_cfg
+
+    stem = Path(default_name).stem
+    local_dirs = [
+        ROOT_DIR,
+        ROOT_DIR / "recorder",
+        ROOT_DIR / ".venv" / "Scripts",
+        ROOT_DIR / ".venv" / "bin",
+        ROOT_DIR / "venv" / "Scripts",
+        ROOT_DIR / "venv" / "bin",
+    ]
+    for d in local_dirs:
+        for ext in (".exe", ""):
+            p = d / f"{stem}{ext}"
+            if p.is_file():
+                return str(p.resolve())
+    return shutil.which(default_name)
+
+
+def _normalize_rclone_remote(remote: str) -> str:
+    r = (remote or "").strip().strip('"').strip("'")
+    if not r:
+        return ""
+    if ":" not in r:
+        return f"{r}:"
+    return r
+
+
+def _rclone_dest(remote: str, sub_name: str) -> str:
+    base = _normalize_rclone_remote(remote)
+    if base.endswith(":"):
+        return f"{base}{sub_name}"
+    return f"{base.rstrip('/')}/{sub_name}"
 
 
 # ------------------------- Twitch Helix API -----------------------------
@@ -340,26 +388,76 @@ def _format_size(num_bytes: int) -> str:
 
 def upload_to_cloud(folder: Path) -> bool:
     """rclone move папки записи в облако. True — успех, локальная копия снесена."""
-    if not RCLONE_REMOTE:
+    remote = _normalize_rclone_remote(RCLONE_REMOTE)
+    if not remote:
         return False
+    rclone_exe = _resolve_bin(RCLONE_BIN, "rclone")
+    if not rclone_exe:
+        log("cloud: rclone не найден (положите rclone.exe в папку проекта или добавьте в PATH) — запись остаётся локально")
+        return False
+    dest = _rclone_dest(remote, folder.name)
+    cmd = [
+        rclone_exe, "move", str(folder), dest,
+        "--delete-empty-src-dirs", "--transfers", "4", "--checkers", "8", "--stats-one-line", "-v",
+    ]
+    local_conf = ROOT_DIR / "rclone.conf"
+    if local_conf.is_file():
+        cmd.extend(["--config", str(local_conf)])
     try:
-        log(f"cloud: заливаю {folder.name} → {RCLONE_REMOTE} ...")
+        log(f"cloud: заливаю {folder.name} → {dest} ...")
         res = subprocess.run(
-            [RCLONE_BIN, "move", str(folder), f"{RCLONE_REMOTE}/{folder.name}",
-             "--delete-empty-src-dirs", "--transfers", "4", "--checkers", "8", "--stats-one-line", "-v"],
+            cmd,
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=None,
         )
         if res.returncode == 0:
             if folder.exists():
                 shutil.rmtree(folder, ignore_errors=True)
-            log(f"cloud: {folder.name} в облаке, локальная копия удалена")
+            log(f"cloud: {folder.name} загружена в Google Drive, локальная копия удалена")
             return True
-        log(f"cloud: ошибка rclone: {res.stderr.strip()[-300:]}")
-    except FileNotFoundError:
-        log("cloud: rclone не найден в PATH — запись остаётся локально")
+        err_tail = (res.stderr or res.stdout or "").strip()[-400:]
+        log(f"cloud: ошибка rclone (код {res.returncode}): {err_tail}")
     except Exception as exc:  # noqa: BLE001
         log(f"cloud: {exc}")
     return False
+
+
+def sync_pending_uploads() -> None:
+    """Дозагружает завершённые локальные записи (с meta.json), если прошлая выгрузка прервалась."""
+    if not _normalize_rclone_remote(RCLONE_REMOTE) or not RECORD_DIR.exists():
+        return
+    pending = sorted(
+        (p for p in RECORD_DIR.iterdir() if p.is_dir() and (p / "meta.json").is_file()),
+        key=lambda p: p.name,
+    )
+    for folder in pending:
+        if _stop_event.is_set():
+            break
+        upload_to_cloud(folder)
+
+
+def test_cloud_connection() -> int:
+    """Проверяет найденный rclone и доступ к RCLONE_REMOTE без ожидания стрима."""
+    rclone_exe = _resolve_bin(RCLONE_BIN, "rclone")
+    if not rclone_exe:
+        log("ОШИБКА: rclone не найден ни в папке проекта, ни в PATH.")
+        return 1
+    log(f"rclone найден: {rclone_exe}")
+    remote = _normalize_rclone_remote(RCLONE_REMOTE)
+    if not remote:
+        log("ОШИБКА: RCLONE_REMOTE не задан в .env (например: RCLONE_REMOTE=gdrive:)")
+        return 1
+    cmd = [rclone_exe, "lsd", remote, "--max-depth", "1"]
+    local_conf = ROOT_DIR / "rclone.conf"
+    if local_conf.is_file():
+        cmd.extend(["--config", str(local_conf)])
+    log(f"проверяю доступ к {remote} ...")
+    res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+    if res.returncode != 0:
+        log(f"ОШИБКА rclone: {(res.stderr or res.stdout or '').strip()}")
+        return 1
+    lines = [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip()]
+    log(f"УСПЕХ! Доступ к Google Drive ({remote}) работает, найдено подпапок: {len(lines)}")
+    return 0
 
 
 def tg_configured() -> bool:
@@ -368,9 +466,10 @@ def tg_configured() -> bool:
 
 def split_video(video: Path, max_bytes: float) -> list[Path]:
     """Разбить видео на части по ~max_bytes (нужен ffmpeg)."""
+    ffmpeg_exe = _resolve_bin(FFMPEG_BIN, "ffmpeg") or "ffmpeg"
     out_pattern = str(video.with_suffix(".part%03d.mp4"))
     subprocess.run(
-        ["ffmpeg", "-y", "-i", str(video), "-c", "copy", "-fs", str(int(max_bytes)), out_pattern],
+        [ffmpeg_exe, "-y", "-i", str(video), "-c", "copy", "-fs", str(int(max_bytes)), out_pattern],
         stdin=subprocess.DEVNULL, check=True, capture_output=True,
     )
     return sorted(video.parent.glob(video.stem + ".part*.mp4"))
@@ -405,7 +504,7 @@ def upload_to_telegram(folder: Path, meta: dict) -> bool:
             parts: list[Path] = [video]
             split_parts: list[Path] = []
             if video.exists() and video.stat().st_size > TG_SIZE_LIMIT:
-                if shutil.which("ffmpeg"):
+                if _resolve_bin(FFMPEG_BIN, "ffmpeg"):
                     log(f"telegram: видео {video.stat().st_size / 2**30:.1f} ГБ — разбиваю на части")
                     split_parts = split_video(video, TG_SIZE_LIMIT)
                     parts = split_parts
@@ -458,7 +557,7 @@ def remux_mpegts_to_mp4(video: Path) -> bool:
     # Если уже ISO BMFF MP4 (байты 4..8 == b'ftyp') — ничего делать не нужно
     if len(head) >= 8 and head[4:8] == b"ftyp":
         return False
-    ffmpeg_exe = shutil.which("ffmpeg")
+    ffmpeg_exe = _resolve_bin(FFMPEG_BIN, "ffmpeg")
     if not ffmpeg_exe:
         log("remux: ffmpeg не найден — video.mp4 остаётся в исходном MPEG-TS контейнере")
         return False
@@ -507,7 +606,8 @@ def remux_mpegts_to_mp4(video: Path) -> bool:
 
 def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
     """Извлекает кадр из записанного VOD с помощью ffmpeg."""
-    if not video.is_file() or not shutil.which("ffmpeg"):
+    ffmpeg_exe = _resolve_bin(FFMPEG_BIN, "ffmpeg")
+    if not video.is_file() or not ffmpeg_exe:
         return False
     seek_candidates = [min(180, max(5, duration_s // 5)) if duration_s > 10 else 2, 1]
     tmp = thumb.with_suffix(".tmp.jpg")
@@ -515,7 +615,7 @@ def extract_vod_thumbnail(video: Path, thumb: Path, duration_s: int) -> bool:
         try:
             subprocess.run(
                 [
-                    "ffmpeg", "-y",
+                    ffmpeg_exe, "-y",
                     "-ss", str(ss),
                     "-i", str(video),
                     "-frames:v", "1",
@@ -546,7 +646,7 @@ _stop_event = threading.Event()
 
 def record_session(stream: dict) -> None:
     global _active_proc
-    streamlink_exe = shutil.which(STREAMLINK_BIN)
+    streamlink_exe = _resolve_bin(STREAMLINK_BIN, "streamlink")
     if not streamlink_exe:
         log(f"streamlink ({STREAMLINK_BIN}) не найден в PATH — установите: pip install streamlink")
         _stop_event.wait(POLL_INTERVAL)
@@ -661,12 +761,21 @@ def _sigterm(_sig, _frm):
 
 
 def main() -> None:
+    if "--test-cloud" in sys.argv[1:]:
+        sys.exit(test_cloud_connection())
+
     if not CLIENT_ID or not CLIENT_SECRET:
         sys.exit("Задайте TWITCH_CLIENT_ID и TWITCH_CLIENT_SECRET "
                  "(dev.twitch.tv/console → Register Your Application)")
     RECORD_DIR.mkdir(parents=True, exist_ok=True)
     signal.signal(signal.SIGINT, _sigterm)
     signal.signal(signal.SIGTERM, _sigterm)
+
+    if _normalize_rclone_remote(RCLONE_REMOTE):
+        rc_path = _resolve_bin(RCLONE_BIN, "rclone")
+        log(f"облако: {_normalize_rclone_remote(RCLONE_REMOTE)} "
+            f"({'rclone: ' + rc_path if rc_path else 'ВНИМАНИЕ: rclone не найден!'})")
+        sync_pending_uploads()
 
     log(f"слежу за twitch.tv/{CHANNEL}...")
     while _running and not _stop_event.is_set():
@@ -679,6 +788,7 @@ def main() -> None:
                 log(f"ошибка сессии: {exc}")
                 _stop_event.wait(30)
         else:
+            sync_pending_uploads()
             _stop_event.wait(POLL_INTERVAL)
     log("остановлено")
 
