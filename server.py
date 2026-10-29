@@ -57,11 +57,17 @@ def load_dotenv(env_file: Path) -> None:
     if not env_file.is_file():
         return
     try:
-        lines = env_file.read_text(encoding="utf-8").splitlines()
+        raw = env_file.read_bytes()
     except OSError:
         return
-    for raw_line in lines:
-        line = raw_line.strip()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text_content = raw.decode("utf-16", errors="ignore")
+    else:
+        text_content = raw.decode("utf-8-sig", errors="ignore")
+        if "\x00" in text_content:
+            text_content = text_content.replace("\x00", "")
+    for raw_line in text_content.splitlines():
+        line = raw_line.strip().lstrip("\ufeff")
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
@@ -75,6 +81,8 @@ def load_dotenv(env_file: Path) -> None:
             continue
         if len(val) >= 2 and val[0] == val[-1] and val[0] in {'"', "'"}:
             val = val[1:-1]
+        elif " #" in val:
+            val = val.split(" #", 1)[0].strip()
         _DOTENV_VALUES[key] = val
         os.environ.setdefault(key, val)
 
