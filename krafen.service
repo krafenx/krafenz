@@ -12,8 +12,16 @@ Restart=always
 RestartSec=5
 User=krafen
 Group=krafen
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/krafen
 
 [Install]
 WantedBy=multi-user.target
