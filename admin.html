@@ -1087,6 +1087,15 @@
                 if (geo.ipinfo_last_ok === null || geo.ipinfo_last_ok === undefined) lastDl = 'попыток не было';
                 else if (geo.ipinfo_last_ok) lastDl = `успешно, ${ts(geo.ipinfo_last_attempt_ts)}`;
                 else lastDl = `ошибка, ${ts(geo.ipinfo_last_attempt_ts)}: ${escapeHTML(geo.ipinfo_last_error || '')}`;
+                const conn = geo.connections || {};
+                const connText = conn.total
+                    ? [
+                        `с доверенного прокси: <strong>${fmtInt(conn.trusted_peer || 0)}</strong>`,
+                        `с публичного адреса без доверия: <strong>${fmtInt(conn.public_untrusted_peer || 0)}</strong>`,
+                        `с приватного адреса без доверия: <strong>${fmtInt(conn.private_untrusted_peer || 0)}</strong>`,
+                        `заголовки X-Real-IP: ${fmtInt(conn.hdr_x_real_ip || 0)}, X-Forwarded-For: ${fmtInt(conn.hdr_x_forwarded_for || 0)}, CF-Connecting-IP: ${fmtInt(conn.hdr_cf_connecting_ip || 0)}, CF-IPCountry: ${fmtInt(conn.hdr_cf_ipcountry || 0)}`,
+                      ].join(' · ')
+                    : 'пока нет данных с последнего запуска';
                 const dbText = geo.ipinfo_db_exists
                     ? `есть, ${escapeHTML(fmtBytes(geo.ipinfo_db_bytes))}, обновлена ${ts(geo.ipinfo_db_updated_ts)}`
                     : 'нет файла';
@@ -1097,6 +1106,7 @@
                     <div class="geo-row">База IPinfo: ${dbText}</div>
                     <div class="geo-row">Последняя загрузка: ${lastDl}</div>
                     <div class="geo-row">С запуска сервера: ${srcText}</div>
+                    <div class="geo-row">Соединения (${fmtInt(conn.total || 0)}): ${connText}</div>
                 `;
             }
 
