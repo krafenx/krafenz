@@ -2403,6 +2403,11 @@ _geoip_lock = threading.Lock()
 _geo_stats_lock = threading.Lock()
 _geo_source_counts: dict[str, int] = {}
 _ipinfo_last: dict[str, Any] = {"attempt_ts": 0.0, "ok": None, "error": ""}
+# Счётчики для диагностики: откуда пришёл адрес посетителя (без самих адресов)
+_geo_conn_counts: dict[str, int] = {
+    "total": 0, "trusted_peer": 0, "public_untrusted_peer": 0, "private_untrusted_peer": 0,
+    "hdr_x_real_ip": 0, "hdr_x_forwarded_for": 0, "hdr_cf_connecting_ip": 0, "hdr_cf_ipcountry": 0,
+}
 
 
 def _geo_mask(message: str) -> str:
@@ -2420,6 +2425,32 @@ def _geo_count(source: str) -> None:
         _geo_source_counts[source] = _geo_source_counts.get(source, 0) + 1
 
 
+def _geo_note_connection(request: Request) -> None:
+    trusted = _is_trusted_proxy_peer(request)
+    peer = request.client.host if request.client else ""
+    try:
+        peer_public = not ipaddress.ip_address(peer).is_private and not ipaddress.ip_address(peer).is_loopback
+    except ValueError:
+        peer_public = False
+    with _geo_stats_lock:
+        c = _geo_conn_counts
+        c["total"] += 1
+        if trusted:
+            c["trusted_peer"] += 1
+        elif peer_public:
+            c["public_untrusted_peer"] += 1
+        else:
+            c["private_untrusted_peer"] += 1
+        for key, header in (
+            ("hdr_x_real_ip", "x-real-ip"),
+            ("hdr_x_forwarded_for", "x-forwarded-for"),
+            ("hdr_cf_connecting_ip", "cf-connecting-ip"),
+            ("hdr_cf_ipcountry", "cf-ipcountry"),
+        ):
+            if request.headers.get(header):
+                c[key] += 1
+
+
 def geo_status() -> dict[str, Any]:
     """Состояние географии для админки. Токен не возвращается, только его наличие."""
     try:
@@ -2429,6 +2460,7 @@ def geo_status() -> dict[str, Any]:
         db_exists, db_bytes, db_mtime = False, 0, 0
     with _geo_stats_lock:
         counts = dict(_geo_source_counts)
+        conn = dict(_geo_conn_counts)
     return {
         "maxminddb_installed": _maxminddb is not None,
         "geoip2fast_installed": _GeoIP2Fast is not None,
@@ -2440,6 +2472,7 @@ def geo_status() -> dict[str, Any]:
         "ipinfo_last_ok": _ipinfo_last["ok"],
         "ipinfo_last_error": _ipinfo_last["error"],
         "sources": counts,
+        "connections": conn,
     }
 
 
@@ -2572,6 +2605,7 @@ def _country_from_ip_db(ip: str) -> str:
 
 
 def _classify_country(request: Request, ip: str) -> str:
+    _geo_note_connection(request)
     if _is_trusted_proxy_peer(request):
         cc = (request.headers.get("cf-ipcountry") or "").strip().upper()
         if len(cc) == 2 and cc.isalpha() and cc != "XX":
