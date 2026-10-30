@@ -2372,6 +2372,35 @@ def _classify_referrer(ref: str, self_host: str) -> str:
     return host[:60]
 
 
+try:  # необязательная зависимость: без неё страна определяется только через Cloudflare
+    from geoip2fast import GeoIP2Fast as _GeoIP2Fast
+except ImportError:  # pragma: no cover
+    _GeoIP2Fast = None
+_geoip_db: Any = None
+_geoip_lock = threading.Lock()
+
+
+def _country_from_ip_db(ip: str) -> str:
+    """Страна по IP локальной базой (без обращений к внешним сервисам)."""
+    global _geoip_db
+    if _GeoIP2Fast is None:
+        return ""
+    if _geoip_db is None:
+        with _geoip_lock:
+            if _geoip_db is None:
+                try:
+                    _geoip_db = _GeoIP2Fast()
+                except Exception:
+                    _geoip_db = False
+    if not _geoip_db:
+        return ""
+    try:
+        cc = str(getattr(_geoip_db.lookup(ip), "country_code", "") or "").strip().upper()
+    except Exception:
+        return ""
+    return cc if len(cc) == 2 and cc.isalpha() and cc != "XX" else ""
+
+
 def _classify_country(request: Request, ip: str) -> str:
     if _is_trusted_proxy_peer(request):
         cc = (request.headers.get("cf-ipcountry") or "").strip().upper()
@@ -2381,7 +2410,7 @@ def _classify_country(request: Request, ip: str) -> str:
         addr = ipaddress.ip_address(ip)
         if addr.is_loopback or addr.is_private:
             return "LOCAL"
-    return "DIRECT"
+    return _country_from_ip_db(ip) or "DIRECT"
 
 
 def record_vod_stream_bytes(vod_id: str, byte_count: int) -> None:

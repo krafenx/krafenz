@@ -175,6 +175,7 @@ chmod 600 .env
    ```
 3. В панели **Cloudflare** направьте домен на сервер и включите **SSL/TLS → Full** (или **Full (strict)** при наличии SSL на origin) и **Always Use HTTPS**.
 4. **Доступность из РФ:** для отключения блокируемого на ТСПУ расширения **TLS ECH** и включения **HTTP/3 (QUIC)** на бесплатном тарифе Cloudflare выполните на ПК команду `py server.py --disable-cf-ech` (либо переключите DNS-запись на `DNS only` при использовании прямого reverse-proxy хостинга).
+5. **География посетителей без Cloudflare:** при `DNS only` (серое облако) заголовок `CF-IPCountry` не приходит. Страна тогда определяется локально по IP через `geoip2fast` (входит в `requirements.txt`, без внешних запросов). Если пакет не установлен, посетители попадают в «Прямое подключение», как раньше.
 
 ### Выделенный Linux VPS (`systemd` + `Caddy` / `Nginx`)
 Подробная пошаговая настройка сервиса `krafen.service` и обратного прокси с `proxy_buffering off` описана в [**`SETUP.md`**](SETUP.md), а подключение живого виджета Spotify — в [**`SPOTIFY_SETUP.md`**](SPOTIFY_SETUP.md).
@@ -239,4 +240,5 @@ chmod 600 .env
 ## 📄 Лицензия
 
 © 2026 **Krafen**. Все права защищены — подробности в файле [**`LICENSE`**](LICENSE).  
+Геоданные для статистики по странам: GeoLite2 Country, созданные [MaxMind](https://www.maxmind.com), через пакет `geoip2fast` (MIT).  
 Связь: [**@krafen в Telegram**](https://t.me/krafen).

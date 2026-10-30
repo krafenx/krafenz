@@ -1,3 +1,5 @@
 fastapi>=0.115
 uvicorn>=0.30
 requests>=2.32
+# География посетителей без Cloudflare (база GeoLite2 by MaxMind, см. README)
+geoip2fast>=1.2.2
