@@ -991,6 +991,7 @@ async def _app_lifespan(_app: FastAPI):
 
         loop.set_exception_handler(_win32_loop_exception_handler)
     _start_analytics_flusher()
+    _geo_startup_warnings()
     _start_ipinfo_updater()
     _start_drive_vods_poller()
     try:
@@ -2399,10 +2400,56 @@ _geoip_db: Any = None
 _geoip_lock = threading.Lock()
 
 
-def _geo_log(message: str) -> None:
+_geo_stats_lock = threading.Lock()
+_geo_source_counts: dict[str, int] = {}
+_ipinfo_last: dict[str, Any] = {"attempt_ts": 0.0, "ok": None, "error": ""}
+
+
+def _geo_mask(message: str) -> str:
     if IPINFO_TOKEN:
         message = message.replace(IPINFO_TOKEN, "***")
-    print(f"[geo] {message}", flush=True)
+    return message
+
+
+def _geo_log(message: str) -> None:
+    print(f"[geo] {_geo_mask(message)}", flush=True)
+
+
+def _geo_count(source: str) -> None:
+    with _geo_stats_lock:
+        _geo_source_counts[source] = _geo_source_counts.get(source, 0) + 1
+
+
+def geo_status() -> dict[str, Any]:
+    """Состояние географии для админки. Токен не возвращается, только его наличие."""
+    try:
+        st = IPINFO_DB_PATH.stat()
+        db_exists, db_bytes, db_mtime = True, st.st_size, int(st.st_mtime)
+    except OSError:
+        db_exists, db_bytes, db_mtime = False, 0, 0
+    with _geo_stats_lock:
+        counts = dict(_geo_source_counts)
+    return {
+        "maxminddb_installed": _maxminddb is not None,
+        "geoip2fast_installed": _GeoIP2Fast is not None,
+        "ipinfo_token_set": bool(IPINFO_TOKEN),
+        "ipinfo_db_exists": db_exists,
+        "ipinfo_db_bytes": db_bytes,
+        "ipinfo_db_updated_ts": db_mtime,
+        "ipinfo_last_attempt_ts": int(_ipinfo_last["attempt_ts"] or 0),
+        "ipinfo_last_ok": _ipinfo_last["ok"],
+        "ipinfo_last_error": _ipinfo_last["error"],
+        "sources": counts,
+    }
+
+
+def _geo_startup_warnings() -> None:
+    if _maxminddb is None:
+        _geo_log("не установлен maxminddb: выполните pip install -r requirements.txt")
+    if _GeoIP2Fast is None:
+        _geo_log("не установлен geoip2fast: выполните pip install -r requirements.txt")
+    if not IPINFO_TOKEN:
+        _geo_log("IPINFO_TOKEN не задан: база IPinfo Lite не загружается, используется резерв")
 
 
 def _ipinfo_get_reader() -> Any:
@@ -2426,17 +2473,24 @@ def _ipinfo_get_reader() -> Any:
     return _ipinfo_reader
 
 
+def _ipinfo_fail(message: str) -> None:
+    _ipinfo_last["ok"] = False
+    _ipinfo_last["error"] = _geo_mask(message)[:200]
+    _geo_log(f"IPinfo Lite: ошибка загрузки ({_geo_mask(message)})")
+
+
 def _ipinfo_download_once() -> bool:
     """Скачивает ipinfo_lite.mmdb по токену (302 → CDN) и атомарно заменяет файл."""
     if not IPINFO_TOKEN or _maxminddb is None:
         return False
     tmp = IPINFO_DB_PATH.with_name(IPINFO_DB_PATH.name + ".part")
     url = IPINFO_URL_TEMPLATE.format(token=quote(IPINFO_TOKEN, safe=""))
+    _ipinfo_last["attempt_ts"] = time.time()
     try:
         # requests следует за редиректом и не передаёт токен на CDN
         with requests.get(url, stream=True, timeout=(10, 180), headers={"User-Agent": "krafen-geo/1.0"}) as resp:
             if resp.status_code != 200:
-                _geo_log(f"IPinfo Lite: HTTP {resp.status_code} (проверьте IPINFO_TOKEN)")
+                _ipinfo_fail(f"HTTP {resp.status_code} (проверьте IPINFO_TOKEN)")
                 return False
             with open(tmp, "wb") as fh:
                 for chunk in resp.iter_content(chunk_size=1 << 16):
@@ -2449,10 +2503,12 @@ def _ipinfo_download_once() -> bool:
         finally:
             check.close()
         os.replace(tmp, IPINFO_DB_PATH)
+        _ipinfo_last["ok"] = True
+        _ipinfo_last["error"] = ""
         _geo_log("IPinfo Lite: база обновлена")
         return True
     except Exception as exc:
-        _geo_log(f"IPinfo Lite: ошибка загрузки ({type(exc).__name__}: {str(exc)[:160]})")
+        _ipinfo_fail(f"{type(exc).__name__}: {str(exc)[:160]}")
         with contextlib.suppress(OSError):
             tmp.unlink()
         return False
@@ -2492,6 +2548,7 @@ def _country_from_ip_db(ip: str) -> str:
         except Exception:
             cc = ""
         if valid(cc):
+            _geo_count("ipinfo")
             return cc
     if _GeoIP2Fast is None:
         return ""
@@ -2508,19 +2565,27 @@ def _country_from_ip_db(ip: str) -> str:
         cc = str(getattr(_geoip_db.lookup(ip), "country_code", "") or "").strip().upper()
     except Exception:
         return ""
-    return cc if valid(cc) else ""
+    if valid(cc):
+        _geo_count("geoip2fast")
+        return cc
+    return ""
 
 
 def _classify_country(request: Request, ip: str) -> str:
     if _is_trusted_proxy_peer(request):
         cc = (request.headers.get("cf-ipcountry") or "").strip().upper()
         if len(cc) == 2 and cc.isalpha() and cc != "XX":
+            _geo_count("cloudflare")
             return cc
     with contextlib.suppress(ValueError):
         addr = ipaddress.ip_address(ip)
         if addr.is_loopback or addr.is_private:
+            _geo_count("local")
             return "LOCAL"
-    return _country_from_ip_db(ip) or "DIRECT"
+    cc = _country_from_ip_db(ip)
+    if not cc:
+        _geo_count("unresolved")
+    return cc or "DIRECT"
 
 
 def record_vod_stream_bytes(vod_id: str, byte_count: int) -> None:
@@ -3677,6 +3742,7 @@ def admin_overview(request: Request, days: int = 14) -> JSONResponse:
                 "api_mem_entries": api_cache_count,
                 "rate_buckets": rate_buckets_count,
             },
+            "geo": geo_status(),
             "system": {
                 "python": platform.python_version(),
                 "platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
