@@ -18,6 +18,7 @@ rclone.conf
 # SQLite secrets, WAL sidecars & recordings
 data/auth.db*
 data/analytics.db*
+data/ipinfo_lite.mmdb*
 data/*.db-wal
 data/*.db-shm
 data/*.log*

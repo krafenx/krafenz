@@ -1,3 +1,6 @@
 fastapi>=0.115
 uvicorn>=0.30
 requests>=2.32
+# География посетителей без Cloudflare: IPinfo Lite (MMDB) и резерв geoip2fast, см. README
+maxminddb>=2.5
+geoip2fast>=1.2.2
