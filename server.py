@@ -991,6 +991,7 @@ async def _app_lifespan(_app: FastAPI):
 
         loop.set_exception_handler(_win32_loop_exception_handler)
     _start_analytics_flusher()
+    _start_ipinfo_updater()
     _start_drive_vods_poller()
     try:
         yield
@@ -2372,17 +2373,126 @@ def _classify_referrer(ref: str, self_host: str) -> str:
     return host[:60]
 
 
+# --- География посетителей без Cloudflare ----------------------------------
+# Основной источник: IPinfo Lite (MMDB, обновляется ежедневно), нужен IPINFO_TOKEN.
+# Резерв (и работа без токена): встроенная база geoip2fast.
+# Лицензия IPinfo Lite: CC BY-SA 4.0, см. README.
+try:  # необязательная зависимость: без неё используется только резерв
+    import maxminddb as _maxminddb
+except ImportError:  # pragma: no cover
+    _maxminddb = None
 try:  # необязательная зависимость: без неё страна определяется только через Cloudflare
     from geoip2fast import GeoIP2Fast as _GeoIP2Fast
 except ImportError:  # pragma: no cover
     _GeoIP2Fast = None
+
+IPINFO_TOKEN = (os.environ.get("IPINFO_TOKEN") or "").strip()
+IPINFO_DB_PATH = DATA_DIR / "ipinfo_lite.mmdb"
+IPINFO_URL_TEMPLATE = "https://ipinfo.io/data/ipinfo_lite.mmdb?token={token}"
+IPINFO_MAX_AGE_SEC = 24 * 3600
+IPINFO_CHECK_SEC = 3600
+_ipinfo_reader: Any = None
+_ipinfo_reader_mtime = 0.0
+_ipinfo_lock = threading.Lock()
+_ipinfo_updater_started = False
 _geoip_db: Any = None
 _geoip_lock = threading.Lock()
 
 
+def _geo_log(message: str) -> None:
+    if IPINFO_TOKEN:
+        message = message.replace(IPINFO_TOKEN, "***")
+    print(f"[geo] {message}", flush=True)
+
+
+def _ipinfo_get_reader() -> Any:
+    global _ipinfo_reader, _ipinfo_reader_mtime
+    if _maxminddb is None:
+        return None
+    try:
+        mtime = IPINFO_DB_PATH.stat().st_mtime
+    except OSError:
+        return None
+    if _ipinfo_reader is not None and mtime == _ipinfo_reader_mtime:
+        return _ipinfo_reader
+    with _ipinfo_lock:
+        if _ipinfo_reader is not None and mtime == _ipinfo_reader_mtime:
+            return _ipinfo_reader
+        try:
+            _ipinfo_reader = _maxminddb.open_database(str(IPINFO_DB_PATH))
+            _ipinfo_reader_mtime = mtime
+        except Exception as exc:
+            _geo_log(f"не удалось открыть {IPINFO_DB_PATH.name}: {type(exc).__name__}")
+    return _ipinfo_reader
+
+
+def _ipinfo_download_once() -> bool:
+    """Скачивает ipinfo_lite.mmdb по токену (302 → CDN) и атомарно заменяет файл."""
+    if not IPINFO_TOKEN or _maxminddb is None:
+        return False
+    tmp = IPINFO_DB_PATH.with_name(IPINFO_DB_PATH.name + ".part")
+    url = IPINFO_URL_TEMPLATE.format(token=quote(IPINFO_TOKEN, safe=""))
+    try:
+        # requests следует за редиректом и не передаёт токен на CDN
+        with requests.get(url, stream=True, timeout=(10, 180), headers={"User-Agent": "krafen-geo/1.0"}) as resp:
+            if resp.status_code != 200:
+                _geo_log(f"IPinfo Lite: HTTP {resp.status_code} (проверьте IPINFO_TOKEN)")
+                return False
+            with open(tmp, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=1 << 16):
+                    if chunk:
+                        fh.write(chunk)
+        check = _maxminddb.open_database(str(tmp))
+        try:
+            if not check.get("8.8.8.8"):
+                raise ValueError("база пустая или повреждена")
+        finally:
+            check.close()
+        os.replace(tmp, IPINFO_DB_PATH)
+        _geo_log("IPinfo Lite: база обновлена")
+        return True
+    except Exception as exc:
+        _geo_log(f"IPinfo Lite: ошибка загрузки ({type(exc).__name__}: {str(exc)[:160]})")
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        return False
+
+
+def _ipinfo_needs_update() -> bool:
+    try:
+        return time.time() - IPINFO_DB_PATH.stat().st_mtime >= IPINFO_MAX_AGE_SEC
+    except OSError:
+        return True
+
+
+def _start_ipinfo_updater() -> None:
+    global _ipinfo_updater_started
+    if _ipinfo_updater_started or not IPINFO_TOKEN:
+        return
+    _ipinfo_updater_started = True
+
+    def _worker() -> None:
+        while True:
+            if _ipinfo_needs_update():
+                _ipinfo_download_once()
+            time.sleep(IPINFO_CHECK_SEC)
+
+    threading.Thread(target=_worker, name="krafen-ipinfo-updater", daemon=True).start()
+
+
 def _country_from_ip_db(ip: str) -> str:
-    """Страна по IP локальной базой (без обращений к внешним сервисам)."""
+    """Страна по IP локально (IPinfo Lite, затем geoip2fast). Внешних запросов нет."""
     global _geoip_db
+    valid = lambda cc: len(cc) == 2 and cc.isalpha() and cc != "XX"  # noqa: E731
+    reader = _ipinfo_get_reader()
+    if reader is not None:
+        try:
+            rec = reader.get(ip)
+            cc = str(rec.get("country_code") or "").strip().upper() if isinstance(rec, dict) else ""
+        except Exception:
+            cc = ""
+        if valid(cc):
+            return cc
     if _GeoIP2Fast is None:
         return ""
     if _geoip_db is None:
@@ -2398,7 +2508,7 @@ def _country_from_ip_db(ip: str) -> str:
         cc = str(getattr(_geoip_db.lookup(ip), "country_code", "") or "").strip().upper()
     except Exception:
         return ""
-    return cc if len(cc) == 2 and cc.isalpha() and cc != "XX" else ""
+    return cc if valid(cc) else ""
 
 
 def _classify_country(request: Request, ip: str) -> str:
