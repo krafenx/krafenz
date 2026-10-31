@@ -4,7 +4,6 @@
    ========================================================================== */
 (() => {
     const ATMO_KEY = 'krafen-atmo';
-    const HEART_KEY = 'krafen-heart';
 
     document.querySelectorAll('link[data-async-css]').forEach((el) => {
         el.media = 'all';
@@ -311,17 +310,6 @@
     }
 
     function initDock() {
-        const heart = document.getElementById('heart');
-        if (heart) {
-            try {
-                if (localStorage.getItem(HEART_KEY) === '1') heart.classList.add('loved');
-            } catch {}
-            heart.addEventListener('click', () => {
-                const loved = heart.classList.toggle('loved');
-                try { localStorage.setItem(HEART_KEY, loved ? '1' : '0'); } catch {}
-            });
-        }
-
         try {
             const saved = localStorage.getItem(ATMO_KEY);
             if (saved !== null) setAtmo(saved === '1', false);
