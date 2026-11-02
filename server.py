@@ -1945,13 +1945,19 @@ def clean_string_array(value: Any, max_items: int, max_text: int) -> list[str]:
 
 
 def clean_tags(value: Any, max_items: int = MAX_TAGS, max_len: int = MAX_TAG_LEN) -> list[str]:
-    """Теги: обрезаем, схлопываем пробелы, убираем дубли без учёта регистра."""
+    """Теги: обрезаем, схлопываем пробелы, убираем дубли без учёта регистра.
+
+    Принимаем только строки: числа, вложенные массивы и объекты из JSON отбрасываются,
+    чтобы в коллекцию не попадали артефакты вроде "['x']".
+    """
     if not isinstance(value, list):
         return []
     result: list[str] = []
     seen: set[str] = set()
     for raw in value:
-        tag = " ".join(str(raw or "").split())[:max_len].strip()
+        if not isinstance(raw, str):
+            continue
+        tag = " ".join(raw.split())[:max_len].strip()
         key = tag.casefold()
         if not tag or key in seen:
             continue
@@ -3268,7 +3274,12 @@ def make_put_list(name: str):
             return j({"error": "revision_required", "items": state["items"], "revision": state["revision"]}, 409)
 
         normalizer = NORMALIZERS[name]
-        raw_items = body.get("items") if isinstance(body.get("items"), list) else []
+        raw_items = body.get("items")
+        # Некорректный items не должен молча затирать коллекцию: пустой список — это
+        # осознанное удаление всех записей, а строка/объект/null — ошибка клиента.
+        if not isinstance(raw_items, list):
+            state = read_list(name, use_cache=False)
+            return j({"error": "items_required", "items": state["items"], "revision": state["revision"]}, 400)
         items = [normalizer(item) for item in raw_items]
         items = [item for item in items if item][: LIST_SPECS[name]["max_items"]]
 
@@ -4173,9 +4184,9 @@ def admin_spotify_disconnect(request: Request) -> JSONResponse:
     tokens = read_tokens()
     tokens.pop("spotify_refresh_token", None)
     write_tokens(tokens)
-    _spotify_mem.clear()
     with _api_cache_lock:
-        _api_cache.pop("spotify_now", None)
+        for key in ("spotify", "spotify_now", "lastfm"):
+            _api_cache.pop(key, None)
     log_admin_event(request, "spotify_disconnect", "ok", "Отключён токен Spotify")
     return j({"ok": True})
 
@@ -4228,6 +4239,11 @@ def admin_import_backup(request: Request, body: dict[str, Any]) -> JSONResponse:
                     continue
                 norm_fn = NORMALIZERS[spec["normalizer"]]
                 cleaned = [x for x in (norm_fn(it) for it in raw_items) if x is not None][: spec["max_items"]]
+                # Непустой бэкап, из которого не выжила ни одна запись, — это повреждённый
+                # файл, а не намеренная очистка: иначе импорт молча стирает коллекцию.
+                if raw_items and not cleaned:
+                    conn.execute("ROLLBACK")
+                    return j({"error": "invalid_items", "collection": name}, 400)
                 row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
                 next_rev = (max(0, int(row["revision"] or 0)) if row else 0) + 1
                 stored = _write_collection_items(conn, name, cleaned)

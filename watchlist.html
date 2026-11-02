@@ -515,7 +515,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, TAG_LIMIT, TAG_MAX_LEN } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, sanitizeItems, TAG_LIMIT, TAG_MAX_LEN } = window.KrafenUI;
 
             const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
             const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };
@@ -601,7 +601,7 @@
                     const res = await fetch('/api/watchlist', { headers: { Accept: 'application/json' } });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.error || 'fetch_failed');
-                    list = Array.isArray(data.items) ? data.items : [];
+                    list = sanitizeItems(data.items);
                     listRevision = safeRevision(data.revision);
                 } catch {
                     list = [];

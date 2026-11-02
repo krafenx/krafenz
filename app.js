@@ -578,27 +578,40 @@
         }
     }
 
+    // Обработчики закрытия модалок навешиваются один раз на документ (делегирование),
+    // а колбэки страниц хранятся в списке. Повторный вызов не дублирует обработчики,
+    // и динамически добавленные модалки тоже работают.
+    let _modalDismissBound = false;
+    const _modalCloseCallbacks = [];
+
     function bindModalDismiss(onClose) {
-        document.querySelectorAll('[data-close]').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                const id = btn.dataset.close;
+        if (typeof onClose === "function" && !_modalCloseCallbacks.includes(onClose)) {
+            _modalCloseCallbacks.push(onClose);
+        }
+        if (_modalDismissBound) return;
+        _modalDismissBound = true;
+
+        const notify = (id) => _modalCloseCallbacks.forEach((cb) => cb(id));
+
+        document.addEventListener("click", (e) => {
+            const closeBtn = e.target.closest("[data-close]");
+            if (closeBtn) {
+                const id = closeBtn.dataset.close;
                 closeModal(id);
-                if (onClose) onClose(id);
-            });
+                notify(id);
+                return;
+            }
+            if (e.target.classList.contains("modal")) {
+                closeModal(e.target.id);
+                notify(e.target.id);
+            }
         });
-        document.querySelectorAll('.modal').forEach((modal) => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    closeModal(modal.id);
-                    if (onClose) onClose(modal.id);
-                }
-            });
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key !== 'Escape') return;
-            document.querySelectorAll('.modal.open').forEach((modal) => {
+
+        document.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape") return;
+            Array.from(document.querySelectorAll(".modal.open")).forEach((modal) => {
                 closeModal(modal.id);
-                if (onClose) onClose(modal.id);
+                notify(modal.id);
             });
         });
     }
@@ -743,6 +756,13 @@
     const TAG_LIMIT = 12;
     const TAG_MAX_LEN = 28;
 
+    /** Оставляем только объекты с непустым строковым id — остальное отбрасываем,
+     *  чтобы битый ответ API не ломал рендер (sort/filter по null). */
+    function sanitizeItems(value) {
+        if (!Array.isArray(value)) return [];
+        return value.filter((item) => item && typeof item === "object" && typeof item.id === "string" && item.id);
+    }
+
     function normalizeTag(raw, maxLen = TAG_MAX_LEN) {
         return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, maxLen);
     }
@@ -842,6 +862,7 @@
         closeModal,
         bindModalDismiss,
         createAdminController,
+        sanitizeItems,
         normalizeTag,
         normalizeTags,
         addTag,

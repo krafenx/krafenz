@@ -6,10 +6,10 @@ CREATE TABLE IF NOT EXISTS collection_meta (
     revision INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
 );
-INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('watchlist', 46, 1793657938);
-INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('gamelist', 2, 1793657839);
-INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('setup', 15, 1793210776);
-INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('wishlist', 8, 1793657896);
+INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('watchlist', 73, 1793659098);
+INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('gamelist', 10, 1793659103);
+INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('setup', 17, 1793659050);
+INSERT OR REPLACE INTO "collection_meta" (name, revision, updated_at) VALUES('wishlist', 16, 1793659108);
 
 CREATE TABLE IF NOT EXISTS drive_vods (
     id TEXT PRIMARY KEY,
