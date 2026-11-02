@@ -578,27 +578,40 @@
         }
     }
 
+    // Обработчики закрытия модалок навешиваются один раз на документ (делегирование),
+    // а колбэки страниц хранятся в списке. Повторный вызов не дублирует обработчики,
+    // и динамически добавленные модалки тоже работают.
+    let _modalDismissBound = false;
+    const _modalCloseCallbacks = [];
+
     function bindModalDismiss(onClose) {
-        document.querySelectorAll('[data-close]').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                const id = btn.dataset.close;
+        if (typeof onClose === "function" && !_modalCloseCallbacks.includes(onClose)) {
+            _modalCloseCallbacks.push(onClose);
+        }
+        if (_modalDismissBound) return;
+        _modalDismissBound = true;
+
+        const notify = (id) => _modalCloseCallbacks.forEach((cb) => cb(id));
+
+        document.addEventListener("click", (e) => {
+            const closeBtn = e.target.closest("[data-close]");
+            if (closeBtn) {
+                const id = closeBtn.dataset.close;
                 closeModal(id);
-                if (onClose) onClose(id);
-            });
+                notify(id);
+                return;
+            }
+            if (e.target.classList.contains("modal")) {
+                closeModal(e.target.id);
+                notify(e.target.id);
+            }
         });
-        document.querySelectorAll('.modal').forEach((modal) => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    closeModal(modal.id);
-                    if (onClose) onClose(modal.id);
-                }
-            });
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key !== 'Escape') return;
-            document.querySelectorAll('.modal.open').forEach((modal) => {
+
+        document.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape") return;
+            Array.from(document.querySelectorAll(".modal.open")).forEach((modal) => {
                 closeModal(modal.id);
-                if (onClose) onClose(modal.id);
+                notify(modal.id);
             });
         });
     }
@@ -739,6 +752,94 @@
         }
     }
 
+    /* ---------- коллекции: теги, избранное и экспорт ---------- */
+    const TAG_LIMIT = 12;
+    const TAG_MAX_LEN = 28;
+
+    /** Оставляем только объекты с непустым строковым id — остальное отбрасываем,
+     *  чтобы битый ответ API не ломал рендер (sort/filter по null). */
+    function sanitizeItems(value) {
+        if (!Array.isArray(value)) return [];
+        return value.filter((item) => item && typeof item === "object" && typeof item.id === "string" && item.id);
+    }
+
+    function normalizeTag(raw, maxLen = TAG_MAX_LEN) {
+        return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, maxLen);
+    }
+
+    function normalizeTags(value, limit = TAG_LIMIT) {
+        if (!Array.isArray(value)) return [];
+        const out = [];
+        const seen = new Set();
+        for (const raw of value) {
+            const tag = normalizeTag(raw);
+            const key = tag.toLowerCase();
+            if (!tag || seen.has(key)) continue;
+            seen.add(key);
+            out.push(tag);
+            if (out.length >= limit) break;
+        }
+        return out;
+    }
+
+    function addTag(tags, raw, limit = TAG_LIMIT) {
+        const list = Array.isArray(tags) ? tags.slice() : [];
+        const tag = normalizeTag(raw);
+        if (!tag || list.length >= limit) return list;
+        if (list.some((t) => String(t).toLowerCase() === tag.toLowerCase())) return list;
+        list.push(tag);
+        return list;
+    }
+
+    function collectTags(items) {
+        const map = new Map();
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            (Array.isArray(item?.tags) ? item.tags : []).forEach((tag) => {
+                const key = String(tag).toLowerCase();
+                if (!map.has(key)) map.set(key, String(tag));
+            });
+        });
+        return [...map.values()].sort((a, b) => a.localeCompare(b, 'ru'));
+    }
+
+    function matchesTags(item, selected) {
+        const wanted = (Array.isArray(selected) ? selected : []).map((t) => String(t).toLowerCase());
+        if (!wanted.length) return true;
+        const own = (Array.isArray(item?.tags) ? item.tags : []).map((t) => String(t).toLowerCase());
+        return wanted.every((tag) => own.includes(tag));
+    }
+
+    function downloadJson(filename, payload) {
+        try {
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function exportCollection(collection, items, revision) {
+        const stamp = new Date().toISOString().slice(0, 10);
+        const ok = downloadJson(`krafen-${collection}-${stamp}.json`, {
+            format: 'krafen.collection.v1',
+            collection,
+            exportedAt: new Date().toISOString(),
+            revision: Number(revision) || 0,
+            items: Array.isArray(items) ? items : [],
+        });
+        if (ok) toast(`Экспортировано записей: ${Array.isArray(items) ? items.length : 0}`);
+        else toast('Не удалось создать файл экспорта', '#fca5a5');
+        return ok;
+    }
+
     onReady(() => {
         initGrain();
         observeReveals();
@@ -761,5 +862,15 @@
         closeModal,
         bindModalDismiss,
         createAdminController,
+        sanitizeItems,
+        normalizeTag,
+        normalizeTags,
+        addTag,
+        collectTags,
+        matchesTags,
+        downloadJson,
+        exportCollection,
+        TAG_LIMIT,
+        TAG_MAX_LEN,
     };
 })();

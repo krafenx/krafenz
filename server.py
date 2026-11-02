@@ -1017,6 +1017,11 @@ VALID_CURRENCIES = {"RUB", "USD", "EUR"}
 VALID_WISH_PRIORITIES = {1, 2, 3}
 ITEM_ID_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,120}$")
 
+# Расширения коллекций: теги, избранное, оценки и рецензии watchlist
+MAX_TAGS = 12
+MAX_TAG_LEN = 28
+MAX_WATCHLIST_RATING = 10
+
 MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -1091,6 +1096,10 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     type TEXT NOT NULL,
     status TEXT NOT NULL,
     poster TEXT,
+    rating INTEGER NOT NULL DEFAULT 0,
+    review TEXT NOT NULL DEFAULT '',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    favorite INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -1108,6 +1117,8 @@ CREATE TABLE IF NOT EXISTS gamelist_items (
     genres_json TEXT NOT NULL DEFAULT '[]',
     platforms_json TEXT NOT NULL DEFAULT '[]',
     category INTEGER NOT NULL DEFAULT 0,
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    favorite INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -1138,6 +1149,8 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
     note TEXT NOT NULL DEFAULT '',
     link TEXT NOT NULL DEFAULT '',
     image TEXT NOT NULL DEFAULT '',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    favorite INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -1201,6 +1214,16 @@ def _normalize_legacy_list(value: Any) -> dict[str, Any]:
     return {"revision": 0, "items": []}
 
 
+def _load_tags(raw: Any) -> list[str]:
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return []
+    if not isinstance(value, list):
+        return []
+    return [str(t) for t in value if isinstance(t, str) and t.strip()][:MAX_TAGS]
+
+
 def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[str, Any]]:
     if name == "watchlist":
         rows = conn.execute("SELECT * FROM watchlist_items ORDER BY pos ASC").fetchall()
@@ -1213,6 +1236,10 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
                 "type": r["type"],
                 "status": r["status"],
                 "poster": r["poster"] or None,
+                "rating": int(r["rating"] or 0),
+                "review": r["review"] or "",
+                "tags": _load_tags(r["tags_json"]),
+                "favorite": bool(r["favorite"]),
                 "addedAt": int(r["added_at"]),
                 "updatedAt": int(r["updated_at"]),
             }
@@ -1243,6 +1270,8 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
                     "genres": genres if isinstance(genres, list) else [],
                     "platforms": platforms if isinstance(platforms, list) else [],
                     "category": int(r["category"] or 0),
+                    "tags": _load_tags(r["tags_json"]),
+                    "favorite": bool(r["favorite"]),
                     "addedAt": int(r["added_at"]),
                     "updatedAt": int(r["updated_at"]),
                 }
@@ -1279,6 +1308,8 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
                 "note": r["note"] or "",
                 "link": r["link"] or "",
                 "image": r["image"] or "",
+                "tags": _load_tags(r["tags_json"]),
+                "favorite": bool(r["favorite"]),
                 "addedAt": int(r["added_at"]),
                 "updatedAt": int(r["updated_at"]),
             }
@@ -1301,8 +1332,11 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
         conn.execute("DELETE FROM watchlist_items")
         conn.executemany(
             """
-            INSERT INTO watchlist_items (pos, id, title, title_ru, year, type, status, poster, added_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO watchlist_items (
+                pos, id, title, title_ru, year, type, status, poster,
+                rating, review, tags_json, favorite, added_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1314,6 +1348,10 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
                     it["type"],
                     it["status"],
                     it.get("poster"),
+                    max(0, min(10, int(it.get("rating") or 0))),
+                    it.get("review") or "",
+                    json.dumps(it.get("tags") or [], ensure_ascii=False, separators=(",", ":")),
+                    1 if it.get("favorite") else 0,
                     int(it.get("addedAt") or 0),
                     int(it.get("updatedAt") or 0),
                 )
@@ -1326,9 +1364,9 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
             """
             INSERT INTO gamelist_items (
                 pos, id, igdb_id, title, year, status, rating, review, cover,
-                genres_json, platforms_json, category, added_at, updated_at
+                genres_json, platforms_json, category, tags_json, favorite, added_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1344,6 +1382,8 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
                     json.dumps(it.get("genres") or [], ensure_ascii=False, separators=(",", ":")),
                     json.dumps(it.get("platforms") or [], ensure_ascii=False, separators=(",", ":")),
                     int(it.get("category") or 0),
+                    json.dumps(it.get("tags") or [], ensure_ascii=False, separators=(",", ":")),
+                    1 if it.get("favorite") else 0,
                     int(it.get("addedAt") or 0),
                     int(it.get("updatedAt") or 0),
                 )
@@ -1379,9 +1419,10 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
         conn.executemany(
             """
             INSERT INTO wishlist_items (
-                pos, id, title, category, status, priority, price, currency, note, link, image, added_at, updated_at
+                pos, id, title, category, status, priority, price, currency, note, link, image,
+                tags_json, favorite, added_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1396,6 +1437,8 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
                     it.get("note") or "",
                     it.get("link") or "",
                     it.get("image") or "",
+                    json.dumps(it.get("tags") or [], ensure_ascii=False, separators=(",", ":")),
+                    1 if it.get("favorite") else 0,
                     int(it.get("addedAt") or 0),
                     int(it.get("updatedAt") or 0),
                 )
@@ -1901,6 +1944,30 @@ def clean_string_array(value: Any, max_items: int, max_text: int) -> list[str]:
     return [text(item, max_text) for item in value if text(item, max_text)][:max_items]
 
 
+def clean_tags(value: Any, max_items: int = MAX_TAGS, max_len: int = MAX_TAG_LEN) -> list[str]:
+    """Теги: обрезаем, схлопываем пробелы, убираем дубли без учёта регистра.
+
+    Принимаем только строки: числа, вложенные массивы и объекты из JSON отбрасываются,
+    чтобы в коллекцию не попадали артефакты вроде "['x']".
+    """
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, str):
+            continue
+        tag = " ".join(raw.split())[:max_len].strip()
+        key = tag.casefold()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        result.append(tag)
+        if len(result) >= max_items:
+            break
+    return result
+
+
 def normalize_watchlist_item(item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
@@ -1910,6 +1977,7 @@ def normalize_watchlist_item(item: Any) -> dict[str, Any] | None:
     status = text(item.get("status"), 20)
     if not ITEM_ID_PATTERN.fullmatch(item_id) or not title or item_type not in VALID_TYPES or status not in VALID_STATUSES:
         return None
+    review = text(item.get("review"), 5000)
     now = int(time.time() * 1000)
     return {
         "id": item_id,
@@ -1919,6 +1987,10 @@ def normalize_watchlist_item(item: Any) -> dict[str, Any] | None:
         "type": item_type,
         "status": status,
         "poster": clean_url(item.get("poster")),
+        "rating": max(0, min(MAX_WATCHLIST_RATING, _safe_int(item.get("rating"), 0))),
+        "review": review,
+        "tags": clean_tags(item.get("tags")),
+        "favorite": bool(item.get("favorite")),
         "addedAt": _safe_int(item.get("addedAt"), now) or now,
         "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
@@ -1949,6 +2021,8 @@ def normalize_gamelist_item(item: Any) -> dict[str, Any] | None:
         "genres": clean_string_array(item.get("genres"), 5, 32),
         "platforms": clean_string_array(item.get("platforms"), 8, 32),
         "category": max(0, _safe_int(item.get("category"), 0)),
+        "tags": clean_tags(item.get("tags")),
+        "favorite": bool(item.get("favorite")),
         "addedAt": _safe_int(item.get("addedAt"), now) or now,
         "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
@@ -2015,6 +2089,8 @@ def normalize_wishlist_item(item: Any) -> dict[str, Any] | None:
         "note": text(item.get("note"), 2000) or "",
         "link": clean_url(item.get("link")) or "",
         "image": clean_url(item.get("image")) or "",
+        "tags": clean_tags(item.get("tags")),
+        "favorite": bool(item.get("favorite")),
         "addedAt": _safe_int(item.get("addedAt"), now) or now,
         "updatedAt": _safe_int(item.get("updatedAt"), now) or now,
     }
@@ -2040,10 +2116,39 @@ DEFAULT_DRIVE_VODS = [
 ]
 
 
+def _ensure_columns(conn: sqlite3.Connection, table: str, columns: tuple[tuple[str, str], ...]) -> None:
+    """Мягкая миграция: добавляет недостающие колонки в существующую таблицу."""
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for col_name, col_ddl in columns:
+        if col_name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_ddl}")
+
+
+# Колонки, появившиеся позже базовой схемы (оценки, рецензии, теги, избранное)
+_COLLECTION_EXTRA_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "watchlist_items": (
+        ("rating", "INTEGER NOT NULL DEFAULT 0"),
+        ("review", "TEXT NOT NULL DEFAULT ''"),
+        ("tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+    ),
+    "gamelist_items": (
+        ("tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+    ),
+    "wishlist_items": (
+        ("tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+    ),
+}
+
+
 def init_db() -> None:
     now = int(time.time())
     with _db_lock, db_connect() as conn:
         conn.executescript(SCHEMA_SQL)
+        for table, columns in _COLLECTION_EXTRA_COLUMNS.items():
+            _ensure_columns(conn, table, columns)
 
         existing_vod_cols = {
             row["name"] for row in conn.execute("PRAGMA table_info(drive_vods)").fetchall()
@@ -2977,9 +3082,10 @@ def _start_analytics_flusher() -> None:
     threading.Thread(target=_worker, name="krafen-analytics-flusher", daemon=True).start()
 
 
-_MAX_BODY_DEFAULT = 1_048_576  # 1 МБ для сохранения коллекций
+_MAX_BODY_DEFAULT = 1_048_576  # 1 МБ для прочих state-changing запросов
+_MAX_BODY_COLLECTION = 8_388_608  # 8 МБ: 500 записей с рецензиями до 5000 символов
 _MAX_BODY_ADMIN = 8_192        # 8 КБ для /api/admin*
-_MAX_BODY_RESTORE = 2_097_152  # 2 МБ для импорта JSON-бэкапа коллекций
+_MAX_BODY_RESTORE = 16_777_216  # 16 МБ для импорта JSON-бэкапа всех коллекций
 _MAX_BODY_THUMB = 524_288      # 512 КБ для JPEG-превью
 
 
@@ -2987,11 +3093,16 @@ class _PayloadTooLargeError(Exception):
     pass
 
 
+_COLLECTION_PUT_PATHS = frozenset(f"/api/{_name}" for _name in LIST_SPECS)
+
+
 def _max_body_bytes_for_path(path: str) -> int:
     if path == "/api/admin/restore":
         return _MAX_BODY_RESTORE
     if path.startswith("/api/admin"):
         return _MAX_BODY_ADMIN
+    if path in _COLLECTION_PUT_PATHS:
+        return _MAX_BODY_COLLECTION
     if path.startswith("/api/vods/") and path.endswith("/thumb"):
         return _MAX_BODY_THUMB
     return _MAX_BODY_DEFAULT
@@ -3163,7 +3274,12 @@ def make_put_list(name: str):
             return j({"error": "revision_required", "items": state["items"], "revision": state["revision"]}, 409)
 
         normalizer = NORMALIZERS[name]
-        raw_items = body.get("items") if isinstance(body.get("items"), list) else []
+        raw_items = body.get("items")
+        # Некорректный items не должен молча затирать коллекцию: пустой список — это
+        # осознанное удаление всех записей, а строка/объект/null — ошибка клиента.
+        if not isinstance(raw_items, list):
+            state = read_list(name, use_cache=False)
+            return j({"error": "items_required", "items": state["items"], "revision": state["revision"]}, 400)
         items = [normalizer(item) for item in raw_items]
         items = [item for item in items if item][: LIST_SPECS[name]["max_items"]]
 
@@ -3554,6 +3670,26 @@ def admin_overview(request: Request, days: int = 14) -> JSONResponse:
 
     rated_games = [float(g.get("rating") or 0) for g in gl_items if float(g.get("rating") or 0) > 0]
     avg_game_rating = round(sum(rated_games) / len(rated_games), 2) if rated_games else 0.0
+    rated_titles = [float(i.get("rating") or 0) for i in wl_items if float(i.get("rating") or 0) > 0]
+    avg_title_rating = round(sum(rated_titles) / len(rated_titles), 2) if rated_titles else 0.0
+    wl_tags: dict[str, int] = {}
+    for item in wl_items:
+        for tag in item.get("tags") or []:
+            wl_tags[tag] = wl_tags.get(tag, 0) + 1
+    gl_tags: dict[str, int] = {}
+    for item in gl_items:
+        for tag in item.get("tags") or []:
+            gl_tags[tag] = gl_tags.get(tag, 0) + 1
+    ws_tags: dict[str, int] = {}
+    for item in ws_items:
+        for tag in item.get("tags") or []:
+            ws_tags[tag] = ws_tags.get(tag, 0) + 1
+
+    def _top_tags(counter: dict[str, int], limit: int = 6) -> list[dict[str, Any]]:
+        return [
+            {"tag": tag, "count": count}
+            for tag, count in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+        ]
     wish_budget: dict[str, float] = {"RUB": 0.0, "USD": 0.0, "EUR": 0.0}
     for w in ws_items:
         if w.get("status") != "bought":
@@ -3578,6 +3714,11 @@ def admin_overview(request: Request, days: int = 14) -> JSONResponse:
                 "planned": sum(1 for i in wl_items if i.get("status") == "planned"),
                 "dropped": sum(1 for i in wl_items if i.get("status") == "dropped"),
             },
+            "avg_rating": avg_title_rating,
+            "rated_count": len(rated_titles),
+            "reviews_count": sum(1 for i in wl_items if str(i.get("review") or "").strip()),
+            "favorites": sum(1 for i in wl_items if i.get("favorite")),
+            "top_tags": _top_tags(wl_tags),
         },
         "gamelist": {
             "total": len(gl_items),
@@ -3585,6 +3726,9 @@ def admin_overview(request: Request, days: int = 14) -> JSONResponse:
             "updated_at": meta_rows.get("gamelist", {}).get("updated_at", 0),
             "avg_rating": avg_game_rating,
             "reviews_count": sum(1 for i in gl_items if str(i.get("review") or "").strip()),
+            "rated_count": len(rated_games),
+            "favorites": sum(1 for i in gl_items if i.get("favorite")),
+            "top_tags": _top_tags(gl_tags),
             "by_status": {
                 "completed": sum(1 for i in gl_items if i.get("status") == "completed"),
                 "playing": sum(1 for i in gl_items if i.get("status") == "playing"),
@@ -3610,6 +3754,9 @@ def admin_overview(request: Request, days: int = 14) -> JSONResponse:
                 "bought": sum(1 for i in ws_items if i.get("status") == "bought"),
             },
             "budget": {k: round(v, 2) for k, v in wish_budget.items()},
+            "favorites": sum(1 for i in ws_items if i.get("favorite")),
+            "tagged": sum(1 for i in ws_items if i.get("tags")),
+            "top_tags": _top_tags(ws_tags),
         },
     }
 
@@ -4037,9 +4184,9 @@ def admin_spotify_disconnect(request: Request) -> JSONResponse:
     tokens = read_tokens()
     tokens.pop("spotify_refresh_token", None)
     write_tokens(tokens)
-    _spotify_mem.clear()
     with _api_cache_lock:
-        _api_cache.pop("spotify_now", None)
+        for key in ("spotify", "spotify_now", "lastfm"):
+            _api_cache.pop(key, None)
     log_admin_event(request, "spotify_disconnect", "ok", "Отключён токен Spotify")
     return j({"ok": True})
 
@@ -4092,6 +4239,11 @@ def admin_import_backup(request: Request, body: dict[str, Any]) -> JSONResponse:
                     continue
                 norm_fn = NORMALIZERS[spec["normalizer"]]
                 cleaned = [x for x in (norm_fn(it) for it in raw_items) if x is not None][: spec["max_items"]]
+                # Непустой бэкап, из которого не выжила ни одна запись, — это повреждённый
+                # файл, а не намеренная очистка: иначе импорт молча стирает коллекцию.
+                if raw_items and not cleaned:
+                    conn.execute("ROLLBACK")
+                    return j({"error": "invalid_items", "collection": name}, 400)
                 row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
                 next_rev = (max(0, int(row["revision"] or 0)) if row else 0) + 1
                 stored = _write_collection_items(conn, name, cleaned)

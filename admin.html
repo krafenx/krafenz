@@ -196,6 +196,14 @@
         }
         .col-stat-name { font-family: var(--font-heading); font-size: 25px; color: #fff; }
         .col-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .col-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+        .col-tag {
+            font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+            padding: 3px 9px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .2); color: var(--silver);
+            background: rgba(255, 255, 255, .03);
+        }
+        .col-tag strong { color: var(--silver-bright); font-family: var(--font-mono); margin-left: 5px; }
         .mini-chip {
             padding: 5px 11px; border-radius: 999px;
             background: rgba(255, 255, 255, .035);
@@ -782,6 +790,13 @@
                 });
             }
 
+            function renderTopTags(tags) {
+                if (!Array.isArray(tags) || !tags.length) return '';
+                return `<div class="col-tags">${tags
+                    .map((t) => `<span class="col-tag">#${escapeHTML(t.tag)}<strong>${fmtInt(t.count)}</strong></span>`)
+                    .join('')}</div>`;
+            }
+
             function fmtShortDate(epochSec) {
                 const n = Number(epochSec) || 0;
                 if (!n) return '—';
@@ -1277,7 +1292,11 @@
                             <span class="mini-chip"><strong>${fmtInt(wl.by_type?.series)}</strong>сериалов</span>
                             <span class="mini-chip"><strong>${fmtInt(wl.by_status?.watched)}</strong>просмотрено</span>
                             <span class="mini-chip"><strong>${fmtInt(wl.by_status?.planned)}</strong>в планах</span>
+                            <span class="mini-chip"><strong>★ ${wl.avg_rating || '0.0'}</strong>средний балл</span>
+                            <span class="mini-chip"><strong>${fmtInt(wl.reviews_count)}</strong>рецензий</span>
+                            <span class="mini-chip"><strong>${fmtInt(wl.favorites)}</strong>в избранном</span>
                         </div>
+                        ${renderTopTags(wl.top_tags)}
                     </div>
 
                     <div class="glass no-lift col-stat-card">
@@ -1293,7 +1312,9 @@
                             <span class="mini-chip"><strong>${fmtInt(gl.reviews_count)}</strong>рецензий</span>
                             <span class="mini-chip"><strong>${fmtInt(gl.by_status?.completed)}</strong>пройдено</span>
                             <span class="mini-chip"><strong>${fmtInt(gl.by_status?.playing)}</strong>играю</span>
+                            <span class="mini-chip"><strong>${fmtInt(gl.favorites)}</strong>в избранном</span>
                         </div>
+                        ${renderTopTags(gl.top_tags)}
                     </div>
 
                     <div class="glass no-lift col-stat-card">
@@ -1323,7 +1344,9 @@
                             <span class="mini-chip"><strong>${fmtInt(ws.by_status?.saving)}</strong>коплю</span>
                             <span class="mini-chip"><strong>${fmtInt(ws.by_status?.bought)}</strong>куплено</span>
                             <span class="mini-chip"><strong>${escapeHTML(budgetParts.join(' · ') || '0 ₽')}</strong>осталось</span>
+                            <span class="mini-chip"><strong>${fmtInt(ws.favorites)}</strong>в избранном</span>
                         </div>
+                        ${renderTopTags(ws.top_tags)}
                     </div>
                 `;
 
