@@ -55,6 +55,9 @@ flowchart LR
 | `/tasks` | `tasks.html` | Интерактивный калькулятор ежедневных заданий BP (VIP / X2) и таймеры клубных квестов |
 | `/danonsha` | `danonsha.html` | Страница **danonsha**: статус канала, архив стримов из Google Drive, кинотеатр VOD и `ЧАТ ЗАПИСИ` |
 | `/admin` | `admin.html` | Панель управления: аналитика трафика и VOD, интеграции, кэш, резервные копии, аудит и `server.log` |
+| `/danonsha/` | `danonsha/index.html` | **Личный профиль danonsha**: хаб со счётчиками и ссылками на её коллекции |
+| `/danonsha/watchlist` · `/gamelist` · `/setup` · `/wishlist` | `danonsha/*.html` | Собственные коллекции danonsha — полный функционал, отдельные данные и отдельный вход |
+| `/danonsha/admin` | `danonsha/admin.html` | Панель управления профиля: сводка по её коллекциям, VOD, кэш, резервные копии |
 
 ### Расширенная модель коллекций
 
@@ -82,6 +85,41 @@ flowchart LR
 Такой файл принимает `POST /api/admin/restore` (поле `collections`), так что коллекцию можно восстановить из резервной копии или перенести на другой сервер.
 
 ---
+
+### Профили: krafen и danonsha
+
+На сайте два независимых профиля. У каждого свои `watchlist`, `gamelist`, `setup`
+и `wishlist`, свой пароль и своя сессионная cookie — данные не пересекаются.
+
+| | `krafen` (основной) | `danonsha` (личный) |
+| :--- | :--- | :--- |
+| Страницы | `/watchlist`, `/gamelist`, `/setup`, `/wishlist` | `/danonsha/watchlist`, `/danonsha/gamelist`, `/danonsha/setup`, `/danonsha/wishlist` |
+| Панель | `/admin` | `/danonsha/admin` |
+| Пароль | `ADMIN_PASSWORD` | `ADMIN_PASSWORD_DANONSHA` (или файл `data/danonsha_password.txt`) |
+| Cookie | `kf_admin_session` | `kf_danonsha_session` |
+| Оформление | базовый `style.css` | тот же интерфейс + `danonsha/theme.css` (розово-алый акцент) |
+
+**Как включить профиль danonsha:** задайте `ADMIN_PASSWORD_DANONSHA` в `.env`
+(или положите пароль в `data/danonsha_password.txt` — файл игнорируется git).
+Пока пароль не задан, вход в профиль отключён, а страницы открываются только
+для чтения — ровно как `ADMIN_PASSWORD` для основного профиля.
+
+**Как это устроено.** Коллекции хранятся в тех же таблицах с колонкой `owner`,
+первичный ключ — `(owner, id)`, поэтому одинаковый `id` может существовать у обоих
+профилей. Старая база миграциируется автоматически при запуске: существующие записи
+остаются за `krafen`, у `danonsha` создаются пустые коллекции. Страницы сообщают
+профиль заголовком `X-Krafen-Profile`; сервер проверяет cookie именно этого профиля,
+поэтому сессия одного профиля не даёт доступа к другому.
+
+Гостевой просмотр общий: обе коллекции видны без входа, редактирование требует пароля.
+
+### Тесты
+
+```bash
+npm install jsdom
+node tests/pages.test.js http://127.0.0.1:8080 <пароль>            # основной профиль
+KF_DANONSHA=<пароль> node tests/pages.test.js http://127.0.0.1:8080 <пароль>   # + профиль
+```
 
 ## 🗂 Структура проекта
 
@@ -214,7 +252,8 @@ chmod 600 .env
 | :--- | :--- | :--- |
 | `HOST` / `PORT` | `0.0.0.0` / `8080` | Адрес и TCP-порт HTTP-сервера |
 | `PUBLIC_ORIGIN` | *(авто)* | Канонический адрес сайта (например, `https://krafen.me`) для проверки `Origin` и Spotify OAuth |
-| `ADMIN_PASSWORD` | — | Пароль входа в режим редактирования коллекций (значение `change-me` блокируется) |
+| `ADMIN_PASSWORD` | — | Пароль входа в режим редактирования коллекций основного профиля (значение `change-me` блокируется) |
+| `ADMIN_PASSWORD_DANONSHA` | — | Пароль личного профиля `/danonsha`; альтернатива — файл `data/danonsha_password.txt`. Пусто — профиль только для чтения |
 | `SECRET_KEY` | *(авто в `auth.db`)* | Секрет HMAC-подписи сессий; если пуст — генерируется автоматически (256 бит) |
 | `SECURE_COOKIES` | `auto` | Флаг `Secure` для кук (`auto` — по схеме HTTPS, `1` — всегда, `0` — выкл) |
 | `TRUST_PROXY_HEADERS` | `auto` | Доверие заголовкам `CF-Connecting-IP` / `X-Forwarded-*` (`auto` — локальные прокси и подсети Cloudflare) |
