@@ -370,7 +370,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, sanitizeItems, TAG_LIMIT } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, sanitizeItems, TAG_LIMIT, profileFetch, profilePath, PROFILE } = window.KrafenUI;
 
             const STATUS = {
                 all: { label: 'Все', badge: 'muted' },
@@ -455,7 +455,7 @@
 
             async function fetchList() {
                 try {
-                    const res = await fetch('/api/gamelist', { headers: { Accept: 'application/json' } });
+                    const res = await profileFetch('/api/gamelist', { headers: { Accept: 'application/json' } });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.error || 'fetch_failed');
                     list = sanitizeItems(data.items);
@@ -480,7 +480,7 @@
                         const revision = listRevision;
                         setSaveIndicator('saving', 'сохранение…');
 
-                        const res = await fetch('/api/gamelist', {
+                        const res = await profileFetch('/api/gamelist', {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             credentials: 'same-origin',

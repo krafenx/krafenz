@@ -29,6 +29,28 @@
         'm.media-amazon.com',
     ]);
 
+    /* ---------- профили (krafen / danonsha) ---------- */
+    // Профиль берётся из адреса: /danonsha/* — личный профиль, всё остальное — основной.
+    // Через заголовок X-Krafen-Profile сервер понимает, чью коллекцию читать и чью
+    // сессию проверять; у каждого профиля своя cookie.
+    const PROFILE = (location.pathname === '/danonsha' || location.pathname.startsWith('/danonsha/'))
+        ? 'danonsha'
+        : 'krafen';
+    const PROFILE_BASE = PROFILE === 'danonsha' ? '/danonsha' : '';
+
+    function profileFetch(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        headers.set('X-Krafen-Profile', PROFILE);
+        return fetch(url, { ...options, headers, credentials: 'same-origin' });
+    }
+
+    /** Ссылка с учётом профиля: profilePath('/watchlist') → '/danonsha/watchlist'. */
+    function profilePath(path) {
+        if (!path || !path.startsWith('/')) return path;
+        if (path === '/' || path.startsWith('/api/') || path.startsWith('/#') || path.startsWith('/assets/')) return path;
+        return PROFILE_BASE + path;
+    }
+
     function escapeHTML(value) {
         return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
             '&': '&amp;',
@@ -626,9 +648,10 @@
         const errBox = document.getElementById('admin-login-error');
         const adminBar = document.getElementById('admin-bar');
 
-        if (adminBar && !adminBar.querySelector('a[href="/admin"]') && location.pathname !== '/admin') {
+        const dashPath = profilePath('/admin');
+        if (adminBar && !adminBar.querySelector('a[href="' + dashPath + '"]') && location.pathname !== dashPath) {
             const dashLink = document.createElement('a');
-            dashLink.href = '/admin';
+            dashLink.href = dashPath;
             dashLink.className = 'btn-action';
             dashLink.textContent = 'панель управления ↗';
             const firstAction = adminBar.querySelector('a.btn-action, button.btn-action');
@@ -654,9 +677,8 @@
 
         async function check() {
             try {
-                const res = await fetch('/api/admin', {
+                const res = await profileFetch('/api/admin', {
                     headers: { Accept: 'application/json' },
-                    credentials: 'same-origin',
                 });
                 const data = await res.json().catch(() => ({}));
                 apply(Boolean(res.ok && data.ok));
@@ -675,10 +697,9 @@
             }
             if (errBox) errBox.classList.add('hidden');
             try {
-                const res = await fetch('/api/admin', {
+                const res = await profileFetch('/api/admin', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
                     body: JSON.stringify({ password }),
                 });
                 const data = await res.json().catch(() => ({}));
@@ -709,9 +730,8 @@
         }
 
         async function logout() {
-            await fetch('/api/admin', {
+            await profileFetch('/api/admin', {
                 method: 'DELETE',
-                credentials: 'same-origin',
             }).catch(() => {});
             apply(false);
             toast('Вы вышли из режима администратора');
@@ -852,6 +872,10 @@
 
     window.KrafenUI = {
         onReady,
+        PROFILE,
+        PROFILE_BASE,
+        profileFetch,
+        profilePath,
         escapeHTML,
         safeHttpUrl,
         proxyImgUrl,

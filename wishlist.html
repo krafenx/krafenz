@@ -387,7 +387,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, sanitizeItems, TAG_LIMIT } = window.KrafenUI;
+            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, sanitizeItems, TAG_LIMIT, profileFetch, profilePath, PROFILE } = window.KrafenUI;
 
             const CATEGORIES = {
                 all: { label: 'Все', short: 'WL' },
@@ -497,7 +497,7 @@
 
             async function fetchList() {
                 try {
-                    const res = await fetch('/api/wishlist', { headers: { Accept: 'application/json' } });
+                    const res = await profileFetch('/api/wishlist', { headers: { Accept: 'application/json' } });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.error || 'fetch_failed');
                     list = sanitizeItems(data.items);
@@ -522,7 +522,7 @@
                         const revision = listRevision;
                         setSaveIndicator('saving', 'сохранение…');
 
-                        const res = await fetch('/api/wishlist', {
+                        const res = await profileFetch('/api/wishlist', {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             credentials: 'same-origin',
