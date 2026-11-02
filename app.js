@@ -739,6 +739,87 @@
         }
     }
 
+    /* ---------- коллекции: теги, избранное и экспорт ---------- */
+    const TAG_LIMIT = 12;
+    const TAG_MAX_LEN = 28;
+
+    function normalizeTag(raw, maxLen = TAG_MAX_LEN) {
+        return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, maxLen);
+    }
+
+    function normalizeTags(value, limit = TAG_LIMIT) {
+        if (!Array.isArray(value)) return [];
+        const out = [];
+        const seen = new Set();
+        for (const raw of value) {
+            const tag = normalizeTag(raw);
+            const key = tag.toLowerCase();
+            if (!tag || seen.has(key)) continue;
+            seen.add(key);
+            out.push(tag);
+            if (out.length >= limit) break;
+        }
+        return out;
+    }
+
+    function addTag(tags, raw, limit = TAG_LIMIT) {
+        const list = Array.isArray(tags) ? tags.slice() : [];
+        const tag = normalizeTag(raw);
+        if (!tag || list.length >= limit) return list;
+        if (list.some((t) => String(t).toLowerCase() === tag.toLowerCase())) return list;
+        list.push(tag);
+        return list;
+    }
+
+    function collectTags(items) {
+        const map = new Map();
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            (Array.isArray(item?.tags) ? item.tags : []).forEach((tag) => {
+                const key = String(tag).toLowerCase();
+                if (!map.has(key)) map.set(key, String(tag));
+            });
+        });
+        return [...map.values()].sort((a, b) => a.localeCompare(b, 'ru'));
+    }
+
+    function matchesTags(item, selected) {
+        const wanted = (Array.isArray(selected) ? selected : []).map((t) => String(t).toLowerCase());
+        if (!wanted.length) return true;
+        const own = (Array.isArray(item?.tags) ? item.tags : []).map((t) => String(t).toLowerCase());
+        return wanted.every((tag) => own.includes(tag));
+    }
+
+    function downloadJson(filename, payload) {
+        try {
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function exportCollection(collection, items, revision) {
+        const stamp = new Date().toISOString().slice(0, 10);
+        const ok = downloadJson(`krafen-${collection}-${stamp}.json`, {
+            format: 'krafen.collection.v1',
+            collection,
+            exportedAt: new Date().toISOString(),
+            revision: Number(revision) || 0,
+            items: Array.isArray(items) ? items : [],
+        });
+        if (ok) toast(`Экспортировано записей: ${Array.isArray(items) ? items.length : 0}`);
+        else toast('Не удалось создать файл экспорта', '#fca5a5');
+        return ok;
+    }
+
     onReady(() => {
         initGrain();
         observeReveals();
@@ -761,5 +842,14 @@
         closeModal,
         bindModalDismiss,
         createAdminController,
+        normalizeTag,
+        normalizeTags,
+        addTag,
+        collectTags,
+        matchesTags,
+        downloadJson,
+        exportCollection,
+        TAG_LIMIT,
+        TAG_MAX_LEN,
     };
 })();

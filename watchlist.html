@@ -110,6 +110,84 @@
         }
         .card-meta .year { font-family: var(--font-mono); }
 
+        /* ---- оценки, рецензии, теги и избранное ---- */
+        .card-rating {
+            position: absolute; top: 10px; left: 10px; z-index: 2;
+            font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: #fff;
+            padding: 4px 9px; border-radius: 999px;
+            background: rgba(5, 5, 7, .8); border: 1px solid rgba(163, 19, 19, .62);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+        }
+        .card-fav {
+            position: absolute; top: 8px; right: 10px; z-index: 2;
+            font-size: 16px; line-height: 1; color: #fcd34d;
+            text-shadow: 0 0 14px rgba(245, 158, 11, .7);
+        }
+        .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+        .tag-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+            padding: 3px 9px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .22); color: var(--silver);
+            background: rgba(255, 255, 255, .03);
+        }
+        button.tag-chip { cursor: pointer; font-family: var(--font-sans); transition: color .22s var(--ease), border-color .22s var(--ease); }
+        button.tag-chip:hover { color: #fff; border-color: rgba(163, 19, 19, .55); }
+        .tag-chip.tag-active {
+            color: #fff; border-color: rgba(163, 19, 19, .7);
+            background: linear-gradient(135deg, rgba(142, 15, 15, .55), rgba(76, 5, 5, .55));
+        }
+        .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .review-flag {
+            font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--crimson-bright);
+            white-space: nowrap;
+        }
+        .ov-btn.review { color: #fde68a; border-color: rgba(245, 158, 11, .4); }
+        .ov-btn.review:hover { background: rgba(245, 158, 11, .18); color: #fff; }
+
+        /* ---- редактор рецензии ---- */
+        .edit-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 18px; }
+        .edit-poster { width: 64px; height: 94px; border-radius: 10px; overflow: hidden; flex-shrink: 0; }
+        .edit-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .edit-poster .no-poster { font-size: 14px; }
+        .rating-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; }
+        .score-value { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: #fff; white-space: nowrap; }
+        .tag-editor {
+            display: flex; flex-wrap: wrap; gap: 7px; align-items: center;
+            padding: 9px 11px; border-radius: 14px;
+            border: 1px solid var(--glass-border); background: rgba(255, 255, 255, .03);
+            transition: border-color .25s var(--ease);
+        }
+        .tag-editor:focus-within { border-color: rgba(163, 19, 19, .55); }
+        .tag-editor input {
+            flex: 1 1 130px; min-width: 110px;
+            border: none; background: transparent; outline: none;
+            color: var(--silver-bright); font-family: var(--font-sans); font-size: 13px;
+        }
+        .tag-editor input::placeholder { color: rgba(160, 160, 160, .42); }
+        .tag-edit-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 6px 4px 10px; border-radius: 999px;
+            font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+            background: rgba(163, 19, 19, .18); border: 1px solid rgba(163, 19, 19, .45); color: #fff;
+        }
+        .tag-edit-chip button {
+            border: none; background: transparent; color: var(--silver);
+            font-size: 13px; line-height: 1; padding: 0 2px; cursor: pointer;
+        }
+        .tag-edit-chip button:hover { color: #fff; }
+        .fav-toggle.active {
+            color: #fcd34d; border-color: rgba(245, 158, 11, .55); background: rgba(245, 158, 11, .12);
+        }
+
+        /* ---- просмотр рецензии ---- */
+        .view-score { font-family: var(--font-mono); font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+        .view-review {
+            margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line);
+            font-size: 14px; line-height: 1.8; color: var(--silver-bright); white-space: pre-wrap;
+        }
+        .view-empty { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--silver-dim); }
+
         /* Результаты поиска */
         .search-item {
             display: grid; grid-template-columns: 46px minmax(0, 1fr) auto;
@@ -152,6 +230,13 @@
             .search-item { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
             .search-actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 6px; }
             .add-mini { flex: 1 1 auto; text-align: center; padding: 6px 10px; }
+            .tag-editor { padding: 8px 9px; }
+            .tag-editor input { font-size: 16px; }
+            .modal-foot { flex-wrap: wrap; gap: 10px; }
+            .modal-foot > div { width: 100%; justify-content: flex-end; }
+            .rating-line { gap: 10px; }
+            .score-value { font-size: 20px; }
+            #tag-filter-line .filter-group { gap: 6px; }
         }
     </style>
     <script data-cfasync="false" nonce="__CSP_NONCE__" src="/app.js" defer></script>
@@ -203,6 +288,7 @@
                 <div class="page-header-actions">
                     <span id="save-indicator" class="save-indicator"></span>
                     <button id="add-btn" class="btn-primary sm admin-only" type="button">+ Добавить тайтл</button>
+                    <button id="export-btn" class="btn-action" type="button" hidden>Экспорт JSON</button>
                 </div>
             </div>
 
@@ -241,7 +327,31 @@
                 <div class="filter-line">
                     <span class="filter-label">Поиск</span>
                     <div class="filter-group">
-                        <input id="local-search" class="kf-input" type="search" placeholder="Фильтр по названию в списке…" autocomplete="off">
+                        <input id="local-search" class="kf-input" type="search" placeholder="Название, рецензия или тег…" autocomplete="off">
+                    </div>
+                </div>
+                <div class="filter-line">
+                    <span class="filter-label">Сортировка</span>
+                    <div class="filter-group" style="flex-wrap:wrap;gap:10px;align-items:center;">
+                        <select id="sort-select" class="kf-select" style="max-width:230px;" aria-label="Сортировка">
+                            <option value="added">По дате добавления</option>
+                            <option value="rating">По оценке</option>
+                            <option value="title">По названию</option>
+                            <option value="year">По году</option>
+                            <option value="updated">По дате обновления</option>
+                        </select>
+                        <button id="fav-toggle" class="filter-pill" type="button" data-fav-toggle>★ Избранное</button>
+                        <button id="fav-clear" class="tag-chip hidden" type="button" data-fav-clear>сбросить избранное ×</button>
+                    </div>
+                </div>
+                <div class="filter-line hidden" id="tag-filter-line">
+                    <span class="filter-label">Теги</span>
+                    <div class="filter-group" id="tag-filter-list"></div>
+                </div>
+                <div class="filter-line hidden" id="tag-selected-line">
+                    <span class="filter-label">Выбрано</span>
+                    <div class="filter-group">
+                        <button class="tag-chip" type="button" id="tag-filter-chip"># — ×</button>
                     </div>
                 </div>
             </div>
@@ -304,6 +414,82 @@
         </div>
     </div>
 
+    <!-- Модалка рецензии и метаданных тайтла -->
+    <div class="modal" id="modal-review">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow" id="review-eyebrow">оценка и рецензия</div>
+                    <h2 id="review-modal-title" class="modal-title">Оценить тайтл</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-review" aria-label="Закрыть">✕</button>
+            </div>
+
+            <div class="edit-head">
+                <div class="edit-poster" id="review-poster"></div>
+                <div class="col">
+                    <h3 id="review-title" style="font-family:var(--font-heading);font-weight:400;font-size:23px;color:#fff;line-height:1.25;"></h3>
+                    <div id="review-meta" class="card-meta" style="margin-top:6px;"></div>
+                </div>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Оценка</span>
+                <div class="rating-line">
+                    <input id="review-rating" type="range" min="0" max="10" step="1" value="0" aria-label="Оценка от 0 до 10">
+                    <div id="review-rating-value" class="score-value">—</div>
+                </div>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Статус</span>
+                <div id="review-status-choices" class="filter-group"></div>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="review-text">Рецензия</label>
+                <textarea id="review-text" class="kf-area" maxlength="5000" placeholder="Впечатления, мысли, стоит ли смотреть…"></textarea>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Теги</span>
+                <div class="tag-editor" id="tag-editor">
+                    <div id="tag-edit-list" class="tag-row"></div>
+                    <input id="tag-input" type="text" maxlength="28" placeholder="Добавить тег и Enter…" autocomplete="off" aria-label="Новый тег">
+                </div>
+                <div class="tag-row" id="tag-suggestions" style="margin-top:9px;"></div>
+            </div>
+
+            <div class="modal-foot">
+                <span id="review-count" style="font-size:10px;letter-spacing:.14em;color:var(--silver-dim);">0 / 5000</span>
+                <div style="display:flex;gap:10px;">
+                    <button id="review-fav-btn" class="btn-ghost sm fav-toggle" type="button">★ Избранное</button>
+                    <button id="review-remove-btn" class="btn-ghost sm danger hidden" type="button">Удалить</button>
+                    <button id="review-save-btn" class="btn-primary sm" type="button">Сохранить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка просмотра рецензии -->
+    <div class="modal" id="modal-review-view">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div class="row" style="align-items:flex-start;">
+                    <div class="edit-poster" id="rv-poster"></div>
+                    <div class="col">
+                        <div id="rv-rating" class="view-score">—</div>
+                        <h2 id="rv-title" class="modal-title"></h2>
+                        <div id="rv-meta" class="card-meta" style="margin-top:6px;"></div>
+                    </div>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-review-view" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="tag-row" id="rv-tags"></div>
+            <div id="rv-review" class="view-review"></div>
+        </div>
+    </div>
+
     <!-- Модалка входа администратора -->
     <div class="modal" id="modal-admin">
         <div class="modal-box sm">
@@ -329,11 +515,13 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, TAG_LIMIT, TAG_MAX_LEN } = window.KrafenUI;
 
             const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
             const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };
             const TYPE_LABEL = { movie: 'Фильм', series: 'Сериал', anime: 'Аниме' };
+
+            const REVIEW_LIMIT = 5000;
 
             let list = [];
             let listRevision = 0;
@@ -345,6 +533,12 @@
             let searchCache = [];
             let saveInFlight = false;
             let saveQueued = false;
+            let sortMode = 'added';
+            let tagFilter = '';
+            let favoriteOnly = false;
+            let reviewTarget = null;
+            let reviewDraft = { status: 'watched', rating: 0, review: '', tags: [], favorite: false };
+            let selectedSearchItem = null;
 
             const saveInd = document.getElementById('save-indicator');
             function setSaveIndicator(cls, text) {
@@ -354,7 +548,13 @@
 
             const admin = createAdminController({
                 onChange: (on) => {
-                    if (!on) setSaveIndicator('', '');
+                    if (!on) {
+                        setSaveIndicator('', '');
+                        favoriteOnly = false;
+                        tagFilter = '';
+                    }
+                    const exportBtn = document.getElementById('export-btn');
+                    if (exportBtn) exportBtn.hidden = !on;
                     render();
                 }
             });
@@ -362,6 +562,38 @@
             function safeRevision(v) {
                 const n = Number(v);
                 return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+            }
+
+            function itemRating(item) {
+                return Math.max(0, Math.min(10, Number(item.rating) || 0));
+            }
+
+            function itemTags(item) {
+                return Array.isArray(item.tags) ? item.tags.filter((t) => typeof t === 'string' && t.trim()) : [];
+            }
+
+            function shortDate(value) {
+                const d = new Date(Number(value) || Date.now());
+                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' });
+            }
+
+            function visibleItems() {
+                const q = localQuery.toLowerCase();
+                return list
+                    .filter((i) => typeFilter === 'all' || i.type === typeFilter)
+                    .filter((i) => statusFilter === 'all' || i.status === statusFilter)
+                    .filter((i) => !favoriteOnly || i.favorite)
+                    .filter((i) => !tagFilter || itemTags(i).some((t) => t.toLowerCase() === tagFilter.toLowerCase()))
+                    .filter((i) => {
+                        if (!q) return true;
+                        const haystack = `${i.title || ''} ${i.titleRu || ''} ${i.year || ''} ${i.review || ''} ${itemTags(i).join(' ')}`;
+                        return haystack.toLowerCase().includes(q);
+                    });
+            }
+
+            function exportList() {
+                if (!admin.isAdmin() || !list.length) return;
+                exportCollection('watchlist', list, listRevision);
             }
 
             async function fetchList() {
@@ -379,6 +611,7 @@
                 }
                 document.getElementById('loading-state').classList.add('hidden');
                 document.getElementById('cards-grid').classList.remove('hidden');
+                setSortMode(sortMode);
                 render();
             }
 
@@ -441,12 +674,38 @@
                 const watched = list.filter((i) => i.status === 'watched').length;
                 const planned = list.filter((i) => i.status === 'planned').length;
                 const dropped = list.filter((i) => i.status === 'dropped').length;
+                const rated = list.filter((i) => itemRating(i) > 0);
+                const avg = rated.length ? (rated.reduce((sum, i) => sum + itemRating(i), 0) / rated.length) : 0;
+                const reviews = list.filter((i) => String(i.review || '').trim()).length;
+                const favorites = list.filter((i) => i.favorite).length;
                 document.getElementById('stats-row').innerHTML = `
                     <span class="stat-chip"><strong>${total}</strong> всего</span>
                     <span class="stat-chip watched"><strong>${watched}</strong> просмотрено</span>
                     <span class="stat-chip"><strong>${planned}</strong> планирую</span>
                     <span class="stat-chip dropped"><strong>${dropped}</strong> брошено</span>
+                    <span class="stat-chip"><strong>★ ${avg ? avg.toFixed(1) : '—'}</strong> средний балл</span>
+                    <span class="stat-chip"><strong>${reviews}</strong> рецензий</span>
+                    ${favorites ? `<span class="stat-chip"><strong>★ ${favorites}</strong> в избранном</span>` : ''}
                 `;
+                const favBtn = document.getElementById('fav-toggle');
+                if (favBtn) favBtn.classList.toggle('active', favoriteOnly);
+                const favClear = document.getElementById('fav-clear');
+                if (favClear) favClear.classList.toggle('hidden', !favoriteOnly);
+                const tagLine = document.getElementById('tag-filter-line');
+                const tagList = document.getElementById('tag-filter-list');
+                if (tagLine && tagList) {
+                    const tags = collectTags(list);
+                    tagLine.classList.toggle('hidden', tags.length === 0);
+                    tagList.innerHTML = tags
+                        .map((tag) => `<button class="tag-chip ${tag.toLowerCase() === tagFilter.toLowerCase() && tagFilter ? 'tag-active' : ''}" type="button" data-tag-select="${escapeHTML(tag)}">#${escapeHTML(tag)}</button>`)
+                        .join('');
+                }
+                const selLine = document.getElementById('tag-selected-line');
+                const tagChip = document.getElementById('tag-filter-chip');
+                if (selLine && tagChip) {
+                    selLine.classList.toggle('hidden', !tagFilter);
+                    tagChip.textContent = `#${tagFilter || '—'} ×`;
+                }
             }
 
             function cardHTML(item, idx) {
@@ -456,13 +715,19 @@
                 const statL = escapeHTML(STATUS_LABEL[item.status] || item.status);
                 const badgeCls = STATUS_BADGE[item.status] || 'muted';
                 const posterSrc = proxyImgUrl(item.poster);
+                const rating = itemRating(item);
+                const tags = itemTags(item);
+                const hasReview = Boolean(String(item.review || '').trim());
                 return `
-                    <article class="media-card kf-stagger-item" style="--i:${Math.min(idx || 0, 12)}">
+                    <article class="media-card kf-stagger-item" style="--i:${Math.min(idx || 0, 12)}" data-id="${id}">
                         <div class="poster-wrap">
                             ${posterSrc
                                 ? `<img src="${escapeHTML(posterSrc)}" alt="${title}" loading="lazy" decoding="async" data-fallback-text="${typeL}">`
                                 : `<div class="no-poster">${typeL}</div>`}
+                            ${rating ? `<span class="card-rating" title="Моя оценка">${rating}</span>` : ''}
+                            ${item.favorite ? '<span class="card-fav" title="В избранном">★</span>' : ''}
                             <div class="card-overlay">
+                                <button class="ov-btn review" type="button" data-card-action="review" data-id="${id}">${hasReview ? 'Рецензия ✎' : 'Оценить ★'}</button>
                                 <button class="ov-btn watched" type="button" data-card-action="status" data-id="${id}" data-status="watched">Просмотрено</button>
                                 <button class="ov-btn planned" type="button" data-card-action="status" data-id="${id}" data-status="planned">Планирую</button>
                                 <button class="ov-btn dropped" type="button" data-card-action="status" data-id="${id}" data-status="dropped">Брошено</button>
@@ -475,29 +740,33 @@
                                 <span class="year">${escapeHTML(item.year || '—')}</span>
                                 <span>${typeL}</span>
                             </div>
-                            <div><span class="status-badge ${badgeCls}"><span class="dot"></span>${statL}</span></div>
+                            ${tags.length ? `<div class="tag-row">${tags.slice(0, 3).map((t) => `<button class="tag-chip" type="button" data-tag-filter="${escapeHTML(t)}">#${escapeHTML(t)}</button>`).join('')}${tags.length > 3 ? `<span class="tag-chip">+${tags.length - 3}</span>` : ''}</div>` : ''}
+                            <div class="card-foot">
+                                <span class="status-badge ${badgeCls}"><span class="dot"></span>${statL}</span>
+                                ${hasReview ? '<span class="review-flag">есть рецензия</span>' : ''}
+                            </div>
                         </div>
                     </article>`;
             }
 
             function render() {
                 updateStats();
-                const q = localQuery.toLowerCase();
-                const filtered = list.filter((i) => {
-                    if (typeFilter !== 'all' && i.type !== typeFilter) return false;
-                    if (statusFilter !== 'all' && i.status !== statusFilter) return false;
-                    if (q && !`${i.title || ''} ${i.titleRu || ''} ${i.year || ''}`.toLowerCase().includes(q)) return false;
-                    return true;
-                });
+                const filtered = visibleItems();
 
                 const grid = document.getElementById('cards-grid');
                 const empty = document.getElementById('empty-state');
                 if (!filtered.length) {
                     grid.innerHTML = '';
                     empty.classList.remove('hidden');
-                    document.getElementById('empty-hint').textContent = admin.isAdmin()
-                        ? 'Ничего не найдено — нажми «+ Добавить тайтл», чтобы пополнить коллекцию.'
-                        : 'В этой выборке пока пусто.';
+                    let hint = 'В этой выборке пока пусто.';
+                    if (admin.isAdmin()) {
+                        hint = tagFilter || favoriteOnly
+                            ? 'Под текущие фильтры ничего не попало — сбрось тег или избранное.'
+                            : 'Ничего не найдено — нажми «+ Добавить тайтл», чтобы пополнить коллекцию.';
+                    } else if (tagFilter || favoriteOnly) {
+                        hint = 'Под текущие фильтры ничего не попало.';
+                    }
+                    document.getElementById('empty-hint').textContent = hint;
                     return;
                 }
                 empty.classList.add('hidden');
@@ -506,12 +775,22 @@
 
             function addItem(item, status) {
                 if (!admin.isAdmin()) return;
+                const now = Date.now();
                 const existing = list.find((i) => i.id === item.id);
                 if (existing) {
                     existing.status = status;
-                    existing.updatedAt = Date.now();
+                    existing.updatedAt = now;
                 } else {
-                    list.unshift({ ...item, status, addedAt: Date.now(), updatedAt: Date.now() });
+                    list.unshift({
+                        ...item,
+                        status,
+                        rating: 0,
+                        review: '',
+                        tags: [],
+                        favorite: false,
+                        addedAt: now,
+                        updatedAt: now,
+                    });
                 }
                 render();
                 saveToServer();
@@ -534,6 +813,153 @@
                 list = list.filter((i) => i.id !== id);
                 render();
                 saveToServer();
+                toast('Удалено из списка');
+            }
+
+            /* ---------------- редактор рецензии и тегов ---------------- */
+
+            function ratingLabel(value) {
+                return value > 0 ? String(value) : '—';
+            }
+
+            function renderReviewStatusChoices() {
+                document.getElementById('review-status-choices').innerHTML = Object.entries(STATUS_LABEL)
+                    .map(([key, label]) => `<button class="filter-pill ${reviewDraft.status === key ? 'active' : ''}" data-review-status="${key}" type="button">${escapeHTML(label)}</button>`)
+                    .join('');
+            }
+
+            function renderTagEditor() {
+                document.getElementById('tag-edit-list').innerHTML = reviewDraft.tags
+                    .map((tag, idx) => `<span class="tag-edit-chip">#${escapeHTML(tag)}<button type="button" data-tag-remove="${idx}" aria-label="Убрать тег ${escapeHTML(tag)}">×</button></span>`)
+                    .join('');
+
+                const used = new Set(reviewDraft.tags.map((t) => t.toLowerCase()));
+                const suggestions = collectTags(list)
+                    .filter((tag) => !used.has(tag.toLowerCase()))
+                    .slice(0, 10);
+                const box = document.getElementById('tag-suggestions');
+                box.innerHTML = suggestions.length
+                    ? suggestions.map((tag) => `<button class="tag-chip" type="button" data-tag-suggest="${escapeHTML(tag)}">+ #${escapeHTML(tag)}</button>`).join('')
+                    : '';
+                const input = document.getElementById('tag-input');
+                input.disabled = reviewDraft.tags.length >= TAG_LIMIT;
+                input.placeholder = input.disabled ? `максимум ${TAG_LIMIT} тегов` : 'Добавить тег и Enter…';
+            }
+
+            function updateReviewCounter() {
+                const len = document.getElementById('review-text').value.length;
+                document.getElementById('review-count').textContent = `${len} / ${REVIEW_LIMIT}`;
+            }
+
+            function syncFavButton() {
+                const btn = document.getElementById('review-fav-btn');
+                btn.classList.toggle('active', reviewDraft.favorite);
+                btn.textContent = reviewDraft.favorite ? '★ В избранном' : '★ В избранное';
+            }
+
+            function openReviewEditor(item) {
+                if (!admin.isAdmin()) return;
+                reviewTarget = item;
+                reviewDraft = {
+                    status: item.status,
+                    rating: itemRating(item),
+                    review: String(item.review || ''),
+                    tags: itemTags(item).slice(0, TAG_LIMIT),
+                    favorite: Boolean(item.favorite),
+                };
+                document.getElementById('review-modal-title').textContent = item.titleRu || item.title;
+                document.getElementById('review-eyebrow').textContent = 'оценка, рецензия и теги';
+                document.getElementById('review-poster').innerHTML = item.poster
+                    ? `<img src="${escapeHTML(proxyImgUrl(item.poster))}" alt="" loading="lazy" data-fallback-text="${escapeHTML(TYPE_LABEL[item.type] || '')}">`
+                    : `<div class="no-poster">${escapeHTML(TYPE_LABEL[item.type] || '—')}</div>`;
+                document.getElementById('review-title').textContent = item.titleRu || item.title;
+                document.getElementById('review-meta').textContent = `${TYPE_LABEL[item.type] || item.type} · ${item.year || '—'}`;
+                document.getElementById('review-rating').value = reviewDraft.rating;
+                document.getElementById('review-rating-value').textContent = ratingLabel(reviewDraft.rating);
+                document.getElementById('review-text').value = reviewDraft.review;
+                document.getElementById('tag-input').value = '';
+                document.getElementById('review-remove-btn').classList.remove('hidden');
+                updateReviewCounter();
+                renderReviewStatusChoices();
+                renderTagEditor();
+                syncFavButton();
+                openModal('modal-review');
+            }
+
+            function openReviewForNew(item) {
+                if (!admin.isAdmin() || !item) return;
+                selectedSearchItem = item;
+                openReviewEditor({
+                    ...item,
+                    status: 'watched',
+                    rating: 0,
+                    review: '',
+                    tags: [],
+                    favorite: false,
+                });
+                document.getElementById('review-eyebrow').textContent = 'новый тайтл в коллекции';
+                document.getElementById('review-remove-btn').classList.add('hidden');
+            }
+
+            function openReviewViewer(item) {
+                const rating = itemRating(item);
+                document.getElementById('rv-poster').innerHTML = item.poster
+                    ? `<img src="${escapeHTML(proxyImgUrl(item.poster))}" alt="" loading="lazy" data-fallback-text="${escapeHTML(TYPE_LABEL[item.type] || '')}">`
+                    : `<div class="no-poster">${escapeHTML(TYPE_LABEL[item.type] || '—')}</div>`;
+                document.getElementById('rv-rating').textContent = rating ? `${rating} / 10` : 'без оценки';
+                document.getElementById('rv-title').textContent = item.titleRu || item.title;
+                const st = STATUS_LABEL[item.status] || item.status;
+                document.getElementById('rv-meta').textContent = `${TYPE_LABEL[item.type] || item.type} · ${item.year || '—'} · ${st}`;
+                document.getElementById('rv-tags').innerHTML = itemTags(item)
+                    .map((tag) => `<button class="tag-chip" type="button" data-tag-filter="${escapeHTML(tag)}">#${escapeHTML(tag)}</button>`)
+                    .join('');
+                const reviewBox = document.getElementById('rv-review');
+                if (String(item.review || '').trim()) {
+                    reviewBox.className = 'view-review';
+                    reviewBox.textContent = item.review;
+                } else {
+                    reviewBox.className = 'view-empty';
+                    reviewBox.textContent = 'Рецензии пока нет.';
+                }
+                openModal('modal-review-view');
+            }
+
+            function commitReview() {
+                if (!admin.isAdmin()) return;
+                const isNew = !list.some((i) => i.id === (reviewTarget?.id || ''));
+                const now = Date.now();
+                const target = isNew ? selectedSearchItem : list.find((i) => i.id === reviewTarget?.id);
+                if (!target) return;
+
+                const next = {
+                    ...target,
+                    status: reviewDraft.status,
+                    rating: reviewDraft.rating,
+                    review: document.getElementById('review-text').value.trim().slice(0, REVIEW_LIMIT),
+                    tags: reviewDraft.tags.slice(0, TAG_LIMIT),
+                    favorite: reviewDraft.favorite,
+                    addedAt: target.addedAt || now,
+                    updatedAt: now,
+                };
+                const idx = list.findIndex((i) => i.id === target.id);
+                if (idx >= 0) list[idx] = next;
+                else list.unshift(next);
+                selectedSearchItem = null;
+                render();
+                saveToServer();
+                closeModal('modal-review');
+                toast(`${next.titleRu || next.title} — сохранено`);
+            }
+
+            function removeFromEditor() {
+                if (!reviewTarget) return;
+                const item = list.find((i) => i.id === reviewTarget.id);
+                if (!item) return;
+                if (!confirm(`Удалить «${item.titleRu || item.title}» из коллекции?`)) return;
+                list = list.filter((i) => i.id !== item.id);
+                render();
+                saveToServer();
+                closeModal('modal-review');
                 toast('Удалено из списка');
             }
 
@@ -571,7 +997,7 @@
                                     <div class="search-sub">${orig ? `${orig} · ` : ''}${escapeHTML(item.year || '—')}</div>
                                 </div>
                                 <div class="search-actions">
-                                    <button class="add-mini watched" type="button" data-search-index="${idx}" data-status="watched">Смотрел</button>
+                                    <button class="add-mini watched" type="button" data-search-index="${idx}" data-status="watched">Смотрел + рецензия</button>
                                     <button class="add-mini planned" type="button" data-search-index="${idx}" data-status="planned">Планирую</button>
                                     <button class="add-mini dropped" type="button" data-search-index="${idx}" data-status="dropped">Брошено</button>
                                 </div>
@@ -650,14 +1076,30 @@
                 const btn = e.target.closest('[data-search-index]');
                 if (!btn) return;
                 const item = searchCache[Number(btn.dataset.searchIndex)];
-                if (item) addItem(item, btn.dataset.status);
+                if (!item) return;
+                if (btn.dataset.status === 'watched') {
+                    closeModal('modal-add');
+                    openReviewForNew(item);
+                    return;
+                }
+                addItem(item, btn.dataset.status);
             });
 
             document.getElementById('cards-grid').addEventListener('click', (e) => {
+                const tagBtn = e.target.closest('[data-tag-select]');
+                if (tagBtn) {
+                    setTagFilter(tagBtn.dataset.tagSelect);
+                    return;
+                }
                 const btn = e.target.closest('[data-card-action]');
                 if (btn) {
-                    if (btn.dataset.cardAction === 'remove') removeItem(btn.dataset.id);
-                    else if (btn.dataset.cardAction === 'status') changeStatus(btn.dataset.id, btn.dataset.status);
+                    const id = btn.dataset.id;
+                    if (btn.dataset.cardAction === 'remove') removeItem(id);
+                    else if (btn.dataset.cardAction === 'status') changeStatus(id, btn.dataset.status);
+                    else if (btn.dataset.cardAction === 'review') {
+                        const item = list.find((i) => i.id === id);
+                        if (item) openReviewEditor(item);
+                    }
                     return;
                 }
                 if (admin.isAdmin() && matchMedia('(pointer: coarse)').matches) {
@@ -667,6 +1109,12 @@
                         document.querySelectorAll('.media-card.touch-open').forEach((c) => c.classList.remove('touch-open'));
                         if (!already) card.classList.add('touch-open');
                     }
+                    return;
+                }
+                const card = e.target.closest('.media-card');
+                if (card) {
+                    const item = list.find((i) => i.id === card.dataset.id);
+                    if (item) openReviewViewer(item);
                 }
             });
 
@@ -689,6 +1137,117 @@
                 fallback.textContent = img.dataset.fallbackText;
                 img.replaceWith(fallback);
             }, true);
+
+            function setTagFilter(tag) {
+                const next = tag || '';
+                tagFilter = tagFilter.toLowerCase() === next.toLowerCase() ? '' : next;
+                closeModal('modal-review-view');
+                smoothSwap(render);
+            }
+
+            function setSortMode(mode) {
+                sortMode = mode;
+                const byRating = sortMode === 'rating';
+                const filtered = visibleItems();
+                if (byRating) filtered.sort((a, b) => itemRating(b) - itemRating(a) || Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+                else if (sortMode === 'title') filtered.sort((a, b) => String(a.titleRu || a.title).localeCompare(String(b.titleRu || b.title), 'ru'));
+                else if (sortMode === 'year') filtered.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+                else if (sortMode === 'updated') filtered.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+                else filtered.sort((a, b) => Number(b.addedAt || 0) - Number(a.addedAt || 0));
+                const grid = document.getElementById('cards-grid');
+                const empty = document.getElementById('empty-state');
+                empty.classList.toggle('hidden', filtered.length > 0);
+                grid.innerHTML = filtered.map(cardHTML).join('');
+                updateStats();
+                if (!filtered.length) render();
+            }
+
+            /* ---- обработчики рецензии ---- */
+            document.getElementById('review-rating').addEventListener('input', (e) => {
+                reviewDraft.rating = Number(e.target.value) || 0;
+                document.getElementById('review-rating-value').textContent = ratingLabel(reviewDraft.rating);
+            });
+            document.getElementById('review-status-choices').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-review-status]');
+                if (!btn) return;
+                reviewDraft.status = btn.dataset.reviewStatus;
+                renderReviewStatusChoices();
+            });
+            document.getElementById('review-text').addEventListener('input', updateReviewCounter);
+            document.getElementById('review-fav-btn').addEventListener('click', () => {
+                reviewDraft.favorite = !reviewDraft.favorite;
+                syncFavButton();
+            });
+            document.getElementById('tag-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    reviewDraft.tags = addTag(reviewDraft.tags, e.target.value);
+                    e.target.value = '';
+                    renderTagEditor();
+                    return;
+                }
+                if (e.key === 'Backspace' && !e.target.value && reviewDraft.tags.length) {
+                    reviewDraft.tags = reviewDraft.tags.slice(0, -1);
+                    renderTagEditor();
+                }
+            });
+            document.getElementById('tag-input').addEventListener('blur', (e) => {
+                if (!e.target.value.trim()) return;
+                reviewDraft.tags = addTag(reviewDraft.tags, e.target.value);
+                e.target.value = '';
+                renderTagEditor();
+            });
+            document.getElementById('tag-input').addEventListener('change', (e) => {
+                if (!e.target.value.trim()) return;
+                reviewDraft.tags = addTag(reviewDraft.tags, e.target.value);
+                e.target.value = '';
+                renderTagEditor();
+            });
+            document.getElementById('tag-editor').addEventListener('click', (e) => {
+                const remove = e.target.closest('[data-tag-remove]');
+                if (remove) {
+                    reviewDraft.tags = reviewDraft.tags.filter((_, i) => i !== Number(remove.dataset.tagRemove));
+                    renderTagEditor();
+                    return;
+                }
+                const suggest = e.target.closest('[data-tag-suggest]');
+                if (suggest) {
+                    reviewDraft.tags = addTag(reviewDraft.tags, suggest.dataset.tagSuggest);
+                    renderTagEditor();
+                }
+            });
+            document.getElementById('review-save-btn').addEventListener('click', commitReview);
+            document.getElementById('review-remove-btn').addEventListener('click', removeFromEditor);
+
+            /* ---- фильтры: сортировка, избранное, теги ---- */
+            document.getElementById('sort-select').addEventListener('change', (e) => {
+                smoothSwap(() => setSortMode(e.target.value));
+            });
+            document.getElementById('fav-toggle').addEventListener('click', () => {
+                favoriteOnly = !favoriteOnly;
+                smoothSwap(render);
+            });
+            document.getElementById('fav-clear').addEventListener('click', () => {
+                favoriteOnly = false;
+                smoothSwap(render);
+            });
+            document.getElementById('tag-filter-chip').addEventListener('click', () => setTagFilter(''));
+            document.getElementById('tag-filter-list').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-tag-select]');
+                if (btn) setTagFilter(btn.dataset.tagSelect);
+            });
+            document.getElementById('rv-tags').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-tag-filter]');
+                if (btn) setTagFilter(btn.dataset.tagFilter);
+            });
+            document.getElementById('export-btn').addEventListener('click', exportList);
+
+            bindModalDismiss((id) => {
+                if (id === 'modal-review') {
+                    reviewTarget = null;
+                    selectedSearchItem = null;
+                }
+            });
 
             admin.check();
             fetchList();

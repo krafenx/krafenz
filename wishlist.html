@@ -86,6 +86,44 @@
         .wish-link-inline:hover { color: #fff; }
 
         .choice-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        .tag-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-family: var(--font-sans); font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+            padding: 3px 9px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .22); color: var(--silver);
+            background: rgba(255, 255, 255, .03);
+            cursor: pointer; transition: color .22s var(--ease), border-color .22s var(--ease), background-color .22s var(--ease);
+        }
+        .tag-chip:hover { color: #fff; border-color: rgba(163, 19, 19, .55); }
+        .tag-chip.tag-active {
+            color: #fff; border-color: rgba(163, 19, 19, .7);
+            background: linear-gradient(135deg, rgba(142, 15, 15, .55), rgba(76, 5, 5, .55));
+        }
+        .card-fav { font-size: 15px; color: #fcd34d; text-shadow: 0 0 12px rgba(245, 158, 11, .65); }
+        .wish-title-row { display: flex; align-items: center; gap: 8px; }
+        .tag-editor {
+            display: flex; flex-wrap: wrap; gap: 7px; align-items: center;
+            padding: 9px 11px; border-radius: 14px;
+            border: 1px solid var(--glass-border); background: rgba(255, 255, 255, .03);
+            transition: border-color .25s var(--ease);
+        }
+        .tag-editor:focus-within { border-color: rgba(163, 19, 19, .55); }
+        .tag-editor input {
+            flex: 1 1 130px; min-width: 110px;
+            border: none; background: transparent; outline: none;
+            color: var(--silver-bright); font-family: var(--font-sans); font-size: 13px;
+        }
+        .tag-editor input::placeholder { color: rgba(160, 160, 160, .42); }
+        .tag-edit-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 6px 4px 10px; border-radius: 999px;
+            font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+            background: rgba(163, 19, 19, .18); border: 1px solid rgba(163, 19, 19, .45); color: #fff;
+        }
+        .tag-edit-chip button { border: none; background: transparent; color: var(--silver); font-size: 13px; line-height: 1; padding: 0 2px; cursor: pointer; }
+        .tag-edit-chip button:hover { color: #fff; }
+        .fav-toggle.active { color: #fcd34d; border-color: rgba(245, 158, 11, .55); background: rgba(245, 158, 11, .12); }
         .view-note {
             margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line);
             font-size: 14px; line-height: 1.8; color: var(--silver-bright); white-space: pre-wrap;
@@ -102,6 +140,10 @@
                 align-items: center; min-width: 0; padding-top: 10px; border-top: 1px solid var(--line);
             }
             .price-value { font-size: 20px; }
+            .tag-editor { padding: 8px 9px; }
+            .tag-editor input { font-size: 16px; }
+            .modal-foot { flex-wrap: wrap; gap: 10px; }
+            .modal-foot > div { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
         }
     </style>
     <script data-cfasync="false" nonce="__CSP_NONCE__" src="/app.js" defer></script>
@@ -153,6 +195,7 @@
                 <div class="page-header-actions">
                     <span id="save-indicator" class="save-indicator"></span>
                     <button id="add-btn" class="btn-primary sm admin-only" type="button">+ Добавить покупку</button>
+                    <button id="export-btn" class="btn-action" type="button" hidden>Экспорт JSON</button>
                 </div>
             </div>
 
@@ -172,6 +215,13 @@
             </div>
 
             <div id="status-tabs" class="choice-row reveal" style="--d:.09s; margin-bottom:18px;"></div>
+
+            <div class="choice-row reveal" style="--d:.11s; margin-bottom:14px;">
+                <button id="fav-toggle" class="filter-pill" type="button">★ Избранное</button>
+                <button id="fav-clear" class="tag-chip hidden" type="button">сбросить избранное ×</button>
+                <button id="tag-clear" class="tag-chip hidden" type="button">сбросить теги ×</button>
+            </div>
+            <div id="tag-filter-line" class="tag-row hidden" style="margin-bottom:18px;"></div>
 
             <div class="glass no-lift toolbar-panel reveal" style="--d:.13s;">
                 <input id="list-search" class="kf-input" type="search" placeholder="Поиск по названию, категории или заметке…" autocomplete="off">
@@ -268,6 +318,15 @@
             </div>
 
             <div class="field">
+                <span class="field-label">Теги</span>
+                <div class="tag-editor" id="tag-editor">
+                    <div id="tag-edit-list" class="tag-row" style="margin-top:0;"></div>
+                    <input id="tag-input" type="text" maxlength="28" placeholder="Добавить тег и Enter…" autocomplete="off" aria-label="Новый тег">
+                </div>
+                <div class="tag-row" id="tag-suggestions"></div>
+            </div>
+
+            <div class="field">
                 <label class="field-label" for="note-input">Заметка</label>
                 <textarea id="note-input" class="kf-area" maxlength="2000" placeholder="Почему именно эта версия, цвет, ревизия…"></textarea>
             </div>
@@ -275,6 +334,7 @@
             <div class="modal-foot">
                 <span id="note-count" style="font-size:10px;letter-spacing:.14em;color:var(--silver-dim);">0 / 2000</span>
                 <div style="display:flex;gap:10px;">
+                    <button id="wish-fav-btn" class="btn-ghost sm fav-toggle" type="button">★ Избранное</button>
                     <button id="delete-wish-btn" class="btn-ghost sm danger hidden" type="button">Удалить</button>
                     <button id="save-wish-btn" class="btn-primary sm" type="button">Сохранить</button>
                 </div>
@@ -296,6 +356,7 @@
                 </div>
                 <button class="icon-btn" type="button" data-close="modal-view" aria-label="Закрыть">✕</button>
             </div>
+            <div id="view-tags" class="tag-row hidden"></div>
             <div id="view-note" class="view-note"></div>
             <div id="view-actions" style="margin-top:20px;"></div>
         </div>
@@ -326,7 +387,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController } = window.KrafenUI;
+            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, TAG_LIMIT } = window.KrafenUI;
 
             const CATEGORIES = {
                 all: { label: 'Все', short: 'WL' },
@@ -363,6 +424,10 @@
             let currentPriority = 2;
             let saveInFlight = false;
             let saveQueued = false;
+            let tagFilter = '';
+            let favoriteOnly = false;
+            let draftTags = [];
+            let draftFavorite = false;
 
             const saveInd = document.getElementById('save-indicator');
             function setSaveIndicator(cls, text) {
@@ -372,7 +437,14 @@
 
             const admin = createAdminController({
                 onChange: (on) => {
-                    if (!on) setSaveIndicator('', '');
+                    if (!on) {
+                        setSaveIndicator('', '');
+                        favoriteOnly = false;
+                        tagFilter = '';
+                    }
+                    const exportBtn = document.getElementById('export-btn');
+                    if (exportBtn) exportBtn.hidden = !on;
+                    render();
                 }
             });
 
@@ -412,6 +484,15 @@
                 return img
                     ? `<img class="wish-photo" src="${escapeHTML(img)}" alt="${escapeHTML(item.title)}" loading="lazy" decoding="async" data-fallback-short="${escapeHTML(short)}">`
                     : `<div class="wish-photo-empty">${escapeHTML(short)}</div>`;
+            }
+
+            function itemTags(item) {
+                return Array.isArray(item.tags) ? item.tags.filter((t) => typeof t === 'string' && t.trim()) : [];
+            }
+
+            function exportList() {
+                if (!admin.isAdmin() || !list.length) return;
+                exportCollection('wishlist', list, listRevision);
             }
 
             async function fetchList() {
@@ -517,9 +598,11 @@
                 return list
                     .filter((i) => categoryFilter === 'all' || i.category === categoryFilter)
                     .filter((i) => statusFilter === 'all' || i.status === statusFilter)
+                    .filter((i) => !favoriteOnly || i.favorite)
+                    .filter((i) => !tagFilter || itemTags(i).some((t) => t.toLowerCase() === tagFilter.toLowerCase()))
                     .filter((i) => {
                         const cat = CATEGORIES[i.category]?.label || '';
-                        return !q || `${i.title} ${cat} ${i.note || ''}`.toLowerCase().includes(q);
+                        return !q || `${i.title} ${cat} ${i.note || ''} ${itemTags(i).join(' ')}`.toLowerCase().includes(q);
                     })
                     .sort((a, b) => {
                         if (a.status === 'bought' && b.status !== 'bought') return 1;
@@ -533,8 +616,19 @@
                     });
             }
 
+            function renderTagFilter() {
+                const tags = collectTags(list);
+                const line = document.getElementById('tag-filter-line');
+                line.classList.toggle('hidden', tags.length === 0);
+                line.innerHTML = tags.map((tag) => `<button class="tag-chip ${tagFilter && tag.toLowerCase() === tagFilter.toLowerCase() ? 'tag-active' : ''}" type="button" data-tag-select="${escapeHTML(tag)}">#${escapeHTML(tag)}</button>`).join('');
+                document.getElementById('fav-toggle').classList.toggle('active', favoriteOnly);
+                document.getElementById('fav-clear').classList.toggle('hidden', !favoriteOnly);
+                document.getElementById('tag-clear').classList.toggle('hidden', !tagFilter);
+            }
+
             function render() {
                 renderTabs();
+                renderTagFilter();
                 const items = getVisibleItems();
                 const el = document.getElementById('wish-list');
                 document.getElementById('empty-state').classList.toggle('hidden', items.length > 0);
@@ -551,7 +645,8 @@
                                     <span class="cat-tag">${escapeHTML(cat)}</span>
                                     <span class="prio-tag ${pr.cls}">${escapeHTML(pr.label)}</span>
                                 </div>
-                                <h2 class="wish-title">${escapeHTML(item.title)}</h2>
+                                <h2 class="wish-title wish-title-row">${escapeHTML(item.title)}${item.favorite ? '<span class="card-fav" title="В избранном">★</span>' : ''}</h2>
+                                ${itemTags(item).length ? `<div class="tag-row">${itemTags(item).map((t) => `<button class="tag-chip ${t.toLowerCase() === tagFilter.toLowerCase() && tagFilter ? 'tag-active' : ''}" type="button" data-tag-select="${escapeHTML(t)}">#${escapeHTML(t)}</button>`).join('')}</div>` : ''}
                                 ${item.note ? `<div class="wish-note">${escapeHTML(item.note)}</div>` : ''}
                                 <div class="wish-meta">обновлено ${formatDate(item.updatedAt)}</div>
                             </div>
@@ -582,9 +677,29 @@
                 document.getElementById('note-count').textContent = `${document.getElementById('note-input').value.length} / 2000`;
             }
 
+            function renderTagEditor() {
+                document.getElementById('tag-edit-list').innerHTML = draftTags
+                    .map((tag, idx) => `<span class="tag-edit-chip">#${escapeHTML(tag)}<button type="button" data-tag-remove="${idx}" aria-label="Убрать тег">×</button></span>`)
+                    .join('');
+                const used = new Set(draftTags.map((t) => t.toLowerCase()));
+                const suggestions = collectTags(list).filter((t) => !used.has(t.toLowerCase())).slice(0, 10);
+                document.getElementById('tag-suggestions').innerHTML = suggestions
+                    .map((tag) => `<button class="tag-chip" type="button" data-tag-suggest="${escapeHTML(tag)}">+ #${escapeHTML(tag)}</button>`)
+                    .join('');
+                const input = document.getElementById('tag-input');
+                input.disabled = draftTags.length >= TAG_LIMIT;
+                input.placeholder = input.disabled ? `максимум ${TAG_LIMIT} тегов` : 'Добавить тег и Enter…';
+                const favBtn = document.getElementById('wish-fav-btn');
+                favBtn.classList.toggle('active', draftFavorite);
+                favBtn.textContent = draftFavorite ? '★ В избранном' : '★ В избранное';
+            }
+
             function openAddModal() {
                 if (!admin.isAdmin()) return;
                 editingId = null;
+                draftTags = [];
+                draftFavorite = false;
+                document.getElementById('tag-input').value = '';
                 currentCategory = categoryFilter === 'all' ? 'hardware' : categoryFilter;
                 currentPriority = 2;
                 currentStatus = 'want';
@@ -598,6 +713,7 @@
                 document.getElementById('delete-wish-btn').classList.add('hidden');
                 updateNoteCount();
                 renderEditorChoices();
+                renderTagEditor();
                 openModal('modal-wish');
                 setTimeout(() => document.getElementById('title-input').focus(), 100);
             }
@@ -614,9 +730,13 @@
                 document.getElementById('link-input').value = item.link || '';
                 document.getElementById('image-input').value = item.image || '';
                 document.getElementById('note-input').value = item.note || '';
+                draftTags = Array.isArray(item.tags) ? item.tags.slice(0, TAG_LIMIT) : [];
+                draftFavorite = Boolean(item.favorite);
+                document.getElementById('tag-input').value = '';
                 document.getElementById('delete-wish-btn').classList.remove('hidden');
                 updateNoteCount();
                 renderEditorChoices();
+                renderTagEditor();
                 openModal('modal-wish');
             }
 
@@ -630,6 +750,10 @@
                 document.getElementById('view-title').textContent = item.title;
                 document.getElementById('view-meta').textContent = `${cat} · ${pr} · ${st}`;
                 document.getElementById('view-note').textContent = item.note || 'Заметки пока нет.';
+                const viewTags = document.getElementById('view-tags');
+                const tags = itemTags(item);
+                viewTags.innerHTML = tags.map((t) => `<button class="tag-chip" type="button" data-tag-select="${escapeHTML(t)}">#${escapeHTML(t)}</button>`).join('');
+                viewTags.classList.toggle('hidden', tags.length === 0);
                 document.getElementById('view-actions').innerHTML = link
                     ? `<a class="btn-primary sm" href="${escapeHTML(link)}" target="_blank" rel="noopener noreferrer">Открыть страницу товара ↗</a>`
                     : '';
@@ -670,6 +794,8 @@
                     link,
                     image,
                     note: document.getElementById('note-input').value.trim(),
+                    tags: draftTags.slice(0, TAG_LIMIT),
+                    favorite: draftFavorite,
                     addedAt: existing?.addedAt || now,
                     updatedAt: now,
                 };
@@ -732,10 +858,85 @@
                 currentStatus = btn.dataset.editStatus;
                 renderEditorChoices();
             });
+            document.getElementById('tag-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    draftTags = addTag(draftTags, e.target.value, TAG_LIMIT);
+                    e.target.value = '';
+                    renderTagEditor();
+                    return;
+                }
+                if (e.key === 'Backspace' && !e.target.value && draftTags.length) {
+                    draftTags = draftTags.slice(0, -1);
+                    renderTagEditor();
+                }
+            });
+            document.getElementById('tag-input').addEventListener('blur', (e) => {
+                if (!e.target.value.trim()) return;
+                draftTags = addTag(draftTags, e.target.value, TAG_LIMIT);
+                e.target.value = '';
+                renderTagEditor();
+            });
+            document.getElementById('tag-editor').addEventListener('click', (e) => {
+                const remove = e.target.closest('[data-tag-remove]');
+                if (remove) {
+                    draftTags = draftTags.filter((_, i) => i !== Number(remove.dataset.tagRemove));
+                    renderTagEditor();
+                    return;
+                }
+                const suggest = e.target.closest('[data-tag-suggest]');
+                if (suggest) {
+                    draftTags = addTag(draftTags, suggest.dataset.tagSuggest, TAG_LIMIT);
+                    renderTagEditor();
+                }
+            });
+            document.getElementById('tag-suggestions').addEventListener('click', (e) => {
+                const suggest = e.target.closest('[data-tag-suggest]');
+                if (!suggest) return;
+                draftTags = addTag(draftTags, suggest.dataset.tagSuggest, TAG_LIMIT);
+                renderTagEditor();
+            });
+            document.getElementById('wish-fav-btn').addEventListener('click', () => {
+                draftFavorite = !draftFavorite;
+                renderTagEditor();
+            });
+            function setTagFilter(tag) {
+                const next = String(tag || '');
+                tagFilter = tagFilter.toLowerCase() === next.toLowerCase() ? '' : next;
+                smoothSwap(render);
+            }
+            document.getElementById('fav-toggle').addEventListener('click', () => {
+                favoriteOnly = !favoriteOnly;
+                smoothSwap(render);
+            });
+            document.getElementById('fav-clear').addEventListener('click', () => {
+                favoriteOnly = false;
+                smoothSwap(render);
+            });
+            document.getElementById('tag-clear').addEventListener('click', () => {
+                tagFilter = '';
+                smoothSwap(render);
+            });
+            document.getElementById('tag-filter-line').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-tag-select]');
+                if (btn) setTagFilter(btn.dataset.tagSelect);
+            });
+            document.getElementById('view-tags').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-tag-select]');
+                if (!btn) return;
+                closeModal('modal-view');
+                setTagFilter(btn.dataset.tagSelect);
+            });
+            document.getElementById('export-btn').addEventListener('click', exportList);
             document.getElementById('note-input').addEventListener('input', updateNoteCount);
             document.getElementById('save-wish-btn').addEventListener('click', saveEditor);
             document.getElementById('delete-wish-btn').addEventListener('click', deleteCurrentItem);
             document.getElementById('wish-list').addEventListener('click', (e) => {
+                const tagBtn = e.target.closest('[data-tag-select]');
+                if (tagBtn) {
+                    setTagFilter(tagBtn.dataset.tagSelect);
+                    return;
+                }
                 if (e.target.closest('[data-external-link]')) return;
                 const row = e.target.closest('[data-id]');
                 if (!row) return;
