@@ -236,7 +236,9 @@ async function main() {
     if (DANONSHA_PASSWORD) {
         const { w, d, errors } = await boot('/danonsha/watchlist');
         check('бренд ведёт в профиль', d.querySelector('.topnav .brand')?.getAttribute('href') === '/danonsha');
-        check('метка личного профиля', Boolean(d.querySelector('.profile-badge')));
+        check('нет плашки «личный профиль»', !d.querySelector('.profile-badge'));
+        check('нет кнопки Spotify в панели профиля',
+              !d.querySelector('#admin-bar a[href^="/api/spotify"]'));
         await login(w, d, DANONSHA_PASSWORD);
         check('вход в админ-режим danonsha', d.body.classList.contains('is-admin'));
 
