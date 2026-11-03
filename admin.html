@@ -172,12 +172,12 @@
         }
         .bd-bar > i {
             display: block; height: 100%; border-radius: inherit;
-            background: linear-gradient(90deg, var(--crimson), #d12e2e);
+            background: linear-gradient(90deg, var(--crimson), var(--crimson-bright));
         }
         .geo-status { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: var(--silver); display: grid; gap: 6px; }
         .geo-row { line-height: 1.45; word-break: break-word; }
-        .geo-st.ok { color: #7fd38a; }
-        .geo-st.bad { color: #ff7a7a; }
+        .geo-st.ok { color: #86efac; }
+        .geo-st.bad { color: #fca5a5; }
         .bd-empty {
             padding: 20px 0; text-align: center;
             font-size: 12px; color: var(--silver-dim); font-style: italic; font-family: var(--font-serif);
@@ -234,7 +234,7 @@
         .vod-mgr-row.is-hidden-vod { opacity: .58; border-style: dashed; }
         .vod-mgr-thumb {
             width: 116px; aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden;
-            background: #0d0d11; border: 1px solid rgba(255, 255, 255, .08);
+            background: var(--abyss); border: 1px solid rgba(255, 255, 255, .08);
             display: flex; align-items: center; justify-content: center;
             font-family: var(--font-mono); font-size: 10px; color: var(--silver-dim);
         }
@@ -279,7 +279,7 @@
         }
         .disk-meter > span {
             display: block; height: 100%; border-radius: inherit;
-            background: linear-gradient(90deg, #16a34a, var(--crimson-bright));
+            background: linear-gradient(90deg, #22c55e, var(--crimson-bright));
         }
 
         .integ-list { display: flex; flex-direction: column; gap: 10px; }
@@ -326,12 +326,12 @@
             background: rgba(4, 4, 6, .92);
             border: 1px solid rgba(160, 160, 160, .16);
             font-family: var(--font-mono); font-size: 11.5px; line-height: 1.65;
-            color: #d4d4dc; white-space: pre-wrap; word-break: break-word;
+            color: var(--silver-bright); white-space: pre-wrap; word-break: break-word;
         }
         .log-line-err { color: #fca5a5; }
         .log-line-warn { color: #fde68a; }
         .log-line-ok { color: #86efac; }
-        .log-line-head { color: #93c5fd; font-weight: 700; }
+        .log-line-head { color: var(--crimson-bright); font-weight: 700; }
 
         .check-row {
             display: flex; align-items: center; gap: 10px;
@@ -474,8 +474,8 @@
                                     <h2 class="chart-title">Последние 24 часа</h2>
                                 </div>
                                 <div class="chart-legend">
-                                    <span class="legend-item"><span class="legend-swatch" style="background:#c81e3a;"></span>просмотры</span>
-                                    <span class="legend-item"><span class="legend-swatch" style="background:#e5e7eb;"></span>уникальные</span>
+                                    <span class="legend-item"><span class="legend-swatch" style="background:#a31313;"></span>просмотры</span>
+                                    <span class="legend-item"><span class="legend-swatch" style="background:#e0e0e0;"></span>уникальные</span>
                                 </div>
                             </div>
                             <div class="chart-svg-wrap" id="chart-24h">
@@ -490,9 +490,9 @@
                                     <h2 class="chart-title" id="daily-chart-title">Трафик за 14 дней</h2>
                                 </div>
                                 <div class="chart-legend">
-                                    <span class="legend-item"><span class="legend-swatch" style="background:#c81e3a;"></span>просмотры</span>
-                                    <span class="legend-item"><span class="legend-swatch" style="background:#e5e7eb;"></span>уникальные</span>
-                                    <span class="legend-item"><span class="legend-swatch" style="background:#38bdf8;"></span>VOD</span>
+                                    <span class="legend-item"><span class="legend-swatch" style="background:#a31313;"></span>просмотры</span>
+                                    <span class="legend-item"><span class="legend-swatch" style="background:#e0e0e0;"></span>уникальные</span>
+                                    <span class="legend-item"><span class="legend-swatch" style="background:#ff7a7a;"></span>VOD</span>
                                 </div>
                             </div>
                             <div class="chart-svg-wrap" id="chart-daily">
@@ -1020,7 +1020,7 @@
                         rect.setAttribute('width', barW.toFixed(1));
                         rect.setAttribute('height', hV.toFixed(1));
                         rect.setAttribute('rx', '2.5');
-                        rect.setAttribute('fill', 'rgba(185, 24, 48, 0.62)');
+                        rect.setAttribute('fill', 'rgba(163, 19, 19, 0.62)');
                         svg.appendChild(rect);
                     }
 
@@ -1031,7 +1031,7 @@
                         tx.setAttribute('x', cx.toFixed(1));
                         tx.setAttribute('y', String(H - 7));
                         tx.setAttribute('text-anchor', 'middle');
-                        tx.setAttribute('fill', '#777777');
+                        tx.setAttribute('fill', '#666666');
                         tx.setAttribute('font-size', '9.5');
                         tx.setAttribute('font-family', 'JetBrains Mono, monospace');
                         tx.textContent = d.label || '';
@@ -1049,7 +1049,7 @@
                 const uniqPath = document.createElementNS(ns, 'path');
                 uniqPath.setAttribute('d', buildPath('uniques'));
                 uniqPath.setAttribute('fill', 'none');
-                uniqPath.setAttribute('stroke', '#e5e7eb');
+                uniqPath.setAttribute('stroke', '#e0e0e0');
                 uniqPath.setAttribute('stroke-width', '1.9');
                 svg.appendChild(uniqPath);
 
@@ -1057,7 +1057,7 @@
                     const vodPath = document.createElementNS(ns, 'path');
                     vodPath.setAttribute('d', buildPath('vod_plays'));
                     vodPath.setAttribute('fill', 'none');
-                    vodPath.setAttribute('stroke', '#38bdf8');
+                    vodPath.setAttribute('stroke', '#ff7a7a');
                     vodPath.setAttribute('stroke-width', '1.5');
                     vodPath.setAttribute('stroke-dasharray', '3 3');
                     svg.appendChild(vodPath);

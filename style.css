@@ -12,6 +12,7 @@
     --silver-bright: #e0e0e0;
     --crimson: #7c0a0a;
     --crimson-bright: #a31313;
+    --crimson-light: #ff7a7a;
     --glass: rgba(12, 12, 15, 0.66);
     --glass-border: rgba(160, 160, 160, 0.13);
     --line: rgba(160, 160, 160, 0.16);
@@ -345,7 +346,7 @@ main { position: relative; z-index: 10; }
 }
 .page-display { font-size: clamp(74px, 11vw, 152px); line-height: .9; }
 .grad {
-    background: linear-gradient(120deg, var(--crimson-bright) 10%, #ff7a7a 55%, var(--crimson-bright) 95%);
+    background: linear-gradient(120deg, var(--crimson-bright) 10%, var(--crimson-light) 55%, var(--crimson-bright) 95%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
     filter: drop-shadow(0 0 34px rgba(163, 19, 19, .45));
 }

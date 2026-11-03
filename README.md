@@ -95,7 +95,7 @@ flowchart LR
 | Панель | `/admin` | `/admin` (тот же, вход по логину) |
 | Пароль | `ADMIN_PASSWORD` | `ADMIN_PASSWORD_DANONSHA` |
 | Cookie | `kf_admin_session` | `kf_danonsha_session` |
-| Оформление | базовый `style.css` | тот же интерфейс + `danonsha/theme.css` (розово-алый акцент) |
+| Оформление | базовый `style.css` | та же палитра и интерфейс + `danonsha/theme.css` (только шрифты и метка профиля) |
 
 **Как включить профиль danonsha:** задайте `ADMIN_PASSWORD_DANONSHA` в `.env`.
 Пока пароль не задан, вход в профиль отключён, а страницы открываются только
@@ -129,7 +129,7 @@ KF_DANONSHA=<пароль> node tests/pages.test.js http://127.0.0.1:8080 <па�
 krafenz/
 ├── server.py               # Единый FastAPI-бэкенд, SQLite, API-прокси, VOD-стриминг, автообновление и CLI
 ├── app.js                  # Общее клиентское ядро: атмосфера, скролл 60–360 Гц, модалки, админ-сессия
-├── style.css               # Единая дизайн-система в эстетике danonsha
+├── style.css               # Единая дизайн-система и палитра для всех страниц
 ├── mpegts.min.js           # Локальный MSE-движок для воспроизведения MPEG-TS записей
 ├── index.html              # Главная страница
 ├── danonsha.html           # Страница danonsha и полноэкранный VOD-кинотеатр
