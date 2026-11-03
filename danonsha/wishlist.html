@@ -166,7 +166,6 @@
             <a href="/danonsha/gamelist">Gamelist</a>
             <a href="/danonsha/setup">Setup</a>
             <a class="active" href="/danonsha/wishlist">Wishlist</a>
-            <a href="/danonsha/tasks">Tasks</a>
             <a href="/">krafen</a>
         </div>
         <span class="profile-badge">личный профиль</span>
@@ -180,7 +179,6 @@
         <a href="/danonsha/gamelist">Gamelist</a>
         <a href="/danonsha/setup">Setup</a>
         <a class="active" href="/danonsha/wishlist">Wishlist</a>
-        <a href="/danonsha/tasks">Tasks</a>
         <a href="/">krafen</a>
     </div>
 
@@ -389,7 +387,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, sanitizeItems, TAG_LIMIT, profileFetch, profilePath, PROFILE } = window.KrafenUI;
+            const { escapeHTML, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, exportCollection, sanitizeItems, TAG_LIMIT, profileFetch, profilePath } = window.KrafenUI;
 
             const CATEGORIES = {
                 all: { label: 'Все', short: 'WL' },

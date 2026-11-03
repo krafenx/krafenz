@@ -501,6 +501,10 @@
                 <button class="icon-btn" type="button" data-close="modal-admin" aria-label="Закрыть">✕</button>
             </div>
             <div class="field">
+                <label class="field-label" for="admin-login-input">Логин</label>
+                <input type="text" id="admin-login-input" class="kf-input" placeholder="krafen или danonsha" autocomplete="username" autocapitalize="none" spellcheck="false">
+            </div>
+            <div class="field">
                 <label class="field-label" for="admin-password-input">Пароль администратора</label>
                 <input type="password" id="admin-password-input" class="kf-input" placeholder="Введите пароль…" autocomplete="current-password">
             </div>
@@ -515,7 +519,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, sanitizeItems, TAG_LIMIT, TAG_MAX_LEN, profileFetch, profilePath, PROFILE } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, sanitizeItems, TAG_LIMIT, TAG_MAX_LEN, profileFetch, profilePath } = window.KrafenUI;
 
             const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
             const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };

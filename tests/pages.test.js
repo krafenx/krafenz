@@ -102,6 +102,8 @@ async function login(w, d, password) {
         click(w, d.getElementById('lock-btn'));
         await settle(w, 100);
     }
+    const loginInput = d.getElementById('admin-login-input') || d.getElementById('gate-login');
+    if (loginInput && !loginInput.value) loginInput.value = 'krafen';
     passInput.value = password;
     click(w, submit);
     await settle(w, 1200);
@@ -119,12 +121,12 @@ async function api(path, { method = 'GET', body, profile } = {}) {
     return { status: res.status, ok: res.ok, data: await res.json().catch(() => ({})) };
 }
 
-/** Логин на уровне HTTP — для проверок API без страницы. */
+/** Логин на уровне HTTP — для проверок API без страницы. Профиль задаётся логином. */
 async function httpLogin(profile, password) {
     const res = await fetch(BASE + '/api/admin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: BASE, 'Sec-Fetch-Site': 'same-origin', 'X-Krafen-Profile': profile },
-        body: JSON.stringify({ password }),
+        headers: { 'Content-Type': 'application/json', Origin: BASE, 'Sec-Fetch-Site': 'same-origin' },
+        body: JSON.stringify({ login: profile, password }),
     });
     const cookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
     return { status: res.status, cookie: cookies.map((c) => c.split(';')[0]).join('; ') };
@@ -182,6 +184,22 @@ async function main() {
         // чужой пароль не подходит
         const wrong = await httpLogin('danonsha', MAIN_PASSWORD);
         check('пароль основного профиля не подходит к danonsha', wrong.status === 401, String(wrong.status));
+
+        // логин определяет профиль и выдаёт собственную cookie
+        const byLogin = await fetch(BASE + '/api/admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Origin: BASE, 'Sec-Fetch-Site': 'same-origin' },
+            body: JSON.stringify({ login: 'danonsha', password: DANONSHA_PASSWORD }),
+        });
+        const loginCookies = byLogin.headers.getSetCookie ? byLogin.headers.getSetCookie() : [];
+        check('вход по логину danonsha', byLogin.status === 200, String(byLogin.status));
+        check('выдана cookie профиля danonsha', loginCookies.some((c) => c.startsWith('kf_danonsha_session=')),
+              loginCookies.map((c) => c.split('=')[0]).join(','));
+        const longLived = loginCookies.some((c) => {
+            const m = c.match(/Max-Age=(\d+)/i);
+            return m && Number(m[1]) >= 7 * 24 * 60 * 60;
+        });
+        check('сессия долгая (не меньше недели)', longLived, (loginCookies[0] || '').match(/Max-Age=\d+/i)?.[0] || '');
     } else {
         console.log('\n(изоляция API пропущена: задайте KF_PASSWORD и KF_DANONSHA)');
     }
@@ -189,7 +207,7 @@ async function main() {
     // ---------- профиль danonsha ----------
     console.log('\n=== профиль danonsha: страницы ===');
     for (const page of ['/danonsha', '/danonsha/watchlist', '/danonsha/gamelist',
-                        '/danonsha/setup', '/danonsha/wishlist', '/danonsha/tasks', '/danonsha/admin']) {
+                        '/danonsha/setup', '/danonsha/wishlist']) {
         const { w, d, errors, requests } = await boot(page);
         check(`${page} открылась`, Boolean(d.querySelector('main')));
         check(`${page}: нет JS-ошибок`, errors.length === 0, errors[0] || '');

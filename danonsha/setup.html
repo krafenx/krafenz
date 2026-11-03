@@ -129,7 +129,6 @@
             <a href="/danonsha/gamelist">Gamelist</a>
             <a class="active" href="/danonsha/setup">Setup</a>
             <a href="/danonsha/wishlist">Wishlist</a>
-            <a href="/danonsha/tasks">Tasks</a>
             <a href="/">krafen</a>
         </div>
         <span class="profile-badge">личный профиль</span>
@@ -143,7 +142,6 @@
         <a href="/danonsha/gamelist">Gamelist</a>
         <a class="active" href="/danonsha/setup">Setup</a>
         <a href="/danonsha/wishlist">Wishlist</a>
-        <a href="/danonsha/tasks">Tasks</a>
         <a href="/">krafen</a>
     </div>
 
@@ -294,7 +292,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, toast, openModal, closeModal, bindModalDismiss, createAdminController, profileFetch, profilePath, PROFILE } = window.KrafenUI;
+            const { escapeHTML, toast, openModal, closeModal, bindModalDismiss, createAdminController, profileFetch, profilePath } = window.KrafenUI;
 
             const GROUPS = { pc: 'Системный блок', gear: 'Периферия' };
             const ICONS = {

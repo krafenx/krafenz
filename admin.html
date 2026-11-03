@@ -406,7 +406,11 @@
                         На сервере не задан надёжный <code>ADMIN_PASSWORD</code> в <code>.env</code> (значение <code>change-me</code> заблокировано).
                     </div>
                     <div class="field">
-                        <label class="field-label" for="gate-password">Пароль администратора</label>
+                        <label class="field-label" for="gate-login">Логин</label>
+                        <input type="text" id="gate-login" class="kf-input" placeholder="krafen или danonsha" autocomplete="username" autocapitalize="none" spellcheck="false">
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="gate-password">Пароль</label>
                         <div class="auth-pass-wrap">
                             <input type="password" id="gate-password" class="kf-input" placeholder="Введите пароль…" autocomplete="current-password">
                             <button type="button" id="gate-pass-toggle" class="pass-toggle">показать</button>
@@ -720,11 +724,13 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, safeHttpUrl, toast, openModal, closeModal, bindModalDismiss, profileFetch, profilePath, PROFILE } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, safeHttpUrl, toast, openModal, closeModal, bindModalDismiss, profileFetch, profilePath } = window.KrafenUI;
 
             const authGate = document.getElementById('auth-gate');
             const dashView = document.getElementById('dashboard-view');
             const gatePass = document.getElementById('gate-password');
+            const gateLogin = document.getElementById('gate-login');
+            let activeProfile = 'krafen';
             const gateToggle = document.getElementById('gate-pass-toggle');
             const gateLoginBtn = document.getElementById('gate-login-btn');
             const gateErr = document.getElementById('gate-error');
@@ -836,6 +842,7 @@
 
             async function performLogin() {
                 const password = gatePass.value.trim();
+                const login = (gateLogin.value || 'krafen').trim().toLowerCase();
                 if (!password) return;
                 gateLoginBtn.disabled = true;
                 gateLoginBtn.textContent = 'Проверка…';
@@ -845,20 +852,24 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
-                        body: JSON.stringify({ password }),
+                        body: JSON.stringify({ password, login }),
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) {
+                        const envName = login === 'danonsha' ? 'ADMIN_PASSWORD_DANONSHA' : 'ADMIN_PASSWORD';
                         gateErr.textContent = res.status === 429
                             ? 'Слишком много попыток входа. Подождите пару минут.'
                             : (data.error === 'admin_password_missing'
-                                ? 'На сервере не настроен ADMIN_PASSWORD в .env.'
-                                : 'Неверный пароль администратора.');
+                                ? `На сервере не задан ${envName} в .env.`
+                                : `Неверный логин или пароль для профиля «${login}».`);
                         gateErr.classList.remove('hidden');
                         return;
                     }
                     gatePass.value = '';
-                    toast('Вход выполнен');
+                    activeProfile = data.profile || login;
+                    // дальше все запросы панели идут уже от выбранного профиля
+                    window.KrafenUI.setProfile(activeProfile);
+                    toast(`Вход выполнен: ${activeProfile}`);
                     setAuthView(true, true);
                 } catch {
                     gateErr.textContent = 'Ошибка соединения с сервером.';
@@ -875,9 +886,15 @@
                 gateToggle.textContent = show ? 'скрыть' : 'показать';
             });
             gateLoginBtn.addEventListener('click', performLogin);
-            gatePass.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') performLogin();
+            [gatePass, gateLogin].forEach((el) => {
+                el?.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') performLogin();
+                });
             });
+            gateLogin?.addEventListener('input', () => {
+                gateLogin.value = gateLogin.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+            });
+            if (gateLogin) gateLogin.value = window.KrafenUI.getProfile();
 
             document.getElementById('top-logout-btn').addEventListener('click', async () => {
                 if (!confirm('Выйти из панели управления?')) return;

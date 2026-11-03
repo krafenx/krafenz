@@ -24,7 +24,6 @@ data/*.db-shm
 data/*.log*
 data/*.pid
 data/tokens.json
-data/danonsha_password.txt
 data/.update_sha
 data/vod_thumbs/
 data/vod_chats/

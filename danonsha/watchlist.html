@@ -259,7 +259,6 @@
             <a href="/danonsha/gamelist">Gamelist</a>
             <a href="/danonsha/setup">Setup</a>
             <a href="/danonsha/wishlist">Wishlist</a>
-            <a href="/danonsha/tasks">Tasks</a>
             <a href="/">krafen</a>
         </div>
         <span class="profile-badge">личный профиль</span>
@@ -273,7 +272,6 @@
         <a href="/danonsha/gamelist">Gamelist</a>
         <a href="/danonsha/setup">Setup</a>
         <a href="/danonsha/wishlist">Wishlist</a>
-        <a href="/danonsha/tasks">Tasks</a>
         <a href="/">krafen</a>
     </div>
 
@@ -517,7 +515,7 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, sanitizeItems, TAG_LIMIT, TAG_MAX_LEN, profileFetch, profilePath, PROFILE } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, sanitizeItems, TAG_LIMIT, TAG_MAX_LEN, profileFetch, profilePath } = window.KrafenUI;
 
             const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
             const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };

@@ -33,14 +33,32 @@
     // Профиль берётся из адреса: /danonsha/* — личный профиль, всё остальное — основной.
     // Через заголовок X-Krafen-Profile сервер понимает, чью коллекцию читать и чью
     // сессию проверять; у каждого профиля своя cookie.
-    const PROFILE = (location.pathname === '/danonsha' || location.pathname.startsWith('/danonsha/'))
+    const PAGE_PROFILE = (location.pathname === '/danonsha' || location.pathname.startsWith('/danonsha/'))
         ? 'danonsha'
         : 'krafen';
-    const PROFILE_BASE = PROFILE === 'danonsha' ? '/danonsha' : '';
+    // На /admin профиль выбирается логином при входе, поэтому он изменяемый.
+    const PROFILE_KEY = 'krafen-admin-profile';
+    let activeProfile = PAGE_PROFILE;
+    if (location.pathname === '/admin' || location.pathname === '/admin.html') {
+        try {
+            const saved = localStorage.getItem(PROFILE_KEY);
+            if (saved === 'krafen' || saved === 'danonsha') activeProfile = saved;
+        } catch {}
+    }
+
+    function getProfile() {
+        return activeProfile;
+    }
+
+    function setProfile(name) {
+        if (name !== 'krafen' && name !== 'danonsha') return;
+        activeProfile = name;
+        try { localStorage.setItem(PROFILE_KEY, name); } catch {}
+    }
 
     function profileFetch(url, options = {}) {
         const headers = new Headers(options.headers || {});
-        headers.set('X-Krafen-Profile', PROFILE);
+        headers.set('X-Krafen-Profile', activeProfile);
         return fetch(url, { ...options, headers, credentials: 'same-origin' });
     }
 
@@ -48,7 +66,7 @@
     function profilePath(path) {
         if (!path || !path.startsWith('/')) return path;
         if (path === '/' || path.startsWith('/api/') || path.startsWith('/#') || path.startsWith('/assets/')) return path;
-        return PROFILE_BASE + path;
+        return (activeProfile === 'danonsha' ? '/danonsha' : '') + path;
     }
 
     function escapeHTML(value) {
@@ -645,7 +663,11 @@
         const logoutBtn = document.getElementById('admin-logout-btn');
         const loginBtn = document.getElementById('login-btn');
         const passInput = document.getElementById('admin-password-input');
+        const loginInput = document.getElementById('admin-login-input');
         const errBox = document.getElementById('admin-login-error');
+
+        // Логин по умолчанию — профиль текущей страницы: /danonsha/* → danonsha.
+        if (loginInput && !loginInput.value) loginInput.value = activeProfile;
         const adminBar = document.getElementById('admin-bar');
 
         const dashPath = profilePath('/admin');
@@ -691,6 +713,7 @@
             if (!passInput) return;
             const password = passInput.value.trim();
             if (!password) return;
+            const loginName = (loginInput?.value || activeProfile).trim().toLowerCase();
             if (loginBtn) {
                 loginBtn.disabled = true;
                 loginBtn.textContent = 'Проверка...';
@@ -700,21 +723,27 @@
                 const res = await profileFetch('/api/admin', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password }),
+                    body: JSON.stringify({ password, login: loginName }),
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
                     if (errBox) {
-                        errBox.textContent = data.error === 'admin_password_missing'
-                            ? 'На сервере не задан ADMIN_PASSWORD (укажите его в .env).'
-                            : 'Неверный пароль или сервер недоступен.';
+                        if (data.error === 'admin_password_missing') {
+                            const envName = data.profile === 'danonsha' ? 'ADMIN_PASSWORD_DANONSHA' : 'ADMIN_PASSWORD';
+                            errBox.textContent = `На сервере не задан ${envName} (укажите его в .env).`;
+                        } else if (data.error === 'invalid_password') {
+                            errBox.textContent = `Неверный логин или пароль для профиля «${data.profile || loginName}».`;
+                        } else {
+                            errBox.textContent = 'Неверный пароль или сервер недоступен.';
+                        }
                         errBox.classList.remove('hidden');
                     }
                 } else {
+                    if (data.profile) setProfile(data.profile);
                     apply(true);
                     closeModal('modal-admin');
                     passInput.value = '';
-                    toast('Режим администратора включён');
+                    toast(`Режим администратора включён: ${getProfile()}`);
                 }
             } catch {
                 if (errBox) {
@@ -872,8 +901,10 @@
 
     window.KrafenUI = {
         onReady,
-        PROFILE,
-        PROFILE_BASE,
+        getProfile,
+        setProfile,
+        // обратная совместимость: PROFILE — профиль страницы
+        PROFILE: PAGE_PROFILE,
         profileFetch,
         profilePath,
         escapeHTML,

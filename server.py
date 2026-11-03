@@ -151,7 +151,14 @@ _UPDATE_LOCK = threading.Lock()
 
 SESSION_COOKIE = "kf_admin_session"
 SPOTIFY_STATE_COOKIE = "kf_spotify_oauth"
-SESSION_TTL_SECONDS = 12 * 60 * 60
+# Сессии живут как в соцсетях: 30 дней по умолчанию, срок продлевается при активности.
+try:
+    _SESSION_TTL_DAYS = max(1, min(365, int(os.environ.get("SESSION_TTL_DAYS", "30") or "30")))
+except ValueError:
+    _SESSION_TTL_DAYS = 30
+SESSION_TTL_SECONDS = _SESSION_TTL_DAYS * 24 * 60 * 60
+# Продлеваем не чаще раза в сутки, чтобы не переписывать cookie на каждый запрос.
+SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
 
 # ----------------------------- профили -----------------------------
 # Профиль = владелец набора коллекций (watchlist/gamelist/setup/wishlist).
@@ -176,16 +183,9 @@ PROFILES: dict[str, dict[str, Any]] = {
     },
 }
 
-# Пароли профилей читаются из окружения; для danonsha есть запасной вариант —
-# файл data/danonsha_password.txt (в git не попадает, см. .gitignore).
-_DANONSHA_PASSWORD_FILE = DATA_DIR / "danonsha_password.txt"
-
-
+# Пароли профилей берутся только из окружения (.env / переменные процесса).
 def _load_profile_password(spec: dict[str, Any]) -> str:
     raw = os.environ.get(spec["password_env"], "")
-    if not raw and spec["password_env"] == "ADMIN_PASSWORD_DANONSHA":
-        with contextlib.suppress(OSError):
-            raw = _DANONSHA_PASSWORD_FILE.read_text(encoding="utf-8").strip()
     if not raw:
         return ""
     if raw.strip().lower() in _WEAK_PLACEHOLDER_PASSWORDS:
@@ -1765,6 +1765,22 @@ def verify_session(token: str | None, profile: str = DEFAULT_PROFILE) -> bool:
         return False
 
 
+def session_needs_renewal(token: str | None, profile: str = DEFAULT_PROFILE) -> bool:
+    """True, если сессия валидна, но выдана достаточно давно для продления."""
+    if not token or len(token) > 512 or "." not in token:
+        return False
+    try:
+        payload, signature = token.split(".", 1)
+        if not constant_time_equal(signature, sign(payload, profile)):
+            return False
+        data = json.loads(b64url_decode(payload))
+        exp = int(data.get("exp", 0))
+        issued = exp - SESSION_TTL_SECONDS
+        return (time.time() - issued) > SESSION_RENEW_AFTER_SECONDS
+    except Exception:
+        return False
+
+
 def revoke_session(token: str | None, profile: str = DEFAULT_PROFILE) -> None:
     if not token or len(token) > 512 or "." not in token:
         return
@@ -1988,9 +2004,10 @@ def rate_limit(request: Request, name: str, limit: int = 60, period: int = 60) -
         _rate_buckets[key] = bucket
 
 
-def _check_admin_failed_login_guard(request: Request) -> None:
-    ip_key = f"admin_fail_ip:{client_ip(request)}"
-    global_key = "admin_fail_global:all"
+def _check_admin_failed_login_guard(request: Request, profile: str = DEFAULT_PROFILE) -> None:
+    # Счётчики раздельные по профилям: перебор пароля к одному не блокирует другой.
+    ip_key = f"admin_fail_ip:{profile}:{client_ip(request)}"
+    global_key = f"admin_fail_global:{profile}"
     now = time.time()
     with _rate_lock:
         ip_fails = [ts for ts in _rate_buckets.get(ip_key, []) if ts > now - 300]
@@ -1999,9 +2016,9 @@ def _check_admin_failed_login_guard(request: Request) -> None:
             raise HTTPException(status_code=429, detail={"error": "rate_limited"})
 
 
-def _record_admin_failed_login(request: Request) -> None:
-    ip_key = f"admin_fail_ip:{client_ip(request)}"
-    global_key = "admin_fail_global:all"
+def _record_admin_failed_login(request: Request, profile: str = DEFAULT_PROFILE) -> None:
+    ip_key = f"admin_fail_ip:{profile}:{client_ip(request)}"
+    global_key = f"admin_fail_global:{profile}"
     now = time.time()
     with _rate_lock:
         _prune_rate_buckets_locked(now, 300)
@@ -3405,6 +3422,24 @@ async def add_security_headers(request: Request, call_next):
         response = j({"error": "payload_too_large"}, 413)
     latency_ms = (time.perf_counter() - t0) * 1000.0
 
+    # Скользящая сессия: активный пользователь не разлогинивается. Cookie обновляем
+    # не чаще раза в сутки и только для успешных ответов без собственного Set-Cookie.
+    if (
+        getattr(response, "status_code", 0) == 200
+        and request.method in ("GET", "HEAD")
+        and "set-cookie" not in response.headers
+    ):
+        for _profile, _spec in PROFILES.items():
+            _token = request.cookies.get(_spec["cookie"])
+            if not verify_session(_token, _profile):
+                continue
+            if not session_needs_renewal(_token, _profile):
+                break
+            response.headers["Set-Cookie"] = cookie_header(
+                request, _spec["cookie"], create_session(_profile), SESSION_TTL_SECONDS
+            )
+            break
+
     # Сжимаем JSON/текстовые ответы в памяти (не трогая потоковое видео и Range 206)
     if (
         request.method == "GET"
@@ -3532,15 +3567,17 @@ def admin_logout(request: Request) -> JSONResponse:
 @app.post("/api/admin")
 def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
     require_same_origin(request)
-    profile = request_profile(request)
+    # Профиль выбирается полем login (значение по умолчанию — основной профиль).
+    login_value = str(body.get("login") or "").strip().lower()
+    profile = login_value if login_value in PROFILES else DEFAULT_PROFILE
     password = PROFILE_PASSWORDS.get(profile, "")
     cookie_name = profile_spec(profile)["cookie"]
     rate_limit(request, f"admin_login_{profile}", 10, 60)
-    _check_admin_failed_login_guard(request)
+    _check_admin_failed_login_guard(request, profile)
     if not password:
         return j({"error": "admin_password_missing", "profile": profile}, 503)
     if not constant_time_equal(text(body.get("password"), 512), password):
-        _record_admin_failed_login(request)
+        _record_admin_failed_login(request, profile)
         log_admin_event(request, "login", "denied", f"Неверный пароль ({profile})")
         return j({"error": "invalid_password", "profile": profile}, 401)
     log_admin_event(request, "login", "ok", f"Успешный вход в админ-панель ({profile})")
