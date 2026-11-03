@@ -6594,6 +6594,12 @@ def resolve_static(full_path: str) -> Path | None:
         path.relative_to(ROOT)
     except Exception:
         return None
+    # Страница рядом с одноимённым каталогом важнее каталога:
+    # /danonsha -> danonsha.html, а не danonsha/index.html.
+    if not path.suffix and path.name not in STATIC_EXACT_NAMES:
+        sibling = path.with_name(path.name + ".html")
+        if sibling.is_file():
+            path = sibling
     if path.is_dir():
         path = path / "index.html"
     if not path.suffix and path.name not in STATIC_EXACT_NAMES and path.with_name(path.name + ".html").is_file():
