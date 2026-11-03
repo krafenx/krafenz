@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+# Служебная страница, не для индексации
+Disallow: /tasks
 
 Sitemap: https://krafen.me/sitemap.xml

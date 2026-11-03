@@ -2546,6 +2546,10 @@ _analytics_buf_lock = threading.Lock()
 _analytics_flusher_started = False
 _analytics_last_prune_ts = 0.0
 
+# Страницы, которые не должны попадать в поиск: панель, служебные разделы.
+# Отдаются с X-Robots-Tag: noindex, а /tasks дополнительно закрыт в robots.txt.
+_NOINDEX_PAGES = {"admin.html", "tasks.html"}
+
 _TRACKED_PAGES: dict[str, tuple[str, str]] = {
     "/": ("/", "Главная"),
     "/index.html": ("/", "Главная"),
@@ -6590,6 +6594,12 @@ def resolve_static(full_path: str) -> Path | None:
         path.relative_to(ROOT)
     except Exception:
         return None
+    # Страница рядом с одноимённым каталогом важнее каталога:
+    # /danonsha -> danonsha.html, а не danonsha/index.html.
+    if not path.suffix and path.name not in STATIC_EXACT_NAMES:
+        sibling = path.with_name(path.name + ".html")
+        if sibling.is_file():
+            path = sibling
     if path.is_dir():
         path = path / "index.html"
     if not path.suffix and path.name not in STATIC_EXACT_NAMES and path.with_name(path.name + ".html").is_file():
@@ -6612,9 +6622,9 @@ def static_file(full_path: str, request: Request) -> Response:
         body = path.read_text(encoding="utf-8", errors="replace").replace("__CSP_NONCE__", nonce)
         encoded = body.encode("utf-8")
         headers = {"Cache-Control": "private, no-cache, no-transform", "Content-Length": str(len(encoded))}
-        # Панель управления и личный профиль не индексируются.
+        # Панель управления, личный профиль и служебные страницы не индексируются.
         relative = path.relative_to(ROOT).as_posix()
-        if path.name.lower() == "admin.html" or relative.startswith("danonsha/"):
+        if path.name.lower() in _NOINDEX_PAGES or relative.startswith("danonsha/"):
             headers["X-Robots-Tag"] = "noindex, nofollow"
         headers.update(
             security_headers(

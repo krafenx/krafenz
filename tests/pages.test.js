@@ -155,6 +155,18 @@ async function main() {
         const { w, d, errors } = await boot(page);
         check(`${page} открылась`, Boolean(d.querySelector('main')), '');
         check(`${page}: нет JS-ошибок`, errors.length === 0, errors[0] || '');
+        // /tasks — служебная страница: доступна по прямой ссылке, но не в меню.
+        const menu = [...d.querySelectorAll('nav .links a, .mobile-nav a')]
+            .filter((a) => (a.getAttribute('href') || '').replace(/\.html$/, '') === '/tasks');
+        check(`${page}: /tasks не в меню`, menu.length === 0, menu.map((a) => a.outerHTML.slice(0, 60)).join(' | '));
+        w.close();
+    }
+
+    console.log('\n=== служебная страница /tasks ===');
+    {
+        const { w, d, errors } = await boot('/tasks');
+        check('/tasks открылась', Boolean(d.querySelector('main')), '');
+        check('/tasks: нет JS-ошибок', errors.length === 0, errors[0] || '');
         w.close();
     }
 
