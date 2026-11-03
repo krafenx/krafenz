@@ -20,6 +20,7 @@
             --silver-bright: #e0e0e0;
             --crimson: #7c0a0a;
             --crimson-bright: #a31313;
+            --crimson-light: #ff7a7a;
             --glass: rgba(12, 12, 15, 0.66);
             --glass-border: rgba(160, 160, 160, 0.13);
             --line: rgba(160, 160, 160, 0.16);
@@ -322,7 +323,7 @@
             text-shadow: 0 0 80px rgba(224, 224, 224, .12);
         }
         .hero-name .grad {
-            background: linear-gradient(120deg, var(--crimson-bright) 10%, #ff7a7a 55%, var(--crimson-bright) 95%);
+            background: linear-gradient(120deg, var(--crimson-bright) 10%, var(--crimson-light) 55%, var(--crimson-bright) 95%);
             -webkit-background-clip: text; background-clip: text; color: transparent;
             filter: drop-shadow(0 0 34px rgba(163, 19, 19, .45));
         }
@@ -396,7 +397,7 @@
         .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
         .status-badge.live { color: #d5ffec; background: rgba(22,163,74,.14); border-color: rgba(22,163,74,.35); }
         .status-badge.live .dot { animation: pulse 1.6s ease-in-out infinite; }
-        .status-badge.idle { color: #f7d9e2; background: rgba(124,10,10,.22); border-color: rgba(124,10,10,.4); }
+        .status-badge.idle { color: #f7d9e2; background: rgba(124,10,10,.22); border-color: rgba(163,19,19,.45); }
 
         .time-value { font-family: var(--font-mono); font-size: 2.1rem; font-weight: 700; color: #fff; text-shadow: 0 0 22px rgba(224,224,224,.22); letter-spacing: .04em; }
         .time-date { margin-top: 8px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--silver-dim); }
@@ -1827,7 +1828,9 @@
         let frameCaptureActive = 0;
         const frameCaptureQueue = [];
 
-        const USER_BADGE_COLORS = ['#86efac', '#c4b5fd', '#fda4af', '#93c5fd', '#fcd34d', '#d8b4fe', '#e2e8f0'];
+        // Ники в чате различаются оттенками, но все — из палитры сайта
+        // (багровые, серебристые и янтарные), без синего и фиолетового.
+        const USER_BADGE_COLORS = ['#ff7a7a', '#fca5a5', '#fcd34d', '#e0e0e0', '#f7d9e2', '#d5ffec'];
 
         const FALLBACK_VODS = [
             { id: '2026-09-03_17-56', source: 'gdrive', drive_id: '1_SRlYEQ9E0hF1dWmoS3segy5qSAV7rG3', title: 'мама в 16 (я) ｜ !конкурс ｜ 2К ДОНАТ И ОФФАЮ КОМПЬЮТЕР ✌ (БЕЗ ШУТОК) ｜ биб боб', size_label: '7.21 GB', note: '' },

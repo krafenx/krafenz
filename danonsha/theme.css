@@ -1,26 +1,9 @@
 /* ==========================================================================
    danonsha — личная тема профиля.
-   Подключается поверх /style.css и переопределяет только токены оформления,
-   поэтому вся разметка и поведение страниц остаются общими.
+   Подключается поверх /style.css. Цветовая гамма общая (багровая, как на всём
+   сайте): здесь только типографика личных страниц и метка профиля, поэтому
+   оформление одинаковое везде, а отличаются лишь шрифты.
    ========================================================================== */
-
-:root {
-    /* Тёплый розово-алый акцент вместо сдержанного багрового */
-    --crimson: #8c1032;
-    --crimson-bright: #d81b60;
-    --accent-soft: rgba(216, 27, 96, .16);
-    --accent-line: rgba(216, 27, 96, .42);
-
-    --void: #060407;
-    --abyss: #0c070b;
-    --glass: rgba(16, 9, 13, .66);
-    --glass-border: rgba(216, 27, 96, .18);
-    --line: rgba(216, 27, 96, .2);
-
-    --silver: #a89ea4;
-    --silver-dim: #6d626a;
-    --silver-bright: #ececf2;
-}
 
 /* Фирменные шрифты личной страницы: крупный дисплейный заголовок */
 .brand,
@@ -35,30 +18,7 @@
     font-style: normal;
 }
 
-/* Лёгкое свечение акцента на ключевых действиях */
-.btn-primary {
-    background: linear-gradient(135deg, var(--crimson) 0%, var(--crimson-bright) 100%);
-    box-shadow: 0 10px 30px -12px rgba(216, 27, 96, .6);
-}
-
-.btn-primary:hover {
-    box-shadow: 0 14px 36px -12px rgba(216, 27, 96, .75);
-}
-
-/* Активный тег/таб */
-.filter-pill.active,
-.tag-filter-chip.active {
-    color: #fff;
-    border-color: var(--accent-line);
-    background: var(--accent-soft);
-}
-
-/* Тонкая линия-акцент под навигацией */
-.topnav {
-    border-bottom: 1px solid var(--accent-line);
-}
-
-/* Метка профиля в шапке */
+/* Метка профиля в шапке — в общей палитре */
 .profile-badge {
     display: inline-flex;
     align-items: center;
@@ -66,12 +26,13 @@
     padding: 5px 12px;
     margin-left: 10px;
     border-radius: 999px;
+    font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: .2em;
     text-transform: uppercase;
-    color: #fff;
-    background: var(--accent-soft);
-    border: 1px solid var(--accent-line);
+    color: var(--silver-bright);
+    background: rgba(124, 10, 10, .22);
+    border: 1px solid rgba(163, 19, 19, .45);
 }
 
 .profile-badge::before {
@@ -80,12 +41,5 @@
     height: 6px;
     border-radius: 50%;
     background: var(--crimson-bright);
-    box-shadow: 0 0 10px var(--crimson-bright);
-}
-
-/* Карточки: чуть более тёплая подложка */
-.media-card,
-.game-row,
-.wish-row {
-    border-color: var(--glass-border);
+    box-shadow: 0 0 10px rgba(163, 19, 19, .9);
 }
