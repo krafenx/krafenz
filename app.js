@@ -670,7 +670,7 @@
         if (loginInput && !loginInput.value) loginInput.value = activeProfile;
         const adminBar = document.getElementById('admin-bar');
 
-        const dashPath = profilePath('/admin');
+        const dashPath = '/admin';
         if (adminBar && !adminBar.querySelector('a[href="' + dashPath + '"]') && location.pathname !== dashPath) {
             const dashLink = document.createElement('a');
             dashLink.href = dashPath;
