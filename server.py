@@ -93,7 +93,40 @@ def load_dotenv(env_file: Path) -> None:
         os.environ.setdefault(key, val)
 
 
-load_dotenv(ROOT / ".env")
+ENV_FILE_PATH = ROOT / ".env"
+load_dotenv(ENV_FILE_PATH)
+
+
+def sync_env_file() -> bool:
+    """Дописывает в .env параметры, появившиеся в .env.example после обновления.
+
+    Существующие строки не меняются, поэтому правки пользователя в безопасности.
+    Отключается переменной ENV_SYNC=0. Возвращает True, если файл был изменён.
+    """
+    try:
+        import env_sync
+    except Exception:
+        return False
+    if not env_sync.sync_enabled():
+        return False
+    try:
+        result = env_sync.sync_env(ROOT)
+    except Exception as exc:  # синхронизация не должна ронять сервер
+        print(f"[env] синхронизация .env не удалась: {exc}", flush=True)
+        return False
+    if not result.ok:
+        print(f"[env] не удалось обновить .env: {result.skipped_reason}", flush=True)
+    elif result.changed:
+        keys = ", ".join(result.added)
+        print(f"[env] добавлено новых параметров: {len(result.added)} ({keys})", flush=True)
+    return result.changed
+
+
+if sync_env_file():
+    # Дозагружаем .env, чтобы новые параметры действовали уже в этом запуске.
+    # load_dotenv не перезаписывает ранее заданные переменные.
+    load_dotenv(ENV_FILE_PATH)
+
 
 def _resolve_root_path(raw_value: str | Path) -> Path:
     p = Path(raw_value)
