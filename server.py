@@ -93,7 +93,40 @@ def load_dotenv(env_file: Path) -> None:
         os.environ.setdefault(key, val)
 
 
-load_dotenv(ROOT / ".env")
+ENV_FILE_PATH = ROOT / ".env"
+load_dotenv(ENV_FILE_PATH)
+
+
+def sync_env_file() -> bool:
+    """Дописывает в .env параметры, появившиеся в .env.example после обновления.
+
+    Существующие строки не меняются, поэтому правки пользователя в безопасности.
+    Отключается переменной ENV_SYNC=0. Возвращает True, если файл был изменён.
+    """
+    try:
+        import env_sync
+    except Exception:
+        return False
+    if not env_sync.sync_enabled():
+        return False
+    try:
+        result = env_sync.sync_env(ROOT)
+    except Exception as exc:  # синхронизация не должна ронять сервер
+        print(f"[env] синхронизация .env не удалась: {exc}", flush=True)
+        return False
+    if not result.ok:
+        print(f"[env] не удалось обновить .env: {result.skipped_reason}", flush=True)
+    elif result.changed:
+        keys = ", ".join(result.added)
+        print(f"[env] добавлено новых параметров: {len(result.added)} ({keys})", flush=True)
+    return result.changed
+
+
+if sync_env_file():
+    # Дозагружаем .env, чтобы новые параметры действовали уже в этом запуске.
+    # load_dotenv не перезаписывает ранее заданные переменные.
+    load_dotenv(ENV_FILE_PATH)
+
 
 def _resolve_root_path(raw_value: str | Path) -> Path:
     p = Path(raw_value)
@@ -151,7 +184,69 @@ _UPDATE_LOCK = threading.Lock()
 
 SESSION_COOKIE = "kf_admin_session"
 SPOTIFY_STATE_COOKIE = "kf_spotify_oauth"
-SESSION_TTL_SECONDS = 12 * 60 * 60
+# Сессии живут как в соцсетях: 30 дней по умолчанию, срок продлевается при активности.
+try:
+    _SESSION_TTL_DAYS = max(1, min(365, int(os.environ.get("SESSION_TTL_DAYS", "30") or "30")))
+except ValueError:
+    _SESSION_TTL_DAYS = 30
+SESSION_TTL_SECONDS = _SESSION_TTL_DAYS * 24 * 60 * 60
+# Продлеваем не чаще раза в сутки, чтобы не переписывать cookie на каждый запрос.
+SESSION_RENEW_AFTER_SECONDS = 24 * 60 * 60
+
+# ----------------------------- профили -----------------------------
+# Профиль = владелец набора коллекций (watchlist/gamelist/setup/wishlist).
+# "krafen" — основной, существующие данные принадлежат ему; "danonsha" — личный
+# профиль в /danonsha/ со своим входом и своим оформлением.
+DEFAULT_PROFILE = "krafen"
+
+PROFILES: dict[str, dict[str, Any]] = {
+    "krafen": {
+        "display_name": "krafen",
+        "base_path": "",
+        "password_env": "ADMIN_PASSWORD",
+        "cookie": "kf_admin_session",
+        "store_scope": True,
+    },
+    "danonsha": {
+        "display_name": "danonsha",
+        "base_path": "/danonsha",
+        "password_env": "ADMIN_PASSWORD_DANONSHA",
+        "cookie": "kf_danonsha_session",
+        "store_scope": False,
+    },
+}
+
+# Пароли профилей берутся только из окружения (.env / переменные процесса).
+def _load_profile_password(spec: dict[str, Any]) -> str:
+    raw = os.environ.get(spec["password_env"], "")
+    if not raw:
+        return ""
+    if raw.strip().lower() in _WEAK_PLACEHOLDER_PASSWORDS:
+        return ""
+    return raw
+
+
+PROFILE_PASSWORDS: dict[str, str] = {name: _load_profile_password(spec) for name, spec in PROFILES.items()}
+
+
+def profile_spec(profile: str | None) -> dict[str, Any]:
+    return PROFILES.get(profile or DEFAULT_PROFILE, PROFILES[DEFAULT_PROFILE])
+
+
+def profile_enabled(profile: str) -> bool:
+    return bool(PROFILE_PASSWORDS.get(profile))
+
+
+def profile_scope(profile: str) -> str:
+    """Пространство имён для кэша; основной профиль сохраняет прежние ключи."""
+    spec = profile_spec(profile)
+    return profile if (not spec["store_scope"] or profile != DEFAULT_PROFILE) else ""
+
+
+def collection_key(profile: str, name: str) -> str:
+    scope = profile_scope(profile)
+    return f"{scope}:{name}" if scope else name
+
 
 TMDB_BASE = "https://api.themoviedb.org"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
@@ -1082,14 +1177,17 @@ _igdb_token: dict[str, Any] = {}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS collection_meta (
-    name TEXT PRIMARY KEY,
+    owner TEXT NOT NULL DEFAULT 'krafen',
+    name TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 0,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (owner, name)
 );
 
 CREATE TABLE IF NOT EXISTS watchlist_items (
+    owner TEXT NOT NULL DEFAULT 'krafen',
     pos INTEGER NOT NULL,
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     title TEXT NOT NULL,
     title_ru TEXT,
     year TEXT NOT NULL,
@@ -1102,11 +1200,14 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     favorite INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+,
+    PRIMARY KEY (owner, id)
 );
 
 CREATE TABLE IF NOT EXISTS gamelist_items (
+    owner TEXT NOT NULL DEFAULT 'krafen',
     pos INTEGER NOT NULL,
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     igdb_id INTEGER,
     title TEXT NOT NULL,
     year TEXT NOT NULL,
@@ -1121,11 +1222,14 @@ CREATE TABLE IF NOT EXISTS gamelist_items (
     favorite INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+,
+    PRIMARY KEY (owner, id)
 );
 
 CREATE TABLE IF NOT EXISTS setup_items (
+    owner TEXT NOT NULL DEFAULT 'krafen',
     pos INTEGER NOT NULL,
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     item_group TEXT NOT NULL,
     category TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -1135,11 +1239,14 @@ CREATE TABLE IF NOT EXISTS setup_items (
     sort_order INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+,
+    PRIMARY KEY (owner, id)
 );
 
 CREATE TABLE IF NOT EXISTS wishlist_items (
+    owner TEXT NOT NULL DEFAULT 'krafen',
     pos INTEGER NOT NULL,
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     title TEXT NOT NULL,
     category TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -1153,6 +1260,8 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
     favorite INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+,
+    PRIMARY KEY (owner, id)
 );
 
 CREATE TABLE IF NOT EXISTS drive_vods (
@@ -1224,9 +1333,9 @@ def _load_tags(raw: Any) -> list[str]:
     return [str(t) for t in value if isinstance(t, str) and t.strip()][:MAX_TAGS]
 
 
-def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[str, Any]]:
+def _select_collection_items(conn: sqlite3.Connection, name: str, owner: str = DEFAULT_PROFILE) -> list[dict[str, Any]]:
     if name == "watchlist":
-        rows = conn.execute("SELECT * FROM watchlist_items ORDER BY pos ASC").fetchall()
+        rows = conn.execute("SELECT * FROM watchlist_items WHERE owner = ? ORDER BY pos ASC", (owner,)).fetchall()
         return [
             {
                 "id": r["id"],
@@ -1246,7 +1355,7 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
             for r in rows
         ]
     if name == "gamelist":
-        rows = conn.execute("SELECT * FROM gamelist_items ORDER BY pos ASC").fetchall()
+        rows = conn.execute("SELECT * FROM gamelist_items WHERE owner = ? ORDER BY pos ASC", (owner,)).fetchall()
         items: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -1278,7 +1387,7 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
             )
         return items
     if name == "setup":
-        rows = conn.execute("SELECT * FROM setup_items ORDER BY pos ASC").fetchall()
+        rows = conn.execute("SELECT * FROM setup_items WHERE owner = ? ORDER BY pos ASC", (owner,)).fetchall()
         return [
             {
                 "id": r["id"],
@@ -1295,7 +1404,7 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
             for r in rows
         ]
     if name == "wishlist":
-        rows = conn.execute("SELECT * FROM wishlist_items ORDER BY pos ASC").fetchall()
+        rows = conn.execute("SELECT * FROM wishlist_items WHERE owner = ? ORDER BY pos ASC", (owner,)).fetchall()
         return [
             {
                 "id": r["id"],
@@ -1318,7 +1427,7 @@ def _select_collection_items(conn: sqlite3.Connection, name: str) -> list[dict[s
     return []
 
 
-def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dict[str, Any]], owner: str = DEFAULT_PROFILE) -> list[dict[str, Any]]:
     seen_ids: set[str] = set()
     deduped: list[dict[str, Any]] = []
     for it in items:
@@ -1329,17 +1438,18 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
         deduped.append(it)
 
     if name == "watchlist":
-        conn.execute("DELETE FROM watchlist_items")
+        conn.execute("DELETE FROM watchlist_items WHERE owner = ?", (owner,))
         conn.executemany(
             """
             INSERT INTO watchlist_items (
-                pos, id, title, title_ru, year, type, status, poster,
+                owner, pos, id, title, title_ru, year, type, status, poster,
                 rating, review, tags_json, favorite, added_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
+                    owner,
                     pos,
                     it["id"],
                     it["title"],
@@ -1359,17 +1469,18 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
             ],
         )
     elif name == "gamelist":
-        conn.execute("DELETE FROM gamelist_items")
+        conn.execute("DELETE FROM gamelist_items WHERE owner = ?", (owner,))
         conn.executemany(
             """
             INSERT INTO gamelist_items (
-                pos, id, igdb_id, title, year, status, rating, review, cover,
+                owner, pos, id, igdb_id, title, year, status, rating, review, cover,
                 genres_json, platforms_json, category, tags_json, favorite, added_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
+                    owner,
                     pos,
                     it["id"],
                     it.get("igdbId"),
@@ -1391,14 +1502,15 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
             ],
         )
     elif name == "setup":
-        conn.execute("DELETE FROM setup_items")
+        conn.execute("DELETE FROM setup_items WHERE owner = ?", (owner,))
         conn.executemany(
             """
-            INSERT INTO setup_items (pos, id, item_group, category, name, icon, note, link, sort_order, added_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO setup_items (owner, pos, id, item_group, category, name, icon, note, link, sort_order, added_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
+                    owner,
                     pos,
                     it["id"],
                     it.get("group") or "pc",
@@ -1415,17 +1527,18 @@ def _write_collection_items(conn: sqlite3.Connection, name: str, items: list[dic
             ],
         )
     elif name == "wishlist":
-        conn.execute("DELETE FROM wishlist_items")
+        conn.execute("DELETE FROM wishlist_items WHERE owner = ?", (owner,))
         conn.executemany(
             """
             INSERT INTO wishlist_items (
-                pos, id, title, category, status, priority, price, currency, note, link, image,
+                owner, pos, id, title, category, status, priority, price, currency, note, link, image,
                 tags_json, favorite, added_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
+                    owner,
                     pos,
                     it["id"],
                     it["title"],
@@ -1517,49 +1630,57 @@ def resolve_secret_key() -> str:
 SECRET_KEY = resolve_secret_key()
 
 
-def read_list(name: str, use_cache: bool = True) -> dict[str, Any]:
+def read_list(name: str, use_cache: bool = True, owner: str = DEFAULT_PROFILE) -> dict[str, Any]:
+    cache_key = collection_key(owner, name)
     if use_cache:
-        cached = _list_cache.get(name)
+        cached = _list_cache.get(cache_key)
         if cached and cached["ts"] > time.time() - LIST_SPECS[name]["cache_ttl"]:
             return {"revision": cached["revision"], "items": list(cached["items"])}
     with _db_lock, db_connect() as conn:
-        row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
+        row = conn.execute(
+            "SELECT revision FROM collection_meta WHERE owner = ? AND name = ?", (owner, name)
+        ).fetchone()
         rev = max(0, int(row["revision"] or 0)) if row else 0
-        items = _select_collection_items(conn, name)
+        items = _select_collection_items(conn, name, owner)
         state = {"revision": rev, "items": items}
-        _list_cache[name] = {"ts": time.time(), "revision": rev, "items": list(items)}
+        _list_cache[cache_key] = {"ts": time.time(), "revision": rev, "items": list(items)}
         return state
 
 
-def update_list_atomic(name: str, expected_revision: int, items: list[dict[str, Any]]) -> tuple[bool, dict[str, Any]]:
+def update_list_atomic(
+    name: str, expected_revision: int, items: list[dict[str, Any]], owner: str = DEFAULT_PROFILE
+) -> tuple[bool, dict[str, Any]]:
     now = int(time.time())
+    cache_key = collection_key(owner, name)
     with _db_lock, db_connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
+            row = conn.execute(
+                "SELECT revision FROM collection_meta WHERE owner = ? AND name = ?", (owner, name)
+            ).fetchone()
             current_rev = max(0, int(row["revision"] or 0)) if row else 0
             if expected_revision != current_rev:
-                current_items = _select_collection_items(conn, name)
+                current_items = _select_collection_items(conn, name, owner)
                 conn.execute("ROLLBACK")
                 state = {"revision": current_rev, "items": current_items}
-                _list_cache[name] = {"ts": time.time(), "revision": current_rev, "items": list(current_items)}
+                _list_cache[cache_key] = {"ts": time.time(), "revision": current_rev, "items": list(current_items)}
                 return False, state
 
             next_rev = current_rev + 1
-            stored_items = _write_collection_items(conn, name, items)
+            stored_items = _write_collection_items(conn, name, items, owner)
             conn.execute(
                 """
-                INSERT INTO collection_meta (name, revision, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(name) DO UPDATE SET
+                INSERT INTO collection_meta (owner, name, revision, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(owner, name) DO UPDATE SET
                     revision = excluded.revision,
                     updated_at = excluded.updated_at
                 """,
-                (name, next_rev, now),
+                (owner, name, next_rev, now),
             )
             conn.execute("COMMIT")
             state = {"revision": next_rev, "items": stored_items}
-            _list_cache[name] = {"ts": time.time(), "revision": next_rev, "items": list(stored_items)}
+            _list_cache[cache_key] = {"ts": time.time(), "revision": next_rev, "items": list(stored_items)}
             return True, state
         except Exception:
             conn.execute("ROLLBACK")
@@ -1617,13 +1738,17 @@ def b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def _session_hmac_key() -> bytes:
-    pwd_fp = hashlib.sha256(ADMIN_PASSWORD.encode("utf-8")).hexdigest() if ADMIN_PASSWORD else ""
-    return f"{SECRET_KEY}:{pwd_fp}".encode("utf-8")
+def _session_hmac_key(profile: str = DEFAULT_PROFILE) -> bytes:
+    password = PROFILE_PASSWORDS.get(profile, ADMIN_PASSWORD)
+    pwd_fp = hashlib.sha256(password.encode("utf-8")).hexdigest() if password else ""
+    # Для основного профиля ключ остаётся прежним, чтобы уже выданные cookie не слетели.
+    if profile == DEFAULT_PROFILE:
+        return f"{SECRET_KEY}:{pwd_fp}".encode("utf-8")
+    return f"{SECRET_KEY}:{profile}:{pwd_fp}".encode("utf-8")
 
 
-def sign(value: str) -> str:
-    return b64url(hmac.new(_session_hmac_key(), value.encode(), hashlib.sha256).digest())
+def sign(value: str, profile: str = DEFAULT_PROFILE) -> str:
+    return b64url(hmac.new(_session_hmac_key(profile), value.encode(), hashlib.sha256).digest())
 
 
 def constant_time_equal(a: str, b: str) -> bool:
@@ -1634,31 +1759,36 @@ _revoked_sessions_lock = threading.Lock()
 _revoked_sessions: dict[str, int] = {}
 
 
-def create_session() -> str:
+def create_session(profile: str = DEFAULT_PROFILE) -> str:
     payload = b64url(
         json.dumps(
             {
                 "exp": int(time.time()) + SESSION_TTL_SECONDS,
                 "nonce": secrets.token_hex(16),
+                "p": profile,
             },
             separators=(",", ":"),
         ).encode()
     )
-    return f"{payload}.{sign(payload)}"
+    return f"{payload}.{sign(payload, profile)}"
 
 
-def verify_session(token: str | None) -> bool:
-    if not token or not ADMIN_PASSWORD or len(token) > 512:
+def verify_session(token: str | None, profile: str = DEFAULT_PROFILE) -> bool:
+    password = PROFILE_PASSWORDS.get(profile, "")
+    if not token or not password or len(token) > 512:
         return False
     try:
         payload, signature = token.split(".", 1)
-        if not constant_time_equal(signature, sign(payload)):
+        if not constant_time_equal(signature, sign(payload, profile)):
             return False
         data = json.loads(b64url_decode(payload))
         now = int(time.time())
         exp = int(data.get("exp", 0))
         nonce = str(data.get("nonce") or "")
         if exp <= now or not nonce:
+            return False
+        # Cookie другого профиля не должна давать доступ к этому.
+        if str(data.get("p") or DEFAULT_PROFILE) != profile:
             return False
         with _revoked_sessions_lock:
             if nonce in _revoked_sessions:
@@ -1668,12 +1798,28 @@ def verify_session(token: str | None) -> bool:
         return False
 
 
-def revoke_session(token: str | None) -> None:
+def session_needs_renewal(token: str | None, profile: str = DEFAULT_PROFILE) -> bool:
+    """True, если сессия валидна, но выдана достаточно давно для продления."""
+    if not token or len(token) > 512 or "." not in token:
+        return False
+    try:
+        payload, signature = token.split(".", 1)
+        if not constant_time_equal(signature, sign(payload, profile)):
+            return False
+        data = json.loads(b64url_decode(payload))
+        exp = int(data.get("exp", 0))
+        issued = exp - SESSION_TTL_SECONDS
+        return (time.time() - issued) > SESSION_RENEW_AFTER_SECONDS
+    except Exception:
+        return False
+
+
+def revoke_session(token: str | None, profile: str = DEFAULT_PROFILE) -> None:
     if not token or len(token) > 512 or "." not in token:
         return
     try:
         payload, signature = token.split(".", 1)
-        if not constant_time_equal(signature, sign(payload)):
+        if not constant_time_equal(signature, sign(payload, profile)):
             return
         data = json.loads(b64url_decode(payload))
         nonce = str(data.get("nonce") or "")
@@ -1692,8 +1838,24 @@ def revoke_session(token: str | None) -> None:
         return
 
 
-def require_admin(request: Request) -> None:
-    if not verify_session(request.cookies.get(SESSION_COOKIE)):
+def request_profile(request: Request) -> str:
+    """Профиль, к которому относится запрос.
+
+    Определяется по заголовку-подсказке от страницы (X-Krafen-Profile) и проверяется
+    по cookie сессии этого профиля; без валидной сессии возвращается основной профиль.
+    """
+    hinted = str(request.headers.get("x-krafen-profile") or "").strip().lower()
+    return hinted if hinted in PROFILES else DEFAULT_PROFILE
+
+
+def session_cookie_name(request: Request) -> str:
+    return profile_spec(request_profile(request))["cookie"]
+
+
+def require_admin(request: Request, profile: str | None = None) -> None:
+    profile = profile or request_profile(request)
+    cookie_name = profile_spec(profile)["cookie"]
+    if not verify_session(request.cookies.get(cookie_name), profile):
         raise HTTPException(status_code=401, detail={"error": "unauthorized"})
 
 
@@ -1875,9 +2037,10 @@ def rate_limit(request: Request, name: str, limit: int = 60, period: int = 60) -
         _rate_buckets[key] = bucket
 
 
-def _check_admin_failed_login_guard(request: Request) -> None:
-    ip_key = f"admin_fail_ip:{client_ip(request)}"
-    global_key = "admin_fail_global:all"
+def _check_admin_failed_login_guard(request: Request, profile: str = DEFAULT_PROFILE) -> None:
+    # Счётчики раздельные по профилям: перебор пароля к одному не блокирует другой.
+    ip_key = f"admin_fail_ip:{profile}:{client_ip(request)}"
+    global_key = f"admin_fail_global:{profile}"
     now = time.time()
     with _rate_lock:
         ip_fails = [ts for ts in _rate_buckets.get(ip_key, []) if ts > now - 300]
@@ -1886,9 +2049,9 @@ def _check_admin_failed_login_guard(request: Request) -> None:
             raise HTTPException(status_code=429, detail={"error": "rate_limited"})
 
 
-def _record_admin_failed_login(request: Request) -> None:
-    ip_key = f"admin_fail_ip:{client_ip(request)}"
-    global_key = "admin_fail_global:all"
+def _record_admin_failed_login(request: Request, profile: str = DEFAULT_PROFILE) -> None:
+    ip_key = f"admin_fail_ip:{profile}:{client_ip(request)}"
+    global_key = f"admin_fail_global:{profile}"
     now = time.time()
     with _rate_lock:
         _prune_rate_buckets_locked(now, 300)
@@ -2143,10 +2306,76 @@ _COLLECTION_EXTRA_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+_COLLECTION_TABLES = ("watchlist_items", "gamelist_items", "setup_items", "wishlist_items")
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
+    return conn.execute(f"PRAGMA table_info({table})").fetchall()
+
+
+def _migrate_collections_to_owners(conn: sqlite3.Connection) -> None:
+    """Переводит коллекции на владельца (owner) с составным первичным ключом.
+
+    Старые таблицы имели id как PRIMARY KEY, из-за чего одинаковый id не мог
+    существовать у двух профилей. Здесь таблица пересобирается: данные остаются
+    за профилем krafen, id/порядок/все поля сохраняются как есть.
+    """
+    changed = False
+
+    meta_cols = {r["name"] for r in _table_columns(conn, "collection_meta")}
+    if "owner" not in meta_cols:
+        conn.execute("ALTER TABLE collection_meta RENAME TO collection_meta_old")
+        conn.execute(
+            """
+            CREATE TABLE collection_meta (
+                owner TEXT NOT NULL DEFAULT 'krafen',
+                name TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (owner, name)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO collection_meta (owner, name, revision, updated_at)
+            SELECT 'krafen', name, revision, updated_at FROM collection_meta_old
+            """
+        )
+        conn.execute("DROP TABLE collection_meta_old")
+        changed = True
+
+    for table in _COLLECTION_TABLES:
+        cols = _table_columns(conn, table)
+        names = [r["name"] for r in cols]
+        if not names or "owner" in names:
+            continue
+
+        # Восстанавливаем DDL из схемы и убираем owner/PK, затем копируем данные.
+        schema_sql = SCHEMA_SQL
+        start = schema_sql.index(f"CREATE TABLE IF NOT EXISTS {table} (")
+        end = schema_sql.index(");", start) + 2
+        new_ddl = schema_sql[start:end].replace("IF NOT EXISTS ", "", 1).replace(f"CREATE TABLE {table}", f"CREATE TABLE {table}_new", 1)
+
+        conn.execute(f"ALTER TABLE {table} RENAME TO {table}_old")
+        conn.execute(new_ddl)
+        old_cols = [n for n in names]
+        col_list = ", ".join(f'"{c}"' for c in old_cols)
+        conn.execute(
+            f"INSERT INTO {table}_new (owner, {col_list}) SELECT 'krafen', {col_list} FROM {table}_old"
+        )
+        conn.execute(f"DROP TABLE {table}_old")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+        changed = True
+
+    return changed
+
+
 def init_db() -> None:
     now = int(time.time())
     with _db_lock, db_connect() as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate_collections_to_owners(conn)
         for table, columns in _COLLECTION_EXTRA_COLUMNS.items():
             _ensure_columns(conn, table, columns)
 
@@ -2179,7 +2408,9 @@ def init_db() -> None:
             )
 
         for name, spec in LIST_SPECS.items():
-            row = conn.execute("SELECT 1 FROM collection_meta WHERE name = ?", (name,)).fetchone()
+            row = conn.execute(
+                "SELECT 1 FROM collection_meta WHERE owner = ? AND name = ?", (DEFAULT_PROFILE, name)
+            ).fetchone()
             if row:
                 continue
             legacy_path = DATA_DIR / spec["legacy_file"]
@@ -2199,15 +2430,28 @@ def init_db() -> None:
                     normalized_items = []
             conn.execute("BEGIN IMMEDIATE")
             try:
-                _write_collection_items(conn, name, normalized_items[: spec["max_items"]])
+                _write_collection_items(conn, name, normalized_items[: spec["max_items"]], DEFAULT_PROFILE)
                 conn.execute(
-                    "INSERT INTO collection_meta (name, revision, updated_at) VALUES (?, ?, ?)",
-                    (name, initial_rev, now),
+                    "INSERT INTO collection_meta (owner, name, revision, updated_at) VALUES (?, ?, ?, ?)",
+                    (DEFAULT_PROFILE, name, initial_rev, now),
                 )
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
+
+        # У каждого профиля свой набор коллекций, начиная с пустых.
+        for owner in PROFILES:
+            for name in LIST_SPECS:
+                exists = conn.execute(
+                    "SELECT 1 FROM collection_meta WHERE owner = ? AND name = ?", (owner, name)
+                ).fetchone()
+                if exists:
+                    continue
+                conn.execute(
+                    "INSERT INTO collection_meta (owner, name, revision, updated_at) VALUES (?, ?, 0, ?)",
+                    (owner, name, now),
+                )
 
 
 init_db()
@@ -3211,6 +3455,24 @@ async def add_security_headers(request: Request, call_next):
         response = j({"error": "payload_too_large"}, 413)
     latency_ms = (time.perf_counter() - t0) * 1000.0
 
+    # Скользящая сессия: активный пользователь не разлогинивается. Cookie обновляем
+    # не чаще раза в сутки и только для успешных ответов без собственного Set-Cookie.
+    if (
+        getattr(response, "status_code", 0) == 200
+        and request.method in ("GET", "HEAD")
+        and "set-cookie" not in response.headers
+    ):
+        for _profile, _spec in PROFILES.items():
+            _token = request.cookies.get(_spec["cookie"])
+            if not verify_session(_token, _profile):
+                continue
+            if not session_needs_renewal(_token, _profile):
+                break
+            response.headers["Set-Cookie"] = cookie_header(
+                request, _spec["cookie"], create_session(_profile), SESSION_TTL_SECONDS
+            )
+            break
+
     # Сжимаем JSON/текстовые ответы в памяти (не трогая потоковое видео и Range 206)
     if (
         request.method == "GET"
@@ -3249,10 +3511,11 @@ async def add_security_headers(request: Request, call_next):
 
 
 def make_get_list(name: str):
-    def endpoint() -> JSONResponse:
+    def endpoint(request: Request) -> JSONResponse:
         try:
-            state = read_list(name)
-            return j({"items": state["items"], "revision": state["revision"]})
+            profile = request_profile(request)
+            state = read_list(name, owner=profile)
+            return j({"items": state["items"], "revision": state["revision"], "profile": profile})
         except Exception:
             return j({"error": "storage_error", "items": [], "revision": 0}, 500)
 
@@ -3263,14 +3526,15 @@ def make_get_list(name: str):
 def make_put_list(name: str):
     def endpoint(request: Request, body: dict[str, Any]) -> JSONResponse:
         require_same_origin(request)
-        require_admin(request)
+        profile = request_profile(request)
+        require_admin(request, profile)
         rate_limit(request, f"write_{name}", 60, 60)
         try:
             revision = int(body.get("revision"))
         except Exception:
             revision = -1
         if revision < 0:
-            state = read_list(name, use_cache=False)
+            state = read_list(name, use_cache=False, owner=profile)
             return j({"error": "revision_required", "items": state["items"], "revision": state["revision"]}, 409)
 
         normalizer = NORMALIZERS[name]
@@ -3278,15 +3542,15 @@ def make_put_list(name: str):
         # Некорректный items не должен молча затирать коллекцию: пустой список — это
         # осознанное удаление всех записей, а строка/объект/null — ошибка клиента.
         if not isinstance(raw_items, list):
-            state = read_list(name, use_cache=False)
+            state = read_list(name, use_cache=False, owner=profile)
             return j({"error": "items_required", "items": state["items"], "revision": state["revision"]}, 400)
         items = [normalizer(item) for item in raw_items]
         items = [item for item in items if item][: LIST_SPECS[name]["max_items"]]
 
-        ok, next_state = update_list_atomic(name, revision, items)
+        ok, next_state = update_list_atomic(name, revision, items, profile)
         if not ok:
             return j({"error": "revision_conflict", "items": next_state["items"], "revision": next_state["revision"]}, 409)
-        log_admin_event(request, f"save_{name}", "ok", f"items={len(next_state['items'])}, rev={next_state['revision']}")
+        log_admin_event(request, f"save_{name}", "ok", f"items={len(next_state['items'])}, rev={next_state['revision']}, {profile}")
         return j({"ok": True, "items": next_state["items"], "revision": next_state["revision"]})
 
     endpoint.__name__ = f"put_{name}"
@@ -3306,10 +3570,13 @@ def health() -> JSONResponse:
 @app.get("/api/admin")
 def admin_check(request: Request) -> JSONResponse:
     tokens = read_tokens()
+    profile = request_profile(request)
+    cookie_name = profile_spec(profile)["cookie"]
     return j(
         {
-            "ok": verify_session(request.cookies.get(SESSION_COOKIE)),
-            "configured": bool(ADMIN_PASSWORD),
+            "ok": verify_session(request.cookies.get(cookie_name), profile),
+            "profile": profile,
+            "configured": bool(PROFILE_PASSWORDS.get(profile)),
             "spotifyConnected": bool(tokens.get("spotify_refresh_token")),
         }
     )
@@ -3318,29 +3585,39 @@ def admin_check(request: Request) -> JSONResponse:
 @app.delete("/api/admin")
 def admin_logout(request: Request) -> JSONResponse:
     require_same_origin(request)
-    was_admin = verify_session(request.cookies.get(SESSION_COOKIE))
-    revoke_session(request.cookies.get(SESSION_COOKIE))
+    profile = request_profile(request)
+    cookie_name = profile_spec(profile)["cookie"]
+    token = request.cookies.get(cookie_name)
+    was_admin = verify_session(token, profile)
+    revoke_session(token, profile)
     if was_admin:
-        log_admin_event(request, "logout", "ok", "Выход из админ-сессии")
+        log_admin_event(request, "logout", "ok", f"Выход из админ-сессии ({profile})")
     response = j({"ok": True})
-    response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, "", 0)
+    response.headers["Set-Cookie"] = cookie_header(request, cookie_name, "", 0)
     return response
 
 
 @app.post("/api/admin")
 def admin_login(request: Request, body: dict[str, Any]) -> JSONResponse:
     require_same_origin(request)
-    rate_limit(request, "admin_login", 10, 60)
-    _check_admin_failed_login_guard(request)
-    if not ADMIN_PASSWORD:
-        return j({"error": "admin_password_missing"}, 503)
-    if not constant_time_equal(text(body.get("password"), 512), ADMIN_PASSWORD):
-        _record_admin_failed_login(request)
-        log_admin_event(request, "login", "denied", "Неверный пароль администратора")
-        return j({"error": "invalid_password"}, 401)
-    log_admin_event(request, "login", "ok", "Успешный вход в админ-панель")
-    response = j({"ok": True})
-    response.headers["Set-Cookie"] = cookie_header(request, SESSION_COOKIE, create_session(), SESSION_TTL_SECONDS)
+    # Профиль выбирается полем login (значение по умолчанию — основной профиль).
+    login_value = str(body.get("login") or "").strip().lower()
+    profile = login_value if login_value in PROFILES else DEFAULT_PROFILE
+    password = PROFILE_PASSWORDS.get(profile, "")
+    cookie_name = profile_spec(profile)["cookie"]
+    rate_limit(request, f"admin_login_{profile}", 10, 60)
+    _check_admin_failed_login_guard(request, profile)
+    if not password:
+        return j({"error": "admin_password_missing", "profile": profile}, 503)
+    if not constant_time_equal(text(body.get("password"), 512), password):
+        _record_admin_failed_login(request, profile)
+        log_admin_event(request, "login", "denied", f"Неверный пароль ({profile})")
+        return j({"error": "invalid_password", "profile": profile}, 401)
+    log_admin_event(request, "login", "ok", f"Успешный вход в админ-панель ({profile})")
+    response = j({"ok": True, "profile": profile})
+    response.headers["Set-Cookie"] = cookie_header(
+        request, cookie_name, create_session(profile), SESSION_TTL_SECONDS
+    )
     return response
 
 
@@ -3448,7 +3725,8 @@ def _fmt_short_day_ru(ymd: str) -> str:
 
 @app.get("/api/admin/overview")
 def admin_overview(request: Request, days: int = 14) -> JSONResponse:
-    require_admin(request)
+    overview_profile = request_profile(request)
+    require_admin(request, overview_profile)
     rate_limit(request, "admin_overview", 120, 60)
     span_days = max(7, min(90, int(days or 14)))
 
@@ -3655,13 +3933,15 @@ def admin_overview(request: Request, days: int = 14) -> JSONResponse:
     with _db_lock, db_connect() as conn:
         meta_rows = {
             r["name"]: {"revision": int(r["revision"] or 0), "updated_at": int(r["updated_at"] or 0)}
-            for r in conn.execute("SELECT name, revision, updated_at FROM collection_meta").fetchall()
+            for r in conn.execute(
+                "SELECT name, revision, updated_at FROM collection_meta WHERE owner = ?", (overview_profile,)
+            ).fetchall()
         }
 
-    wl_state = read_list("watchlist")
-    gl_state = read_list("gamelist")
-    st_state = read_list("setup")
-    ws_state = read_list("wishlist")
+    wl_state = read_list("watchlist", owner=overview_profile)
+    gl_state = read_list("gamelist", owner=overview_profile)
+    st_state = read_list("setup", owner=overview_profile)
+    ws_state = read_list("wishlist", owner=overview_profile)
 
     wl_items = wl_state["items"]
     gl_items = gl_state["items"]
@@ -4199,7 +4479,9 @@ def admin_export_backup(request: Request) -> Response:
         "schema": "krafen-backup-v1",
         "exported_at": int(time.time()),
         "exported_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "collections": {name: read_list(name, use_cache=False) for name in LIST_SPECS},
+        "collections": {
+            name: read_list(name, use_cache=False, owner=request_profile(request)) for name in LIST_SPECS
+        },
         "vod_overrides": read_vod_overrides(),
     }
     raw = json.dumps(snapshot, ensure_ascii=False, indent=2).encode("utf-8")
@@ -4219,7 +4501,8 @@ def admin_export_backup(request: Request) -> Response:
 @app.post("/api/admin/restore")
 def admin_import_backup(request: Request, body: dict[str, Any]) -> JSONResponse:
     require_same_origin(request)
-    require_admin(request)
+    profile = request_profile(request)
+    require_admin(request, profile)
     rate_limit(request, "admin_restore", 6, 60)
     cols = body.get("collections")
     if not isinstance(cols, dict):
@@ -4244,18 +4527,20 @@ def admin_import_backup(request: Request, body: dict[str, Any]) -> JSONResponse:
                 if raw_items and not cleaned:
                     conn.execute("ROLLBACK")
                     return j({"error": "invalid_items", "collection": name}, 400)
-                row = conn.execute("SELECT revision FROM collection_meta WHERE name = ?", (name,)).fetchone()
+                row = conn.execute(
+                    "SELECT revision FROM collection_meta WHERE owner = ? AND name = ?", (profile, name)
+                ).fetchone()
                 next_rev = (max(0, int(row["revision"] or 0)) if row else 0) + 1
-                stored = _write_collection_items(conn, name, cleaned)
+                stored = _write_collection_items(conn, name, cleaned, profile)
                 conn.execute(
                     """
-                    INSERT INTO collection_meta (name, revision, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(name) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at
+                    INSERT INTO collection_meta (owner, name, revision, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(owner, name) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at
                     """,
-                    (name, next_rev, now),
+                    (profile, name, next_rev, now),
                 )
-                _list_cache[name] = {"ts": time.time(), "revision": next_rev, "items": list(stored)}
+                _list_cache[collection_key(profile, name)] = {"ts": time.time(), "revision": next_rev, "items": list(stored)}
                 restored_counts[name] = len(stored)
             conn.execute("COMMIT")
         except Exception:
@@ -6327,7 +6612,9 @@ def static_file(full_path: str, request: Request) -> Response:
         body = path.read_text(encoding="utf-8", errors="replace").replace("__CSP_NONCE__", nonce)
         encoded = body.encode("utf-8")
         headers = {"Cache-Control": "private, no-cache, no-transform", "Content-Length": str(len(encoded))}
-        if path.name.lower() == "admin.html":
+        # Панель управления и личный профиль не индексируются.
+        relative = path.relative_to(ROOT).as_posix()
+        if path.name.lower() == "admin.html" or relative.startswith("danonsha/"):
             headers["X-Robots-Tag"] = "noindex, nofollow"
         headers.update(
             security_headers(

@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>danonsha / setup</title>
+    <meta name="description" content="Сетап danonsha — комплектующие и периферия.">
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" media="print" data-async-css>
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"></noscript>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/danonsha/theme.css">
+    <style nonce="__CSP_NONCE__">
+        .setup-block { margin-top: 48px; }
+        .setup-block-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 16px; margin-bottom: 20px; padding-bottom: 14px;
+            border-bottom: 1px solid var(--line);
+        }
+        .setup-block-title {
+            font-family: var(--font-heading); font-weight: 400; font-size: 28px; color: #fff;
+        }
+        .setup-count {
+            font-family: var(--font-mono); font-size: 11px; letter-spacing: .16em;
+            text-transform: uppercase; color: var(--silver-dim);
+        }
+
+        .setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .setup-card {
+            position: relative;
+            display: grid; grid-template-columns: 52px minmax(0, 1fr) auto;
+            gap: 18px; align-items: flex-start;
+            padding: 22px 24px;
+            background: rgba(12, 12, 16, .78);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+            backface-visibility: hidden;
+            color: inherit; text-decoration: none;
+            transition: border-color .38s var(--ease), transform .38s var(--ease), box-shadow .38s var(--ease);
+        }
+        .setup-card.interactive { cursor: pointer; }
+        .setup-card.interactive:hover {
+            border-color: rgba(163, 19, 19, .45);
+            transform: translate3d(0, -4px, 0);
+            box-shadow: 0 24px 54px rgba(0, 0, 0, .72);
+        }
+        .hw-icon {
+            width: 52px; height: 52px; border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, .1);
+            background:
+                radial-gradient(80% 80% at 50% 0%, rgba(163, 19, 19, .18), transparent 70%),
+                rgba(255, 255, 255, .03);
+            display: flex; align-items: center; justify-content: center;
+            color: var(--silver-bright);
+            transition: color .35s var(--ease), border-color .35s var(--ease);
+        }
+        .setup-card.interactive:hover .hw-icon {
+            color: var(--crimson-bright);
+            border-color: rgba(163, 19, 19, .45);
+        }
+        .hw-icon svg {
+            width: 24px; height: 24px;
+            stroke: currentColor; fill: none; stroke-width: 1.75;
+            stroke-linecap: round; stroke-linejoin: round;
+        }
+        .hw-cat {
+            font-size: 9px; letter-spacing: .24em; text-transform: uppercase;
+            color: var(--crimson-bright);
+        }
+        .hw-name {
+            margin-top: 6px; font-family: var(--font-heading); font-weight: 400;
+            font-size: 20px; color: #fff; line-height: 1.25;
+        }
+        .hw-note { margin-top: 6px; font-size: 12px; color: var(--silver); line-height: 1.55; }
+        .hw-arrow { font-size: 14px; color: var(--silver-dim); padding-top: 2px; transition: color .3s, transform .3s; }
+        .setup-card.interactive:hover .hw-arrow { color: var(--crimson-bright); transform: translateX(3px); }
+
+        .icon-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+        .icon-choice {
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            padding: 10px 6px; border-radius: 12px;
+            border: 1px solid rgba(160, 160, 160, .18);
+            background: rgba(255, 255, 255, .02);
+            color: var(--silver); font-family: var(--font-sans);
+            font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+            cursor: pointer; transition: all .2s var(--ease);
+        }
+        .icon-choice svg {
+            width: 18px; height: 18px;
+            stroke: currentColor; fill: none; stroke-width: 1.75;
+            stroke-linecap: round; stroke-linejoin: round;
+        }
+        .icon-choice:hover { color: #fff; border-color: rgba(160, 160, 160, .4); }
+        .icon-choice.active {
+            color: #fff; border-color: rgba(163, 19, 19, .65);
+            background: linear-gradient(180deg, rgba(163, 19, 19, .3), rgba(90, 8, 8, .35));
+        }
+
+        @media (max-width: 780px) {
+            .setup-grid { grid-template-columns: 1fr; }
+            .icon-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @media (max-width: 620px) {
+            .setup-card { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; padding: 16px; }
+            .hw-icon { width: 44px; height: 44px; border-radius: 12px; }
+            .hw-icon svg { width: 20px; height: 20px; }
+            .hw-name { font-size: 18px; }
+        }
+    </style>
+    <script data-cfasync="false" nonce="__CSP_NONCE__" src="/app.js" defer></script>
+</head>
+<body>
+    <div id="glow"></div>
+    <canvas id="rain"></canvas>
+    <div class="fog"></div>
+    <div class="fog f2"></div>
+    <div id="flash"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+
+    <nav class="topnav" aria-label="Навигация по сайту">
+        <a class="brand" href="/danonsha">danonsha</a>
+        <div class="links">
+            <a href="/danonsha">Главная</a>
+            <a href="/danonsha/watchlist">Watchlist</a>
+            <a href="/danonsha/gamelist">Gamelist</a>
+            <a class="active" href="/danonsha/setup">Setup</a>
+            <a href="/danonsha/wishlist">Wishlist</a>
+            <a href="/">krafen</a>
+        </div>
+        <span class="profile-badge">личный профиль</span>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Меню</button>
+    </nav>
+
+    <div class="mobile-nav" id="mobile-nav" aria-label="Мобильное меню">
+        <button class="mobile-nav-close" type="button" aria-label="Закрыть меню">✕</button>
+        <a href="/danonsha">Главная</a>
+        <a href="/danonsha/watchlist">Watchlist</a>
+        <a href="/danonsha/gamelist">Gamelist</a>
+        <a class="active" href="/danonsha/setup">Setup</a>
+        <a href="/danonsha/wishlist">Wishlist</a>
+        <a href="/">krafen</a>
+    </div>
+
+    <main id="top">
+        <section class="page-section">
+            <div class="ghost">03</div>
+
+            <div class="page-header-row reveal">
+                <div>
+                    <div class="sec-eyebrow">03 / железо и периферия</div>
+                    <h1 class="page-display">set<span class="grad">up</span></h1>
+                    <p class="page-tagline">Текущая сборка системного блока и <em>всё окружение рабочего стола</em>.</p>
+                </div>
+                <div class="page-header-actions">
+                    <span id="save-indicator" class="save-indicator"></span>
+                    <button id="add-btn" class="btn-primary sm admin-only" type="button">+ Добавить позицию</button>
+                </div>
+            </div>
+
+            <div class="admin-bar" id="admin-bar">
+                <span class="admin-dot"></span>
+                <span>режим администратора · нажми на карточку для редактирования</span>
+                <button id="admin-logout-btn" class="btn-action" type="button">выйти</button>
+            </div>
+
+            <div id="setup-warn" class="warn-box hidden">
+                Сервер временно недоступен — показана базовая конфигурация.
+            </div>
+
+            <div class="setup-block reveal" style="--d:.06s;">
+                <div class="setup-block-head">
+                    <div>
+                        <div class="sec-eyebrow" style="margin-bottom:4px;">01 / pc</div>
+                        <h2 class="setup-block-title">Системный блок</h2>
+                    </div>
+                    <span id="pc-count" class="setup-count">0 позиций</span>
+                </div>
+                <div id="pc-grid" class="setup-grid"></div>
+            </div>
+
+            <div class="setup-block reveal" style="--d:.14s;">
+                <div class="setup-block-head">
+                    <div>
+                        <div class="sec-eyebrow" style="margin-bottom:4px;">02 / gear</div>
+                        <h2 class="setup-block-title">Периферия и звук</h2>
+                    </div>
+                    <span id="gear-count" class="setup-count">0 позиций</span>
+                </div>
+                <div id="gear-grid" class="setup-grid"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site">
+        <div class="foot-name">krafen</div>
+        <div>setup · конфигурация пк и периферия</div>
+    </footer>
+
+    <div class="dock">
+        <a class="dock-box" href="#top">↑ <span class="hide-m">Наверх</span></a>
+        <div class="dock-right">
+            <div class="dock-icons">
+                <button class="lock-dock-btn" id="lock-btn" type="button" title="Войти в режим администратора" aria-label="Войти в режим администратора">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.75a4.5 4.5 0 0 1 9 0V10"/><rect x="5.25" y="10" width="13.5" height="10" rx="2.25"/><path d="M12 14.25v2.25"/></svg>
+                </button>
+
+            </div>
+            <button class="dock-box" id="atmo" type="button">★ <span class="hide-m">Атмосфера</span></button>
+        </div>
+    </div>
+
+    <!-- Модалка добавления / редактирования -->
+    <div id="modal-item" class="modal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow">позиция конфигурации</div>
+                    <h2 id="item-modal-title" class="modal-title">Добавить позицию</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-item" aria-label="Закрыть">✕</button>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Раздел</span>
+                <div id="group-choices" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Иконка</span>
+                <div id="icon-choices" class="icon-picker"></div>
+            </div>
+
+            <div class="field-grid-2">
+                <div class="field">
+                    <label class="field-label" for="category-input">Категория</label>
+                    <input id="category-input" class="kf-input" type="text" maxlength="60" placeholder="Видеокарта">
+                </div>
+                <div class="field">
+                    <label class="field-label" for="sort-input">Порядок</label>
+                    <input id="sort-input" class="kf-input" type="number" min="0" max="999" step="1" value="10">
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="name-input">Модель</label>
+                <input id="name-input" class="kf-input" type="text" maxlength="160" placeholder="NVIDIA GeForce RTX 4070 Super">
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="note-input">Характеристики / заметка</label>
+                <input id="note-input" class="kf-input" type="text" maxlength="220" placeholder="12 GB GDDR6X · DLSS 3">
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="link-input">Ссылка (необязательно)</label>
+                <input id="link-input" class="kf-input" type="url" maxlength="500" placeholder="https://…">
+            </div>
+
+            <div class="modal-foot">
+                <button id="delete-item-btn" class="btn-ghost sm danger hidden" type="button">Удалить</button>
+                <button id="save-item-btn" class="btn-primary sm" type="button" style="margin-left:auto;">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка входа администратора -->
+    <div id="modal-admin" class="modal">
+        <div class="modal-box sm">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow">администрирование</div>
+                    <h2 class="modal-title">Вход</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-admin" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="field">
+                <label class="field-label" for="admin-password-input">Пароль администратора</label>
+                <input id="admin-password-input" class="kf-input" type="password" placeholder="Введите пароль…" autocomplete="current-password">
+            </div>
+            <div id="admin-login-error" class="warn-box hidden">Неверный пароль или сервер недоступен.</div>
+            <button id="login-btn" class="btn-primary sm" type="button" style="width:100%;">Войти</button>
+        </div>
+    </div>
+
+    <script data-cfasync="false" nonce="__CSP_NONCE__">
+        ((fn) => {
+            const start = () => (window.KrafenUI ? fn() : document.querySelector('script[src="/app.js"]')?.addEventListener('load', fn, { once: true }));
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+            else start();
+        })(() => {
+            const { escapeHTML, toast, openModal, closeModal, bindModalDismiss, createAdminController, profileFetch, profilePath } = window.KrafenUI;
+
+            const GROUPS = { pc: 'Системный блок', gear: 'Периферия' };
+            const ICONS = {
+                cpu: { label: 'CPU', svg: '<rect x="7" y="7" width="10" height="10" rx="1.6"/><rect x="10" y="10" width="4" height="4" rx="0.6"/><path d="M9.5 3.2v3.8M14.5 3.2v3.8M9.5 17v3.8M14.5 17v3.8M3.2 9.5H7M3.2 14.5H7M17 9.5h3.8M17 14.5h3.8"/>' },
+                gpu: { label: 'GPU', svg: '<path d="M3 7v11"/><rect x="5" y="8" width="16" height="9" rx="2"/><circle cx="10" cy="12.5" r="2.3"/><circle cx="16.2" cy="12.5" r="2.3"/><path d="M8 17v2h4v-2"/>' },
+                ram: { label: 'RAM', svg: '<rect x="3" y="8" width="18" height="7" rx="1.5"/><path d="M6.5 10.5v2M10 10.5v2M14 10.5v2M17.5 10.5v2M6 15v2.5M10 15v2.5M14 15v2.5M18 15v2.5"/>' },
+                board: { label: 'Плата', svg: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="7.5" y="7.5" width="5" height="5" rx="0.8"/><path d="M15.5 7.5v5M18 7.5v5M7.5 16h9"/>' },
+                ssd: { label: 'SSD', svg: '<rect x="4" y="7" width="16" height="10" rx="2"/><path d="M7.5 12h5"/><circle cx="16.5" cy="12" r="1"/>' },
+                hdd: { label: 'HDD', svg: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><circle cx="12" cy="10.5" r="3.6"/><circle cx="12" cy="10.5" r="1"/><path d="M9 17h6"/>' },
+                cooler: { label: 'Кулер', svg: '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="12" cy="12" r="2"/><path d="M12 6.8c1.7 0 2.7 1.3 2.1 3M17.2 12c0 1.7-1.3 2.7-3 2.1M12 17.2c-1.7 0-2.7-1.3-2.1-3M6.8 12c0-1.7 1.3-2.7 3-2.1"/>' },
+                psu: { label: 'БП', svg: '<rect x="3.5" y="6.5" width="17" height="11" rx="2"/><path d="M13 9.5l-2 3h2.4l-1.4 2.5"/><circle cx="7.5" cy="12" r="1.5"/>' },
+                case: { label: 'Корпус', svg: '<rect x="6.5" y="3.5" width="11" height="17" rx="2"/><path d="M9.5 7h5"/><circle cx="12" cy="15.5" r="1.3"/>' },
+                monitor: { label: 'Экран', svg: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/>' },
+                mouse: { label: 'Мышь', svg: '<rect x="7.5" y="3.5" width="9" height="17" rx="4.5"/><path d="M12 7v3.2"/>' },
+                keyboard: { label: 'Клава', svg: '<rect x="2.8" y="6.8" width="18.4" height="10.4" rx="2"/><path d="M6.5 10.2h.01M10 10.2h.01M14 10.2h.01M17.5 10.2h.01M7.5 13.8h9"/>' },
+                audio: { label: 'IEM / Аудио', svg: '<path d="M6.5 9.5a3.5 3.5 0 1 1 5 3.1V18a2 2 0 0 1-2 2"/><path d="M17.5 9.5a3.5 3.5 0 1 0-5 3.1V18a2 2 0 0 0 2 2"/>' },
+                headphones: { label: 'Гарнитура', svg: '<path d="M4.5 13a7.5 7.5 0 0 1 15 0"/><rect x="3.8" y="12.5" width="3.7" height="6.2" rx="1.6"/><rect x="16.5" y="12.5" width="3.7" height="6.2" rx="1.6"/>' },
+                mic: { label: 'Микро', svg: '<rect x="9" y="3.8" width="6" height="10.2" rx="3"/><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3.2M9 20.2h6"/>' },
+                chair: { label: 'Кресло', svg: '<path d="M8.5 4.8h7l1 8.2h-9z"/><path d="M6.5 13h11M12 13v4.5M8.5 20h7"/>' },
+                other: { label: 'Другое', svg: '<path d="M12 3.8l7 4v8.4l-7 4-7-4V7.8z"/><path d="M5 7.8l7 4 7-4M12 11.8V20"/>' },
+            };
+
+            const DEFAULT_ITEMS = [
+                { id: 'cpu', group: 'pc', icon: 'cpu', category: 'Процессор', name: 'AMD Ryzen 5 8400F', note: '', link: 'https://www.dns-shop.ru/product/7c16c17ff883d582/processor-amd-ryzen-5-8400f-oem/', sort: 1 },
+                { id: 'gpu', group: 'pc', icon: 'gpu', category: 'Видеокарта', name: 'Gigabyte NVIDIA GeForce GTX 650', note: 'затычка, коплю на новую', link: '', sort: 2 },
+                { id: 'ram', group: 'pc', icon: 'ram', category: 'Оперативная память', name: 'Kingston FURY Beast Black RGB', note: 'DDR5 2x8GB', link: 'https://www.dns-shop.ru/product/f2d2b90ff075ed20/operativnaa-pamat-kingston-fury-beast-black-rgb-kf552c40bba-8-8-gb/', sort: 3 },
+                { id: 'board', group: 'pc', icon: 'board', category: 'Материнская плата', name: 'GIGABYTE A620M H', note: '(AM5, Micro-ATX)', link: 'https://www.dns-shop.ru/product/f1e541de40caed20/materinskaa-plata-gigabyte-a620m-h/', sort: 4 },
+                { id: 'ssd', group: 'pc', icon: 'ssd', category: 'SSD диск', name: 'Apacer AS350 PANTHER 128 ГБ', note: 'срочно нужен новый SSD', link: 'https://www.dns-shop.ru/product/ee3bc22301143332/128-gb-25-sata-nakopitel-apacer-as350-panther-95db260p100c/', sort: 5 },
+                { id: 'hdd', group: 'pc', icon: 'hdd', category: 'HDD диск', name: 'Toshiba P300 1 ТБ', note: '', link: 'https://www.dns-shop.ru/product/a47ecfb5e894ed20/1-tb-zestkij-disk-toshiba-p300-hdwd110uzsva/', sort: 6 },
+                { id: 'cooler', group: 'pc', icon: 'cooler', category: 'Охлаждение процессора', name: 'Lovingcool LC-D400 White', note: '', link: 'https://www.ozon.ru/product/kuler-dlya-protsessora-loving-cool-lc-400b-1867950535/', sort: 7 },
+                { id: 'psu', group: 'pc', icon: 'psu', category: 'Блок питания', name: 'Azerty RPA-650BA2 650W', note: '', link: 'https://www.dns-shop.ru/product/ce16affc4006eadb/blok-pitania-atx-azerty-rpa-650ba2-120-0943-krasnyj-cernyj/', sort: 8 },
+                { id: 'case', group: 'pc', icon: 'case', category: 'Корпус', name: '1STPLAYER MIKU Mi2', note: 'черный', link: 'https://www.dns-shop.ru/product/ad9a27d693c17cf3/korpus-1stplayer-miku-mi2-mi2-bk-3f1-cernyj/', sort: 9 },
+                { id: 'iem', group: 'gear', icon: 'audio', category: 'In-Ear Monitor', name: 'MOONDROP CHU II', note: '', link: 'https://www.dns-shop.ru/product/cfd0c2b6a2e8d21a/provodnye-nausniki-moondrop-chu-ii-cernyj-2023/', sort: 1 },
+                { id: 'monitor-main', group: 'gear', icon: 'monitor', category: 'Монитор', name: 'BenQ GL2055 20" 75 Гц', note: '', link: 'https://www.nix.ru/autocatalog/lcd_benq/20-ZHK-monitor-BenQ-GL2055-Black-LCD-1600x900-D-Sub-DVI_140740.html', sort: 2 },
+                { id: 'monitor-second', group: 'gear', icon: 'monitor', category: 'Второй монитор', name: 'BenQ GL2055 20" 75 Гц', note: '', link: 'https://www.nix.ru/autocatalog/lcd_benq/20-ZHK-monitor-BenQ-GL2055-Black-LCD-1600x900-D-Sub-DVI_140740.html', sort: 3 },
+                { id: 'keyboard', group: 'gear', icon: 'keyboard', category: 'Клавиатура', name: 'ARDOR GAMING Blade PRO Optical', note: '', link: 'https://www.dns-shop.ru/product/ea9145252763ed20/klaviatura-provodnaa-ardor-gaming-blade-pro-optical-cvet-cernyj/', sort: 4 },
+                { id: 'mouse', group: 'gear', icon: 'mouse', category: 'Мышка', name: 'Zaopin ZPW MAX', note: '', link: 'https://mechkeys.com/products/zaopin-zpw?variant=46926838366431', sort: 5 },
+                { id: 'mic', group: 'gear', icon: 'mic', category: 'Микрофон', name: 'FIFINE AmpliGame AM8', note: '', link: 'https://www.dns-shop.ru/product/ec269d5c2492d9cb/mikrofon-fifine-am8-belyj/', sort: 6 },
+            ];
+
+            let list = [];
+            let listRevision = 0;
+            let editingId = null;
+            let currentGroup = 'pc';
+            let currentIcon = 'cpu';
+            let saveInFlight = false;
+            let saveQueued = false;
+
+            const saveInd = document.getElementById('save-indicator');
+            function setSaveIndicator(cls, text) {
+                saveInd.className = `save-indicator ${cls}`.trim();
+                saveInd.textContent = text;
+            }
+
+            const admin = createAdminController({
+                onChange: (on) => {
+                    if (!on) setSaveIndicator('', '');
+                    render();
+                }
+            });
+
+            function safeRevision(v) {
+                const n = Number(v);
+                return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+            }
+
+            function safeUrl(v) {
+                try {
+                    const u = new URL(String(v || '').trim());
+                    return u.protocol === 'https:' ? u.toString() : '';
+                } catch {
+                    return '';
+                }
+            }
+
+            function countText(count) {
+                const mod10 = count % 10;
+                const mod100 = count % 100;
+                if (mod10 === 1 && mod100 !== 11) return `${count} позиция`;
+                if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} позиции`;
+                return `${count} позиций`;
+            }
+
+            function iconSVG(key) {
+                const icon = ICONS[key] || ICONS.other;
+                return `<svg viewBox="0 0 24 24" aria-hidden="true">${icon.svg}</svg>`;
+            }
+
+            async function fetchSetup() {
+                try {
+                    const res = await profileFetch('/api/setup', { headers: { Accept: 'application/json' } });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || 'fetch_failed');
+                    listRevision = safeRevision(data.revision);
+                    list = Array.isArray(data.items) && (data.items.length || listRevision > 0)
+                        ? data.items
+                        : DEFAULT_ITEMS.map((item) => ({ ...item }));
+                } catch {
+                    list = DEFAULT_ITEMS.map((item) => ({ ...item }));
+                    listRevision = 0;
+                    document.getElementById('setup-warn').classList.remove('hidden');
+                }
+                render();
+            }
+
+            async function saveToServer() {
+                if (!admin.isAdmin()) return;
+                saveQueued = true;
+                if (saveInFlight) return;
+                saveInFlight = true;
+                try {
+                    while (saveQueued && admin.isAdmin()) {
+                        saveQueued = false;
+                        const snapshot = JSON.parse(JSON.stringify(list));
+                        const revision = listRevision;
+                        setSaveIndicator('saving', 'сохранение…');
+
+                        const res = await profileFetch('/api/setup', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ items: snapshot, revision }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                            if (res.status === 401) {
+                                admin.setAdmin(false);
+                                saveQueued = false;
+                                setSaveIndicator('error', 'сессия истекла');
+                                toast('Сессия администратора истекла — войдите снова', '#fca5a5');
+                                fetchSetup();
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
+                                return;
+                            }
+                            if (res.status === 409 && Array.isArray(data.items)) {
+                                list = data.items;
+                                listRevision = safeRevision(data.revision);
+                                saveQueued = false;
+                                render();
+                                setSaveIndicator('error', 'обновлено в другой вкладке');
+                                toast('Конфигурация обновлена в другой вкладке', '#fca5a5');
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
+                                return;
+                            }
+                            throw new Error(data.error || 'save_failed');
+                        }
+                        listRevision = safeRevision(data.revision);
+                        setSaveIndicator('saved', 'сохранено');
+                        toast('Сохранено');
+                        setTimeout(() => setSaveIndicator('', ''), 1800);
+                    }
+                } catch {
+                    setSaveIndicator('error', 'ошибка сохранения');
+                    toast('Ошибка сохранения', '#fca5a5');
+                    setTimeout(() => setSaveIndicator('', ''), 3000);
+                } finally {
+                    saveInFlight = false;
+                }
+            }
+
+            function sortedGroup(group) {
+                return list
+                    .filter((i) => (i.group === 'gear' ? 'gear' : 'pc') === group)
+                    .sort((a, b) => Number(a.sort || 0) - Number(b.sort || 0) || String(a.category).localeCompare(String(b.category), 'ru'));
+            }
+
+            function cardHTML(item, idx) {
+                const url = safeUrl(item.link);
+                const interactive = admin.isAdmin() || Boolean(url);
+                const tag = !admin.isAdmin() && url ? 'a' : 'article';
+                const hrefAttr = !admin.isAdmin() && url ? `href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer"` : '';
+                const arrow = admin.isAdmin() ? '<span class="hw-arrow">✎</span>' : url ? '<span class="hw-arrow">↗</span>' : '<span></span>';
+                return `
+                    <${tag} class="setup-card kf-stagger-item ${interactive ? 'interactive' : ''}" style="--i:${Math.min(idx || 0, 12)}" data-id="${escapeHTML(item.id)}" ${hrefAttr}>
+                        <div class="hw-icon">${iconSVG(item.icon)}</div>
+                        <div class="col">
+                            <div class="hw-cat">${escapeHTML(item.category || 'Устройство')}</div>
+                            <h3 class="hw-name">${escapeHTML(item.name)}</h3>
+                            ${item.note ? `<div class="hw-note">${escapeHTML(item.note)}</div>` : ''}
+                        </div>
+                        ${arrow}
+                    </${tag}>`;
+            }
+
+            function render() {
+                const pc = sortedGroup('pc');
+                const gear = sortedGroup('gear');
+                document.getElementById('pc-count').textContent = countText(pc.length);
+                document.getElementById('gear-count').textContent = countText(gear.length);
+                document.getElementById('pc-grid').innerHTML = pc.map(cardHTML).join('');
+                document.getElementById('gear-grid').innerHTML = gear.map(cardHTML).join('');
+            }
+
+            function renderGroupChoices() {
+                document.getElementById('group-choices').innerHTML = Object.entries(GROUPS).map(([key, label]) => (
+                    `<button class="filter-pill ${currentGroup === key ? 'active' : ''}" type="button" data-group="${key}">${escapeHTML(label)}</button>`
+                )).join('');
+            }
+
+            function renderIconChoices() {
+                document.getElementById('icon-choices').innerHTML = Object.entries(ICONS).map(([key, icon]) => (
+                    `<button class="icon-choice ${currentIcon === key ? 'active' : ''}" type="button" data-icon="${key}">
+                        ${iconSVG(key)}
+                        <span>${escapeHTML(icon.label)}</span>
+                    </button>`
+                )).join('');
+            }
+
+            function openAddModal() {
+                if (!admin.isAdmin()) return;
+                editingId = null;
+                currentGroup = 'pc';
+                currentIcon = 'cpu';
+                document.getElementById('item-modal-title').textContent = 'Добавить позицию';
+                document.getElementById('category-input').value = '';
+                document.getElementById('name-input').value = '';
+                document.getElementById('note-input').value = '';
+                document.getElementById('link-input').value = '';
+                document.getElementById('sort-input').value = String((sortedGroup('pc').length + 1) * 10);
+                document.getElementById('delete-item-btn').classList.add('hidden');
+                renderGroupChoices();
+                renderIconChoices();
+                openModal('modal-item');
+                setTimeout(() => document.getElementById('category-input').focus(), 100);
+            }
+
+            function openEditModal(item) {
+                if (!admin.isAdmin()) return;
+                editingId = item.id;
+                currentGroup = item.group === 'gear' ? 'gear' : 'pc';
+                currentIcon = ICONS[item.icon] ? item.icon : 'other';
+                document.getElementById('item-modal-title').textContent = 'Редактировать позицию';
+                document.getElementById('category-input').value = item.category || '';
+                document.getElementById('name-input').value = item.name || '';
+                document.getElementById('note-input').value = item.note || '';
+                document.getElementById('link-input').value = item.link || '';
+                document.getElementById('sort-input').value = Number(item.sort || 0);
+                document.getElementById('delete-item-btn').classList.remove('hidden');
+                renderGroupChoices();
+                renderIconChoices();
+                openModal('modal-item');
+            }
+
+            function saveItem() {
+                if (!admin.isAdmin()) return;
+                const name = document.getElementById('name-input').value.trim();
+                const category = document.getElementById('category-input').value.trim() || (ICONS[currentIcon]?.label || 'Устройство');
+                const rawLink = document.getElementById('link-input').value.trim();
+                const link = safeUrl(rawLink);
+                if (!name) {
+                    toast('Укажите название модели', '#fca5a5');
+                    return;
+                }
+                if (rawLink && !link) {
+                    toast('Ссылка должна начинаться с https://', '#fca5a5');
+                    return;
+                }
+                const now = Date.now();
+                const existing = list.find((i) => i.id === editingId);
+                const item = {
+                    id: existing?.id || `setup-${now}-${Math.random().toString(36).slice(2, 7)}`,
+                    group: currentGroup,
+                    icon: currentIcon,
+                    category,
+                    name,
+                    note: document.getElementById('note-input').value.trim(),
+                    link,
+                    sort: Math.max(0, Math.min(999, Math.round(Number(document.getElementById('sort-input').value) || 0))),
+                    addedAt: existing?.addedAt || now,
+                    updatedAt: now,
+                };
+                const idx = list.findIndex((i) => i.id === item.id);
+                if (idx >= 0) list[idx] = item;
+                else list.push(item);
+                render();
+                saveToServer();
+                closeModal('modal-item');
+            }
+
+            function deleteItem() {
+                if (!admin.isAdmin()) return;
+                const item = list.find((i) => i.id === editingId);
+                if (!item) return;
+                if (!confirm(`Удалить «${item.name}»?`)) return;
+                list = list.filter((i) => i.id !== editingId);
+                render();
+                saveToServer();
+                closeModal('modal-item');
+            }
+
+            bindModalDismiss();
+            document.getElementById('add-btn').addEventListener('click', openAddModal);
+            document.getElementById('save-item-btn').addEventListener('click', saveItem);
+            document.getElementById('delete-item-btn').addEventListener('click', deleteItem);
+            document.getElementById('group-choices').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-group]');
+                if (!btn) return;
+                currentGroup = btn.dataset.group;
+                renderGroupChoices();
+            });
+            document.getElementById('icon-choices').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-icon]');
+                if (!btn) return;
+                currentIcon = btn.dataset.icon;
+                renderIconChoices();
+            });
+            document.addEventListener('click', (e) => {
+                const card = e.target.closest('.setup-card[data-id]');
+                if (!card || !admin.isAdmin()) return;
+                e.preventDefault();
+                const item = list.find((i) => i.id === card.dataset.id);
+                if (item) openEditModal(item);
+            });
+
+            admin.check();
+            fetchSetup();
+        });
+    </script>
+</body>
+</html>

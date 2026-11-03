@@ -406,7 +406,11 @@
                         На сервере не задан надёжный <code>ADMIN_PASSWORD</code> в <code>.env</code> (значение <code>change-me</code> заблокировано).
                     </div>
                     <div class="field">
-                        <label class="field-label" for="gate-password">Пароль администратора</label>
+                        <label class="field-label" for="gate-login">Логин</label>
+                        <input type="text" id="gate-login" class="kf-input" placeholder="krafen или danonsha" autocomplete="username" autocapitalize="none" spellcheck="false">
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="gate-password">Пароль</label>
                         <div class="auth-pass-wrap">
                             <input type="password" id="gate-password" class="kf-input" placeholder="Введите пароль…" autocomplete="current-password">
                             <button type="button" id="gate-pass-toggle" class="pass-toggle">показать</button>
@@ -720,11 +724,13 @@
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
             else start();
         })(() => {
-            const { escapeHTML, proxyImgUrl, safeHttpUrl, toast, openModal, closeModal, bindModalDismiss } = window.KrafenUI;
+            const { escapeHTML, proxyImgUrl, safeHttpUrl, toast, openModal, closeModal, bindModalDismiss, profileFetch, profilePath } = window.KrafenUI;
 
             const authGate = document.getElementById('auth-gate');
             const dashView = document.getElementById('dashboard-view');
             const gatePass = document.getElementById('gate-password');
+            const gateLogin = document.getElementById('gate-login');
+            let activeProfile = 'krafen';
             const gateToggle = document.getElementById('gate-pass-toggle');
             const gateLoginBtn = document.getElementById('gate-login-btn');
             const gateErr = document.getElementById('gate-error');
@@ -823,7 +829,7 @@
 
             async function checkSession() {
                 try {
-                    const res = await fetch('/api/admin', {
+                    const res = await profileFetch('/api/admin', {
                         headers: { Accept: 'application/json' },
                         credentials: 'same-origin',
                     });
@@ -836,29 +842,34 @@
 
             async function performLogin() {
                 const password = gatePass.value.trim();
+                const login = (gateLogin.value || 'krafen').trim().toLowerCase();
                 if (!password) return;
                 gateLoginBtn.disabled = true;
                 gateLoginBtn.textContent = 'Проверка…';
                 gateErr.classList.add('hidden');
                 try {
-                    const res = await fetch('/api/admin', {
+                    const res = await profileFetch('/api/admin', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
-                        body: JSON.stringify({ password }),
+                        body: JSON.stringify({ password, login }),
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) {
+                        const envName = login === 'danonsha' ? 'ADMIN_PASSWORD_DANONSHA' : 'ADMIN_PASSWORD';
                         gateErr.textContent = res.status === 429
                             ? 'Слишком много попыток входа. Подождите пару минут.'
                             : (data.error === 'admin_password_missing'
-                                ? 'На сервере не настроен ADMIN_PASSWORD в .env.'
-                                : 'Неверный пароль администратора.');
+                                ? `На сервере не задан ${envName} в .env.`
+                                : `Неверный логин или пароль для профиля «${login}».`);
                         gateErr.classList.remove('hidden');
                         return;
                     }
                     gatePass.value = '';
-                    toast('Вход выполнен');
+                    activeProfile = data.profile || login;
+                    // дальше все запросы панели идут уже от выбранного профиля
+                    window.KrafenUI.setProfile(activeProfile);
+                    toast(`Вход выполнен: ${activeProfile}`);
                     setAuthView(true, true);
                 } catch {
                     gateErr.textContent = 'Ошибка соединения с сервером.';
@@ -875,13 +886,19 @@
                 gateToggle.textContent = show ? 'скрыть' : 'показать';
             });
             gateLoginBtn.addEventListener('click', performLogin);
-            gatePass.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') performLogin();
+            [gatePass, gateLogin].forEach((el) => {
+                el?.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') performLogin();
+                });
             });
+            gateLogin?.addEventListener('input', () => {
+                gateLogin.value = gateLogin.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+            });
+            if (gateLogin) gateLogin.value = window.KrafenUI.getProfile();
 
             document.getElementById('top-logout-btn').addEventListener('click', async () => {
                 if (!confirm('Выйти из панели управления?')) return;
-                await fetch('/api/admin', { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+                await profileFetch('/api/admin', { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
                 toast('Сессия завершена');
                 setAuthView(false, true);
             });
@@ -1533,7 +1550,7 @@
             /* ---------- Загрузка данных и действия ---------- */
             async function loadOverview(silent = false) {
                 try {
-                    const res = await fetch(`/api/admin/overview?days=${currentDays}`, {
+                    const res = await profileFetch(`/api/admin/overview?days=${currentDays}`, {
                         headers: { Accept: 'application/json' },
                         credentials: 'same-origin',
                     });
@@ -1556,7 +1573,7 @@
                 if (!confirm('Проверить и загрузить свежее обновление из GitHub main? Если обновится server.py, сервер перезапустится автоматически.')) return;
                 toast('Проверяю обновления на GitHub…');
                 try {
-                    const res = await fetch('/api/admin/update', {
+                    const res = await profileFetch('/api/admin/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
@@ -1588,7 +1605,7 @@
                     triggerGithubUpdate();
                 } else if (act === 'spotify-disconnect') {
                     if (!confirm('Отвязать текущий аккаунт Spotify?')) return;
-                    const res = await fetch('/api/admin/spotify/disconnect', {
+                    const res = await profileFetch('/api/admin/spotify/disconnect', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
@@ -1608,7 +1625,7 @@
                 if (target === 'analytics' && !confirm('Точно обнулить накопленную статистику посещений и просмотров VOD?')) return;
                 btn.disabled = true;
                 try {
-                    const res = await fetch('/api/admin/cache/clear', {
+                    const res = await profileFetch('/api/admin/cache/clear', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
@@ -1644,7 +1661,7 @@
                 btn.disabled = true;
                 btn.textContent = 'Синхронизация…';
                 try {
-                    const res = await fetch('/api/admin/vods/sync', {
+                    const res = await profileFetch('/api/admin/vods/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
@@ -1665,7 +1682,7 @@
 
             document.getElementById('btn-reset-all-thumbs').addEventListener('click', async () => {
                 if (!confirm('Удалить все кэшированные превью VOD, чтобы они пересоздались из кадров заново?')) return;
-                const res = await fetch('/api/admin/vods/reset-thumb', {
+                const res = await profileFetch('/api/admin/vods/reset-thumb', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
@@ -1696,7 +1713,7 @@
                 const thumbBtn = e.target.closest('[data-vod-rethumb]');
                 if (thumbBtn) {
                     const vid = thumbBtn.dataset.vodRethumb;
-                    const res = await fetch('/api/admin/vods/reset-thumb', {
+                    const res = await profileFetch('/api/admin/vods/reset-thumb', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
@@ -1711,7 +1728,7 @@
 
             document.getElementById('btn-vod-save').addEventListener('click', async () => {
                 if (!editingVod) return;
-                const res = await fetch('/api/admin/vods/override', {
+                const res = await profileFetch('/api/admin/vods/override', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
@@ -1733,7 +1750,7 @@
 
             document.getElementById('btn-vod-reset-override').addEventListener('click', async () => {
                 if (!editingVod) return;
-                const res = await fetch('/api/admin/vods/override', {
+                const res = await profileFetch('/api/admin/vods/override', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
@@ -1762,7 +1779,7 @@
                     }
                     const names = Object.keys(parsed.collections).join(', ');
                     if (!confirm(`Импортировать резервную копию из «${file.name}» (${names})? Текущие списки будут перезаписаны.`)) return;
-                    const res = await fetch('/api/admin/restore', {
+                    const res = await profileFetch('/api/admin/restore', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
@@ -1806,7 +1823,7 @@
             async function loadLogs(silent = false) {
                 const linesCnt = Number(document.getElementById('log-lines-select').value) || 250;
                 try {
-                    const res = await fetch(`/api/admin/logs?lines=${linesCnt}`, {
+                    const res = await profileFetch(`/api/admin/logs?lines=${linesCnt}`, {
                         headers: { Accept: 'application/json' },
                         credentials: 'same-origin',
                     });

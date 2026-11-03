@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>danonsha / watchlist</title>
+    <meta name="description" content="Список аниме, фильмов и сериалов danonsha.">
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" media="print" data-async-css>
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Medula+One&family=Alice&family=Cormorant+Infant:ital,wght@0,400;0,500;1,400&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"></noscript>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/danonsha/theme.css">
+    <style nonce="__CSP_NONCE__">
+        .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+        .stat-chip {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 7px 15px; border-radius: 999px;
+            background: rgba(12, 12, 16, .76); border: 1px solid var(--glass-border);
+            font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--silver);
+        }
+        .stat-chip strong { font-family: var(--font-mono); color: #fff; font-size: 12px; }
+        .stat-chip.watched { border-color: rgba(34, 197, 94, .32); color: #bbf7d0; }
+        .stat-chip.dropped { border-color: rgba(163, 19, 19, .45); color: #fecaca; }
+
+        .filter-panel { padding: 22px 24px; margin-bottom: 28px; display: flex; flex-direction: column; gap: 16px; }
+        .filter-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+        .filter-label {
+            width: 68px; flex-shrink: 0;
+            font-size: 9px; letter-spacing: .26em; text-transform: uppercase; color: var(--silver-dim);
+        }
+        .filter-group { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(182px, 1fr));
+            gap: 18px;
+        }
+        .media-card {
+            position: relative;
+            background: rgba(12, 12, 16, .78);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+            backface-visibility: hidden;
+            transition: border-color .38s var(--ease), transform .38s var(--ease), box-shadow .38s var(--ease);
+        }
+        .media-card:hover {
+            border-color: rgba(163, 19, 19, .45);
+            transform: translate3d(0, -4px, 0);
+            box-shadow: 0 24px 56px rgba(0, 0, 0, .75);
+        }
+        .poster-wrap {
+            position: relative;
+            aspect-ratio: 2 / 3;
+            overflow: hidden;
+            background:
+                radial-gradient(60% 80% at 50% 100%, rgba(124, 10, 10, .2), transparent 70%),
+                linear-gradient(180deg, #0e0e12, #070709);
+        }
+        .poster-wrap img {
+            width: 100%; height: 100%; object-fit: cover; display: block;
+            transition: transform .55s var(--ease);
+        }
+        .media-card:hover .poster-wrap img { transform: scale(1.045); }
+        .no-poster {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--font-display); font-size: 28px; letter-spacing: .08em;
+            color: rgba(160, 160, 160, .3); text-transform: uppercase;
+        }
+        .card-overlay {
+            position: absolute; inset: 0;
+            background: rgba(5, 5, 5, .82);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            display: flex; flex-direction: column; justify-content: center; gap: 7px;
+            padding: 14px;
+            opacity: 0; pointer-events: none;
+            transition: opacity .25s var(--ease);
+        }
+        body.is-admin .media-card:hover .card-overlay,
+        body.is-admin .media-card:focus-within .card-overlay,
+        body.is-admin .media-card.touch-open .card-overlay {
+            opacity: 1; pointer-events: auto;
+        }
+        .ov-btn {
+            width: 100%; padding: 8px 10px; border-radius: 999px;
+            font-family: var(--font-sans); font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+            background: rgba(12, 12, 15, .85); border: 1px solid rgba(160, 160, 160, .24);
+            color: var(--silver-bright); cursor: pointer; transition: all .2s var(--ease);
+        }
+        .ov-btn.watched { color: #86efac; border-color: rgba(34, 197, 94, .4); }
+        .ov-btn.watched:hover { background: rgba(22, 163, 74, .22); color: #fff; }
+        .ov-btn.planned { color: var(--silver-bright); border-color: rgba(160, 160, 160, .35); }
+        .ov-btn.planned:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+        .ov-btn.dropped { color: #fca5a5; border-color: rgba(239, 68, 68, .4); }
+        .ov-btn.dropped:hover { background: rgba(124, 10, 10, .38); color: #fff; }
+        .ov-btn.remove { margin-top: 4px; color: var(--silver-dim); border-color: rgba(160, 160, 160, .14); }
+        .ov-btn.remove:hover { color: #fca5a5; border-color: rgba(239, 68, 68, .45); background: rgba(124, 10, 10, .28); }
+
+        .card-info { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+        .card-title {
+            font-family: var(--font-heading); font-size: 17px; color: #fff; line-height: 1.28;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .card-meta {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--silver-dim);
+        }
+        .card-meta .year { font-family: var(--font-mono); }
+
+        /* ---- оценки, рецензии, теги и избранное ---- */
+        .card-rating {
+            position: absolute; top: 10px; left: 10px; z-index: 2;
+            font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: #fff;
+            padding: 4px 9px; border-radius: 999px;
+            background: rgba(5, 5, 7, .8); border: 1px solid rgba(163, 19, 19, .62);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+        }
+        .card-fav {
+            position: absolute; top: 8px; right: 10px; z-index: 2;
+            font-size: 16px; line-height: 1; color: #fcd34d;
+            text-shadow: 0 0 14px rgba(245, 158, 11, .7);
+        }
+        .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+        .tag-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+            padding: 3px 9px; border-radius: 999px;
+            border: 1px solid rgba(160, 160, 160, .22); color: var(--silver);
+            background: rgba(255, 255, 255, .03);
+        }
+        button.tag-chip { cursor: pointer; font-family: var(--font-sans); transition: color .22s var(--ease), border-color .22s var(--ease); }
+        button.tag-chip:hover { color: #fff; border-color: rgba(163, 19, 19, .55); }
+        .tag-chip.tag-active {
+            color: #fff; border-color: rgba(163, 19, 19, .7);
+            background: linear-gradient(135deg, rgba(142, 15, 15, .55), rgba(76, 5, 5, .55));
+        }
+        .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .review-flag {
+            font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--crimson-bright);
+            white-space: nowrap;
+        }
+        .ov-btn.review { color: #fde68a; border-color: rgba(245, 158, 11, .4); }
+        .ov-btn.review:hover { background: rgba(245, 158, 11, .18); color: #fff; }
+
+        /* ---- редактор рецензии ---- */
+        .edit-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 18px; }
+        .edit-poster { width: 64px; height: 94px; border-radius: 10px; overflow: hidden; flex-shrink: 0; }
+        .edit-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .edit-poster .no-poster { font-size: 14px; }
+        .rating-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; }
+        .score-value { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: #fff; white-space: nowrap; }
+        .tag-editor {
+            display: flex; flex-wrap: wrap; gap: 7px; align-items: center;
+            padding: 9px 11px; border-radius: 14px;
+            border: 1px solid var(--glass-border); background: rgba(255, 255, 255, .03);
+            transition: border-color .25s var(--ease);
+        }
+        .tag-editor:focus-within { border-color: rgba(163, 19, 19, .55); }
+        .tag-editor input {
+            flex: 1 1 130px; min-width: 110px;
+            border: none; background: transparent; outline: none;
+            color: var(--silver-bright); font-family: var(--font-sans); font-size: 13px;
+        }
+        .tag-editor input::placeholder { color: rgba(160, 160, 160, .42); }
+        .tag-edit-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 6px 4px 10px; border-radius: 999px;
+            font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+            background: rgba(163, 19, 19, .18); border: 1px solid rgba(163, 19, 19, .45); color: #fff;
+        }
+        .tag-edit-chip button {
+            border: none; background: transparent; color: var(--silver);
+            font-size: 13px; line-height: 1; padding: 0 2px; cursor: pointer;
+        }
+        .tag-edit-chip button:hover { color: #fff; }
+        .fav-toggle.active {
+            color: #fcd34d; border-color: rgba(245, 158, 11, .55); background: rgba(245, 158, 11, .12);
+        }
+
+        /* ---- просмотр рецензии ---- */
+        .view-score { font-family: var(--font-mono); font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+        .view-review {
+            margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line);
+            font-size: 14px; line-height: 1.8; color: var(--silver-bright); white-space: pre-wrap;
+        }
+        .view-empty { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--silver-dim); }
+
+        /* Результаты поиска */
+        .search-item {
+            display: grid; grid-template-columns: 46px minmax(0, 1fr) auto;
+            gap: 14px; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid var(--line);
+        }
+        .search-item:last-child { border-bottom: none; }
+        .search-poster {
+            width: 46px; height: 68px; border-radius: 8px; overflow: hidden;
+            background: rgba(255, 255, 255, .04); border: 1px solid var(--glass-border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: var(--silver-dim);
+        }
+        .search-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .search-title { font-family: var(--font-heading); font-size: 17px; color: #fff; line-height: 1.25; }
+        .search-sub { margin-top: 4px; font-size: 11px; color: var(--silver-dim); }
+        .search-actions { display: flex; flex-direction: column; gap: 5px; }
+        .add-mini {
+            padding: 5px 11px; border-radius: 999px;
+            font-family: var(--font-sans); font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+            background: transparent; border: 1px solid rgba(160, 160, 160, .24);
+            color: var(--silver-bright); cursor: pointer; transition: all .2s var(--ease);
+        }
+        .add-mini.watched { color: #86efac; border-color: rgba(34, 197, 94, .4); }
+        .add-mini.watched:hover { background: rgba(22, 163, 74, .2); color: #fff; }
+        .add-mini.planned:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+        .add-mini.dropped { color: #fca5a5; border-color: rgba(239, 68, 68, .4); }
+        .add-mini.dropped:hover { background: rgba(124, 10, 10, .3); color: #fff; }
+
+        @media (max-width: 620px) {
+            .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .filter-panel { padding: 16px; gap: 12px; }
+            .filter-label { width: 100%; }
+            .card-info { padding: 11px 12px 13px; gap: 6px; }
+            .card-title { font-size: 15px; }
+            .card-overlay { padding: 10px; gap: 5px; }
+            .ov-btn { padding: 7px 8px; font-size: 8.5px; letter-spacing: .12em; }
+        }
+        @media (max-width: 480px) {
+            .search-item { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
+            .search-actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+            .add-mini { flex: 1 1 auto; text-align: center; padding: 6px 10px; }
+            .tag-editor { padding: 8px 9px; }
+            .tag-editor input { font-size: 16px; }
+            .modal-foot { flex-wrap: wrap; gap: 10px; }
+            .modal-foot > div { width: 100%; justify-content: flex-end; }
+            .rating-line { gap: 10px; }
+            .score-value { font-size: 20px; }
+            #tag-filter-line .filter-group { gap: 6px; }
+        }
+    </style>
+    <script data-cfasync="false" nonce="__CSP_NONCE__" src="/app.js" defer></script>
+</head>
+<body>
+    <div id="glow"></div>
+    <canvas id="rain"></canvas>
+    <div class="fog"></div>
+    <div class="fog f2"></div>
+    <div id="flash"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+
+    <nav class="topnav" aria-label="Навигация по сайту">
+        <a class="brand" href="/danonsha">danonsha</a>
+        <div class="links">
+            <a href="/danonsha">Главная</a>
+            <a class="active" href="/danonsha/watchlist">Watchlist</a>
+            <a href="/danonsha/gamelist">Gamelist</a>
+            <a href="/danonsha/setup">Setup</a>
+            <a href="/danonsha/wishlist">Wishlist</a>
+            <a href="/">krafen</a>
+        </div>
+        <span class="profile-badge">личный профиль</span>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Меню</button>
+    </nav>
+
+    <div class="mobile-nav" id="mobile-nav" aria-label="Мобильное меню">
+        <button class="mobile-nav-close" type="button" aria-label="Закрыть меню">✕</button>
+        <a href="/danonsha">Главная</a>
+        <a class="active" href="/danonsha/watchlist">Watchlist</a>
+        <a href="/danonsha/gamelist">Gamelist</a>
+        <a href="/danonsha/setup">Setup</a>
+        <a href="/danonsha/wishlist">Wishlist</a>
+        <a href="/">krafen</a>
+    </div>
+
+    <main id="top">
+        <section class="page-section">
+            <div class="ghost">01</div>
+
+            <div class="page-header-row reveal">
+                <div>
+                    <div class="sec-eyebrow">01 / коллекция тайтлов</div>
+                    <h1 class="page-display">watch<span class="grad">list</span></h1>
+                    <p class="page-tagline">Аниме, фильмы и сериалы — <em>личный архив просмотренного</em> и отложенного на вечер.</p>
+                </div>
+                <div class="page-header-actions">
+                    <span id="save-indicator" class="save-indicator"></span>
+                    <button id="add-btn" class="btn-primary sm admin-only" type="button">+ Добавить тайтл</button>
+                    <button id="export-btn" class="btn-action" type="button" hidden>Экспорт JSON</button>
+                </div>
+            </div>
+
+            <div class="admin-bar" id="admin-bar">
+                <span class="admin-dot"></span>
+                <span>режим администратора</span>
+                <a href="/api/spotify/auth" class="btn-action">подключить Spotify</a>
+                <button id="admin-logout-btn" class="btn-action" type="button">выйти</button>
+            </div>
+
+            <div id="setup-warn" class="warn-box hidden">
+                Не удалось загрузить данные с сервера. Проверьте работу <code>server.py</code>.
+            </div>
+
+            <div class="stats-bar reveal" id="stats-row" style="--d:.06s;"></div>
+
+            <div class="glass no-lift filter-panel reveal" style="--d:.12s;">
+                <div class="filter-line">
+                    <span class="filter-label">Тип</span>
+                    <div class="filter-group" id="type-filters">
+                        <button class="filter-pill active" type="button" data-type="all">Все</button>
+                        <button class="filter-pill" type="button" data-type="anime">Аниме</button>
+                        <button class="filter-pill" type="button" data-type="movie">Фильмы</button>
+                        <button class="filter-pill" type="button" data-type="series">Сериалы</button>
+                    </div>
+                </div>
+                <div class="filter-line">
+                    <span class="filter-label">Статус</span>
+                    <div class="filter-group" id="status-filters">
+                        <button class="filter-pill active" type="button" data-status="all">Все</button>
+                        <button class="filter-pill" type="button" data-status="watched">Просмотрено</button>
+                        <button class="filter-pill" type="button" data-status="planned">Планирую</button>
+                        <button class="filter-pill" type="button" data-status="dropped">Брошено</button>
+                    </div>
+                </div>
+                <div class="filter-line">
+                    <span class="filter-label">Поиск</span>
+                    <div class="filter-group">
+                        <input id="local-search" class="kf-input" type="search" placeholder="Название, рецензия или тег…" autocomplete="off">
+                    </div>
+                </div>
+                <div class="filter-line">
+                    <span class="filter-label">Сортировка</span>
+                    <div class="filter-group" style="flex-wrap:wrap;gap:10px;align-items:center;">
+                        <select id="sort-select" class="kf-select" style="max-width:230px;" aria-label="Сортировка">
+                            <option value="added">По дате добавления</option>
+                            <option value="rating">По оценке</option>
+                            <option value="title">По названию</option>
+                            <option value="year">По году</option>
+                            <option value="updated">По дате обновления</option>
+                        </select>
+                        <button id="fav-toggle" class="filter-pill" type="button" data-fav-toggle>★ Избранное</button>
+                        <button id="fav-clear" class="tag-chip hidden" type="button" data-fav-clear>сбросить избранное ×</button>
+                    </div>
+                </div>
+                <div class="filter-line hidden" id="tag-filter-line">
+                    <span class="filter-label">Теги</span>
+                    <div class="filter-group" id="tag-filter-list"></div>
+                </div>
+                <div class="filter-line hidden" id="tag-selected-line">
+                    <span class="filter-label">Выбрано</span>
+                    <div class="filter-group">
+                        <button class="tag-chip" type="button" id="tag-filter-chip"># — ×</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="loading-state" class="cards-grid">
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+                <div class="media-card"><div class="poster-wrap shimmer"></div><div class="card-info"><div class="shimmer" style="height:18px;border-radius:6px;"></div></div></div>
+            </div>
+
+            <div id="cards-grid" class="cards-grid hidden"></div>
+
+            <div id="empty-state" class="empty-box hidden">
+                <div class="big">watchlist</div>
+                <p id="empty-hint">Список пока пуст — скоро здесь появятся любимые фильмы, сериалы и аниме.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site">
+        <div class="foot-name">krafen</div>
+        <div>watchlist · аниме, фильмы и сериалы</div>
+    </footer>
+
+    <div class="dock">
+        <a class="dock-box" href="#top">↑ <span class="hide-m">Наверх</span></a>
+        <div class="dock-right">
+            <div class="dock-icons">
+                <button class="lock-dock-btn" id="lock-btn" type="button" title="Войти в режим администратора" aria-label="Войти в режим администратора">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.75a4.5 4.5 0 0 1 9 0V10"/><rect x="5.25" y="10" width="13.5" height="10" rx="2.25"/><path d="M12 14.25v2.25"/></svg>
+                </button>
+
+            </div>
+            <button class="dock-box" id="atmo" type="button">★ <span class="hide-m">Атмосфера</span></button>
+        </div>
+    </div>
+
+    <!-- Модалка добавления -->
+    <div class="modal" id="modal-add">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow">поиск тайтлов</div>
+                    <h2 class="modal-title">Добавить в список</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-add" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="notice-box">
+                Фильмы и сериалы ищутся через серверный прокси TMDB, аниме — через Shikimori.
+            </div>
+            <div class="filter-group" style="margin-bottom:16px;">
+                <button class="filter-pill active" type="button" data-modal-type="anime">Аниме</button>
+                <button class="filter-pill" type="button" data-modal-type="movie">Фильм</button>
+                <button class="filter-pill" type="button" data-modal-type="series">Сериал</button>
+            </div>
+            <input type="search" id="search-input" class="kf-input" placeholder="Начни вводить название…" autocomplete="off">
+            <div id="search-results" style="margin-top:16px;"></div>
+        </div>
+    </div>
+
+    <!-- Модалка рецензии и метаданных тайтла -->
+    <div class="modal" id="modal-review">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow" id="review-eyebrow">оценка и рецензия</div>
+                    <h2 id="review-modal-title" class="modal-title">Оценить тайтл</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-review" aria-label="Закрыть">✕</button>
+            </div>
+
+            <div class="edit-head">
+                <div class="edit-poster" id="review-poster"></div>
+                <div class="col">
+                    <h3 id="review-title" style="font-family:var(--font-heading);font-weight:400;font-size:23px;color:#fff;line-height:1.25;"></h3>
+                    <div id="review-meta" class="card-meta" style="margin-top:6px;"></div>
+                </div>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Оценка</span>
+                <div class="rating-line">
+                    <input id="review-rating" type="range" min="0" max="10" step="1" value="0" aria-label="Оценка от 0 до 10">
+                    <div id="review-rating-value" class="score-value">—</div>
+                </div>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Статус</span>
+                <div id="review-status-choices" class="filter-group"></div>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="review-text">Рецензия</label>
+                <textarea id="review-text" class="kf-area" maxlength="5000" placeholder="Впечатления, мысли, стоит ли смотреть…"></textarea>
+            </div>
+
+            <div class="field">
+                <span class="field-label">Теги</span>
+                <div class="tag-editor" id="tag-editor">
+                    <div id="tag-edit-list" class="tag-row"></div>
+                    <input id="tag-input" type="text" maxlength="28" placeholder="Добавить тег и Enter…" autocomplete="off" aria-label="Новый тег">
+                </div>
+                <div class="tag-row" id="tag-suggestions" style="margin-top:9px;"></div>
+            </div>
+
+            <div class="modal-foot">
+                <span id="review-count" style="font-size:10px;letter-spacing:.14em;color:var(--silver-dim);">0 / 5000</span>
+                <div style="display:flex;gap:10px;">
+                    <button id="review-fav-btn" class="btn-ghost sm fav-toggle" type="button">★ Избранное</button>
+                    <button id="review-remove-btn" class="btn-ghost sm danger hidden" type="button">Удалить</button>
+                    <button id="review-save-btn" class="btn-primary sm" type="button">Сохранить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка просмотра рецензии -->
+    <div class="modal" id="modal-review-view">
+        <div class="modal-box">
+            <div class="modal-head">
+                <div class="row" style="align-items:flex-start;">
+                    <div class="edit-poster" id="rv-poster"></div>
+                    <div class="col">
+                        <div id="rv-rating" class="view-score">—</div>
+                        <h2 id="rv-title" class="modal-title"></h2>
+                        <div id="rv-meta" class="card-meta" style="margin-top:6px;"></div>
+                    </div>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-review-view" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="tag-row" id="rv-tags"></div>
+            <div id="rv-review" class="view-review"></div>
+        </div>
+    </div>
+
+    <!-- Модалка входа администратора -->
+    <div class="modal" id="modal-admin">
+        <div class="modal-box sm">
+            <div class="modal-head">
+                <div>
+                    <div class="modal-eyebrow">администрирование</div>
+                    <h2 class="modal-title">Вход</h2>
+                </div>
+                <button class="icon-btn" type="button" data-close="modal-admin" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="field">
+                <label class="field-label" for="admin-password-input">Пароль администратора</label>
+                <input type="password" id="admin-password-input" class="kf-input" placeholder="Введите пароль…" autocomplete="current-password">
+            </div>
+            <div id="admin-login-error" class="warn-box hidden">Неверный пароль или сервер недоступен.</div>
+            <button id="login-btn" class="btn-primary sm" type="button" style="width:100%;">Войти</button>
+        </div>
+    </div>
+
+    <script data-cfasync="false" nonce="__CSP_NONCE__">
+        ((fn) => {
+            const start = () => (window.KrafenUI ? fn() : document.querySelector('script[src="/app.js"]')?.addEventListener('load', fn, { once: true }));
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+            else start();
+        })(() => {
+            const { escapeHTML, proxyImgUrl, toast, smoothSwap, openModal, closeModal, bindModalDismiss, createAdminController, addTag, collectTags, normalizeTags, exportCollection, sanitizeItems, TAG_LIMIT, TAG_MAX_LEN, profileFetch, profilePath } = window.KrafenUI;
+
+            const STATUS_LABEL = { watched: 'Просмотрено', planned: 'Планирую', dropped: 'Брошено' };
+            const STATUS_BADGE = { watched: 'ok', planned: 'muted', dropped: 'crimson' };
+            const TYPE_LABEL = { movie: 'Фильм', series: 'Сериал', anime: 'Аниме' };
+
+            const REVIEW_LIMIT = 5000;
+
+            let list = [];
+            let listRevision = 0;
+            let typeFilter = 'all';
+            let statusFilter = 'all';
+            let localQuery = '';
+            let modalType = 'anime';
+            let searchTimeout = null;
+            let searchCache = [];
+            let saveInFlight = false;
+            let saveQueued = false;
+            let sortMode = 'added';
+            let tagFilter = '';
+            let favoriteOnly = false;
+            let reviewTarget = null;
+            let reviewDraft = { status: 'watched', rating: 0, review: '', tags: [], favorite: false };
+            let selectedSearchItem = null;
+
+            const saveInd = document.getElementById('save-indicator');
+            function setSaveIndicator(cls, text) {
+                saveInd.className = `save-indicator ${cls}`.trim();
+                saveInd.textContent = text;
+            }
+
+            const admin = createAdminController({
+                onChange: (on) => {
+                    if (!on) {
+                        setSaveIndicator('', '');
+                        favoriteOnly = false;
+                        tagFilter = '';
+                    }
+                    const exportBtn = document.getElementById('export-btn');
+                    if (exportBtn) exportBtn.hidden = !on;
+                    render();
+                }
+            });
+
+            function safeRevision(v) {
+                const n = Number(v);
+                return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+            }
+
+            function itemRating(item) {
+                return Math.max(0, Math.min(10, Number(item.rating) || 0));
+            }
+
+            function itemTags(item) {
+                return Array.isArray(item.tags) ? item.tags.filter((t) => typeof t === 'string' && t.trim()) : [];
+            }
+
+            function shortDate(value) {
+                const d = new Date(Number(value) || Date.now());
+                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' });
+            }
+
+            function visibleItems() {
+                const q = localQuery.toLowerCase();
+                return list
+                    .filter((i) => typeFilter === 'all' || i.type === typeFilter)
+                    .filter((i) => statusFilter === 'all' || i.status === statusFilter)
+                    .filter((i) => !favoriteOnly || i.favorite)
+                    .filter((i) => !tagFilter || itemTags(i).some((t) => t.toLowerCase() === tagFilter.toLowerCase()))
+                    .filter((i) => {
+                        if (!q) return true;
+                        const haystack = `${i.title || ''} ${i.titleRu || ''} ${i.year || ''} ${i.review || ''} ${itemTags(i).join(' ')}`;
+                        return haystack.toLowerCase().includes(q);
+                    });
+            }
+
+            function exportList() {
+                if (!admin.isAdmin() || !list.length) return;
+                exportCollection('watchlist', list, listRevision);
+            }
+
+            async function fetchList() {
+                try {
+                    const res = await profileFetch('/api/watchlist', { headers: { Accept: 'application/json' } });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || 'fetch_failed');
+                    list = sanitizeItems(data.items);
+                    listRevision = safeRevision(data.revision);
+                } catch {
+                    list = [];
+                    listRevision = 0;
+                    document.getElementById('setup-warn').classList.remove('hidden');
+                    toast('Не удалось загрузить список', '#fca5a5');
+                }
+                document.getElementById('loading-state').classList.add('hidden');
+                document.getElementById('cards-grid').classList.remove('hidden');
+                setSortMode(sortMode);
+                render();
+            }
+
+            async function saveToServer() {
+                if (!admin.isAdmin()) return;
+                saveQueued = true;
+                if (saveInFlight) return;
+                saveInFlight = true;
+                try {
+                    while (saveQueued && admin.isAdmin()) {
+                        saveQueued = false;
+                        const snapshot = JSON.parse(JSON.stringify(list));
+                        const revision = listRevision;
+                        setSaveIndicator('saving', 'сохранение…');
+
+                        const res = await profileFetch('/api/watchlist', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ items: snapshot, revision }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                            if (res.status === 401) {
+                                admin.setAdmin(false);
+                                saveQueued = false;
+                                setSaveIndicator('error', 'сессия истекла');
+                                toast('Сессия администратора истекла — войдите снова', '#fca5a5');
+                                fetchList();
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
+                                return;
+                            }
+                            if (res.status === 409 && Array.isArray(data.items)) {
+                                list = data.items;
+                                listRevision = safeRevision(data.revision);
+                                saveQueued = false;
+                                render();
+                                setSaveIndicator('error', 'обновлено в другой вкладке');
+                                toast('Список обновлён в другой вкладке', '#fca5a5');
+                                setTimeout(() => setSaveIndicator('', ''), 3000);
+                                return;
+                            }
+                            throw new Error(data.error || 'save_failed');
+                        }
+                        listRevision = safeRevision(data.revision);
+                        setSaveIndicator('saved', 'сохранено');
+                        setTimeout(() => setSaveIndicator('', ''), 1800);
+                    }
+                } catch {
+                    setSaveIndicator('error', 'ошибка сохранения');
+                    toast('Ошибка сохранения', '#fca5a5');
+                    setTimeout(() => setSaveIndicator('', ''), 3000);
+                } finally {
+                    saveInFlight = false;
+                }
+            }
+
+            function updateStats() {
+                const total = list.length;
+                const watched = list.filter((i) => i.status === 'watched').length;
+                const planned = list.filter((i) => i.status === 'planned').length;
+                const dropped = list.filter((i) => i.status === 'dropped').length;
+                const rated = list.filter((i) => itemRating(i) > 0);
+                const avg = rated.length ? (rated.reduce((sum, i) => sum + itemRating(i), 0) / rated.length) : 0;
+                const reviews = list.filter((i) => String(i.review || '').trim()).length;
+                const favorites = list.filter((i) => i.favorite).length;
+                document.getElementById('stats-row').innerHTML = `
+                    <span class="stat-chip"><strong>${total}</strong> всего</span>
+                    <span class="stat-chip watched"><strong>${watched}</strong> просмотрено</span>
+                    <span class="stat-chip"><strong>${planned}</strong> планирую</span>
+                    <span class="stat-chip dropped"><strong>${dropped}</strong> брошено</span>
+                    <span class="stat-chip"><strong>★ ${avg ? avg.toFixed(1) : '—'}</strong> средний балл</span>
+                    <span class="stat-chip"><strong>${reviews}</strong> рецензий</span>
+                    ${favorites ? `<span class="stat-chip"><strong>★ ${favorites}</strong> в избранном</span>` : ''}
+                `;
+                const favBtn = document.getElementById('fav-toggle');
+                if (favBtn) favBtn.classList.toggle('active', favoriteOnly);
+                const favClear = document.getElementById('fav-clear');
+                if (favClear) favClear.classList.toggle('hidden', !favoriteOnly);
+                const tagLine = document.getElementById('tag-filter-line');
+                const tagList = document.getElementById('tag-filter-list');
+                if (tagLine && tagList) {
+                    const tags = collectTags(list);
+                    tagLine.classList.toggle('hidden', tags.length === 0);
+                    tagList.innerHTML = tags
+                        .map((tag) => `<button class="tag-chip ${tag.toLowerCase() === tagFilter.toLowerCase() && tagFilter ? 'tag-active' : ''}" type="button" data-tag-select="${escapeHTML(tag)}">#${escapeHTML(tag)}</button>`)
+                        .join('');
+                }
+                const selLine = document.getElementById('tag-selected-line');
+                const tagChip = document.getElementById('tag-filter-chip');
+                if (selLine && tagChip) {
+                    selLine.classList.toggle('hidden', !tagFilter);
+                    tagChip.textContent = `#${tagFilter || '—'} ×`;
+                }
+            }
+
+            function cardHTML(item, idx) {
+                const title = escapeHTML(item.titleRu || item.title);
+                const id = escapeHTML(item.id);
+                const typeL = escapeHTML(TYPE_LABEL[item.type] || item.type);
+                const statL = escapeHTML(STATUS_LABEL[item.status] || item.status);
+                const badgeCls = STATUS_BADGE[item.status] || 'muted';
+                const posterSrc = proxyImgUrl(item.poster);
+                const rating = itemRating(item);
+                const tags = itemTags(item);
+                const hasReview = Boolean(String(item.review || '').trim());
+                return `
+                    <article class="media-card kf-stagger-item" style="--i:${Math.min(idx || 0, 12)}" data-id="${id}">
+                        <div class="poster-wrap">
+                            ${posterSrc
+                                ? `<img src="${escapeHTML(posterSrc)}" alt="${title}" loading="lazy" decoding="async" data-fallback-text="${typeL}">`
+                                : `<div class="no-poster">${typeL}</div>`}
+                            ${rating ? `<span class="card-rating" title="Моя оценка">${rating}</span>` : ''}
+                            ${item.favorite ? '<span class="card-fav" title="В избранном">★</span>' : ''}
+                            <div class="card-overlay">
+                                <button class="ov-btn review" type="button" data-card-action="review" data-id="${id}">${hasReview ? 'Рецензия ✎' : 'Оценить ★'}</button>
+                                <button class="ov-btn watched" type="button" data-card-action="status" data-id="${id}" data-status="watched">Просмотрено</button>
+                                <button class="ov-btn planned" type="button" data-card-action="status" data-id="${id}" data-status="planned">Планирую</button>
+                                <button class="ov-btn dropped" type="button" data-card-action="status" data-id="${id}" data-status="dropped">Брошено</button>
+                                <button class="ov-btn remove" type="button" data-card-action="remove" data-id="${id}">Удалить</button>
+                            </div>
+                        </div>
+                        <div class="card-info">
+                            <h3 class="card-title">${title}</h3>
+                            <div class="card-meta">
+                                <span class="year">${escapeHTML(item.year || '—')}</span>
+                                <span>${typeL}</span>
+                            </div>
+                            ${tags.length ? `<div class="tag-row">${tags.slice(0, 3).map((t) => `<button class="tag-chip" type="button" data-tag-filter="${escapeHTML(t)}">#${escapeHTML(t)}</button>`).join('')}${tags.length > 3 ? `<span class="tag-chip">+${tags.length - 3}</span>` : ''}</div>` : ''}
+                            <div class="card-foot">
+                                <span class="status-badge ${badgeCls}"><span class="dot"></span>${statL}</span>
+                                ${hasReview ? '<span class="review-flag">есть рецензия</span>' : ''}
+                            </div>
+                        </div>
+                    </article>`;
+            }
+
+            function render() {
+                updateStats();
+                const filtered = visibleItems();
+
+                const grid = document.getElementById('cards-grid');
+                const empty = document.getElementById('empty-state');
+                if (!filtered.length) {
+                    grid.innerHTML = '';
+                    empty.classList.remove('hidden');
+                    let hint = 'В этой выборке пока пусто.';
+                    if (admin.isAdmin()) {
+                        hint = tagFilter || favoriteOnly
+                            ? 'Под текущие фильтры ничего не попало — сбрось тег или избранное.'
+                            : 'Ничего не найдено — нажми «+ Добавить тайтл», чтобы пополнить коллекцию.';
+                    } else if (tagFilter || favoriteOnly) {
+                        hint = 'Под текущие фильтры ничего не попало.';
+                    }
+                    document.getElementById('empty-hint').textContent = hint;
+                    return;
+                }
+                empty.classList.add('hidden');
+                grid.innerHTML = filtered.map(cardHTML).join('');
+            }
+
+            function addItem(item, status) {
+                if (!admin.isAdmin()) return;
+                const now = Date.now();
+                const existing = list.find((i) => i.id === item.id);
+                if (existing) {
+                    existing.status = status;
+                    existing.updatedAt = now;
+                } else {
+                    list.unshift({
+                        ...item,
+                        status,
+                        rating: 0,
+                        review: '',
+                        tags: [],
+                        favorite: false,
+                        addedAt: now,
+                        updatedAt: now,
+                    });
+                }
+                render();
+                saveToServer();
+                toast(`${item.titleRu || item.title} → ${STATUS_LABEL[status]}`);
+            }
+
+            function changeStatus(id, status) {
+                if (!admin.isAdmin()) return;
+                const item = list.find((i) => i.id === id);
+                if (!item) return;
+                item.status = status;
+                item.updatedAt = Date.now();
+                render();
+                saveToServer();
+                toast(`${item.titleRu || item.title} → ${STATUS_LABEL[status]}`);
+            }
+
+            function removeItem(id) {
+                if (!admin.isAdmin()) return;
+                list = list.filter((i) => i.id !== id);
+                render();
+                saveToServer();
+                toast('Удалено из списка');
+            }
+
+            /* ---------------- редактор рецензии и тегов ---------------- */
+
+            function ratingLabel(value) {
+                return value > 0 ? String(value) : '—';
+            }
+
+            function renderReviewStatusChoices() {
+                document.getElementById('review-status-choices').innerHTML = Object.entries(STATUS_LABEL)
+                    .map(([key, label]) => `<button class="filter-pill ${reviewDraft.status === key ? 'active' : ''}" data-review-status="${key}" type="button">${escapeHTML(label)}</button>`)
+                    .join('');
+            }
+
+            function renderTagEditor() {
+                document.getElementById('tag-edit-list').innerHTML = reviewDraft.tags
+                    .map((tag, idx) => `<span class="tag-edit-chip">#${escapeHTML(tag)}<button type="button" data-tag-remove="${idx}" aria-label="Убрать тег ${escapeHTML(tag)}">×</button></span>`)
+                    .join('');
+
+                const used = new Set(reviewDraft.tags.map((t) => t.toLowerCase()));
+                const suggestions = collectTags(list)
+                    .filter((tag) => !used.has(tag.toLowerCase()))
+                    .slice(0, 10);
+                const box = document.getElementById('tag-suggestions');
+                box.innerHTML = suggestions.length
+                    ? suggestions.map((tag) => `<button class="tag-chip" type="button" data-tag-suggest="${escapeHTML(tag)}">+ #${escapeHTML(tag)}</button>`).join('')
+                    : '';
+                const input = document.getElementById('tag-input');
+                input.disabled = reviewDraft.tags.length >= TAG_LIMIT;
+                input.placeholder = input.disabled ? `максимум ${TAG_LIMIT} тегов` : 'Добавить тег и Enter…';
+            }
+
+            function updateReviewCounter() {
+                const len = document.getElementById('review-text').value.length;
+                document.getElementById('review-count').textContent = `${len} / ${REVIEW_LIMIT}`;
+            }
+
+            function syncFavButton() {
+                const btn = document.getElementById('review-fav-btn');
+                btn.classList.toggle('active', reviewDraft.favorite);
+                btn.textContent = reviewDraft.favorite ? '★ В избранном' : '★ В избранное';
+            }
+
+            function openReviewEditor(item) {
+                if (!admin.isAdmin()) return;
+                reviewTarget = item;
+                reviewDraft = {
+                    status: item.status,
+                    rating: itemRating(item),
+                    review: String(item.review || ''),
+                    tags: itemTags(item).slice(0, TAG_LIMIT),
+                    favorite: Boolean(item.favorite),
+                };
+                document.getElementById('review-modal-title').textContent = item.titleRu || item.title;
+                document.getElementById('review-eyebrow').textContent = 'оценка, рецензия и теги';
+                document.getElementById('review-poster').innerHTML = item.poster
+                    ? `<img src="${escapeHTML(proxyImgUrl(item.poster))}" alt="" loading="lazy" data-fallback-text="${escapeHTML(TYPE_LABEL[item.type] || '')}">`
+                    : `<div class="no-poster">${escapeHTML(TYPE_LABEL[item.type] || '—')}</div>`;
+                document.getElementById('review-title').textContent = item.titleRu || item.title;
+                document.getElementById('review-meta').textContent = `${TYPE_LABEL[item.type] || item.type} · ${item.year || '—'}`;
+                document.getElementById('review-rating').value = reviewDraft.rating;
+                document.getElementById('review-rating-value').textContent = ratingLabel(reviewDraft.rating);
+                document.getElementById('review-text').value = reviewDraft.review;
+                document.getElementById('tag-input').value = '';
+                document.getElementById('review-remove-btn').classList.remove('hidden');
+                updateReviewCounter();
+                renderReviewStatusChoices();
+                renderTagEditor();
+                syncFavButton();
+                openModal('modal-review');
+            }
+
+            function openReviewForNew(item) {
+                if (!admin.isAdmin() || !item) return;
+                selectedSearchItem = item;
+                openReviewEditor({
+                    ...item,
+                    status: 'watched',
+                    rating: 0,
+                    review: '',
+                    tags: [],
+                    favorite: false,
+                });
+                document.getElementById('review-eyebrow').textContent = 'новый тайтл в коллекции';
+                document.getElementById('review-remove-btn').classList.add('hidden');
+            }
+
+            function openReviewViewer(item) {
+                const rating = itemRating(item);
+                document.getElementById('rv-poster').innerHTML = item.poster
+                    ? `<img src="${escapeHTML(proxyImgUrl(item.poster))}" alt="" loading="lazy" data-fallback-text="${escapeHTML(TYPE_LABEL[item.type] || '')}">`
+                    : `<div class="no-poster">${escapeHTML(TYPE_LABEL[item.type] || '—')}</div>`;
+                document.getElementById('rv-rating').textContent = rating ? `${rating} / 10` : 'без оценки';
+                document.getElementById('rv-title').textContent = item.titleRu || item.title;
+                const st = STATUS_LABEL[item.status] || item.status;
+                document.getElementById('rv-meta').textContent = `${TYPE_LABEL[item.type] || item.type} · ${item.year || '—'} · ${st}`;
+                document.getElementById('rv-tags').innerHTML = itemTags(item)
+                    .map((tag) => `<button class="tag-chip" type="button" data-tag-filter="${escapeHTML(tag)}">#${escapeHTML(tag)}</button>`)
+                    .join('');
+                const reviewBox = document.getElementById('rv-review');
+                if (String(item.review || '').trim()) {
+                    reviewBox.className = 'view-review';
+                    reviewBox.textContent = item.review;
+                } else {
+                    reviewBox.className = 'view-empty';
+                    reviewBox.textContent = 'Рецензии пока нет.';
+                }
+                openModal('modal-review-view');
+            }
+
+            function commitReview() {
+                if (!admin.isAdmin()) return;
+                const isNew = !list.some((i) => i.id === (reviewTarget?.id || ''));
+                const now = Date.now();
+                const target = isNew ? selectedSearchItem : list.find((i) => i.id === reviewTarget?.id);
+                if (!target) return;
+
+                const next = {
+                    ...target,
+                    status: reviewDraft.status,
+                    rating: reviewDraft.rating,
+                    review: document.getElementById('review-text').value.trim().slice(0, REVIEW_LIMIT),
+                    tags: reviewDraft.tags.slice(0, TAG_LIMIT),
+                    favorite: reviewDraft.favorite,
+                    addedAt: target.addedAt || now,
+                    updatedAt: now,
+                };
+                const idx = list.findIndex((i) => i.id === target.id);
+                if (idx >= 0) list[idx] = next;
+                else list.unshift(next);
+                selectedSearchItem = null;
+                render();
+                saveToServer();
+                closeModal('modal-review');
+                toast(`${next.titleRu || next.title} — сохранено`);
+            }
+
+            function removeFromEditor() {
+                if (!reviewTarget) return;
+                const item = list.find((i) => i.id === reviewTarget.id);
+                if (!item) return;
+                if (!confirm(`Удалить «${item.titleRu || item.title}» из коллекции?`)) return;
+                list = list.filter((i) => i.id !== item.id);
+                render();
+                saveToServer();
+                closeModal('modal-review');
+                toast('Удалено из списка');
+            }
+
+            async function performSearch(query) {
+                const el = document.getElementById('search-results');
+                el.innerHTML = '<div class="spinner"></div>';
+                searchCache = [];
+                try {
+                    const url = `/api/search?type=${encodeURIComponent(modalType)}&q=${encodeURIComponent(query)}`;
+                    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        if (data.error === 'tmdb_key_missing') {
+                            el.innerHTML = '<div class="warn-box">Не задан ключ TMDB на сервере: укажите <code>TMDB_ACCESS_TOKEN</code> или <code>TMDB_API_KEY</code> в файле <code>.env</code>.</div>';
+                            return;
+                        }
+                        throw new Error(data.error || 'search_failed');
+                    }
+                    if (!data.results?.length) {
+                        el.innerHTML = '<div class="notice-box" style="text-align:center;">Ничего не найдено</div>';
+                        return;
+                    }
+                    searchCache = data.results;
+                    el.innerHTML = data.results.map((item, idx) => {
+                        const title = escapeHTML(item.titleRu || item.title);
+                        const orig = item.titleRu && item.title ? escapeHTML(item.title) : '';
+                        const posterSrc = proxyImgUrl(item.poster);
+                        return `
+                            <div class="search-item">
+                                <div class="search-poster">
+                                    ${posterSrc ? `<img src="${escapeHTML(posterSrc)}" alt="${title}" loading="lazy" data-fallback-search="1">` : '—'}
+                                </div>
+                                <div class="col">
+                                    <div class="search-title">${title}</div>
+                                    <div class="search-sub">${orig ? `${orig} · ` : ''}${escapeHTML(item.year || '—')}</div>
+                                </div>
+                                <div class="search-actions">
+                                    <button class="add-mini watched" type="button" data-search-index="${idx}" data-status="watched">Смотрел + рецензия</button>
+                                    <button class="add-mini planned" type="button" data-search-index="${idx}" data-status="planned">Планирую</button>
+                                    <button class="add-mini dropped" type="button" data-search-index="${idx}" data-status="dropped">Брошено</button>
+                                </div>
+                            </div>`;
+                    }).join('');
+                } catch {
+                    el.innerHTML = '<div class="warn-box">Ошибка поиска — попробуйте ещё раз.</div>';
+                }
+            }
+
+            bindModalDismiss((id) => {
+                if (id === 'modal-add') {
+                    document.getElementById('search-input').value = '';
+                    document.getElementById('search-results').innerHTML = '';
+                    searchCache = [];
+                }
+            });
+
+            document.getElementById('add-btn').addEventListener('click', () => {
+                if (!admin.isAdmin()) return;
+                openModal('modal-add');
+                setTimeout(() => document.getElementById('search-input').focus(), 100);
+            });
+
+            document.querySelectorAll('#type-filters .filter-pill').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    if (typeFilter === btn.dataset.type) return;
+                    typeFilter = btn.dataset.type;
+                    document.querySelectorAll('#type-filters .filter-pill').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    smoothSwap(render);
+                });
+            });
+
+            document.querySelectorAll('#status-filters .filter-pill').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    if (statusFilter === btn.dataset.status) return;
+                    statusFilter = btn.dataset.status;
+                    document.querySelectorAll('#status-filters .filter-pill').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    smoothSwap(render);
+                });
+            });
+
+            document.getElementById('local-search').addEventListener('input', (e) => {
+                localQuery = e.target.value.trim();
+                render();
+            });
+
+            document.querySelectorAll('[data-modal-type]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    modalType = btn.dataset.modalType;
+                    document.querySelectorAll('[data-modal-type]').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    const q = document.getElementById('search-input').value.trim();
+                    if (q.length >= 2) performSearch(q);
+                    else {
+                        document.getElementById('search-results').innerHTML = '';
+                        searchCache = [];
+                    }
+                });
+            });
+
+            document.getElementById('search-input').addEventListener('input', (e) => {
+                const q = e.target.value.trim();
+                clearTimeout(searchTimeout);
+                if (q.length < 2) {
+                    document.getElementById('search-results').innerHTML = '';
+                    searchCache = [];
+                    return;
+                }
+                searchTimeout = setTimeout(() => performSearch(q), 360);
+            });
+
+            document.getElementById('search-results').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-search-index]');
+                if (!btn) return;
+                const item = searchCache[Number(btn.dataset.searchIndex)];
+                if (!item) return;
+                if (btn.dataset.status === 'watched') {
+                    closeModal('modal-add');
+                    openReviewForNew(item);
+                    return;
+                }
+                addItem(item, btn.dataset.status);
+            });
+
+            document.getElementById('cards-grid').addEventListener('click', (e) => {
+                const tagBtn = e.target.closest('[data-tag-select]');
+                if (tagBtn) {
+                    setTagFilter(tagBtn.dataset.tagSelect);
+                    return;
+                }
+                const btn = e.target.closest('[data-card-action]');
+                if (btn) {
+                    const id = btn.dataset.id;
+                    if (btn.dataset.cardAction === 'remove') removeItem(id);
+                    else if (btn.dataset.cardAction === 'status') changeStatus(id, btn.dataset.status);
+                    else if (btn.dataset.cardAction === 'review') {
+                        const item = list.find((i) => i.id === id);
+                        if (item) openReviewEditor(item);
+                    }
+                    return;
+                }
+                if (admin.isAdmin() && matchMedia('(pointer: coarse)').matches) {
+                    const card = e.target.closest('.media-card');
+                    if (card) {
+                        const already = card.classList.contains('touch-open');
+                        document.querySelectorAll('.media-card.touch-open').forEach((c) => c.classList.remove('touch-open'));
+                        if (!already) card.classList.add('touch-open');
+                    }
+                    return;
+                }
+                const card = e.target.closest('.media-card');
+                if (card) {
+                    const item = list.find((i) => i.id === card.dataset.id);
+                    if (item) openReviewViewer(item);
+                }
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.media-card')) {
+                    document.querySelectorAll('.media-card.touch-open').forEach((c) => c.classList.remove('touch-open'));
+                }
+            });
+
+            document.addEventListener('error', (e) => {
+                const img = e.target;
+                if (!(img instanceof HTMLImageElement)) return;
+                if (img.dataset.fallbackSearch) {
+                    img.replaceWith(document.createTextNode('—'));
+                    return;
+                }
+                if (!img.dataset.fallbackText) return;
+                const fallback = document.createElement('div');
+                fallback.className = 'no-poster';
+                fallback.textContent = img.dataset.fallbackText;
+                img.replaceWith(fallback);
+            }, true);
+
+            function setTagFilter(tag) {
+                const next = tag || '';
+                tagFilter = tagFilter.toLowerCase() === next.toLowerCase() ? '' : next;
+                closeModal('modal-review-view');
+                smoothSwap(render);
+            }
+
+            function setSortMode(mode) {
+                sortMode = mode;
+                const byRating = sortMode === 'rating';
+                const filtered = visibleItems();
+                if (byRating) filtered.sort((a, b) => itemRating(b) - itemRating(a) || Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+                else if (sortMode === 'title') filtered.sort((a, b) => String(a.titleRu || a.title).localeCompare(String(b.titleRu || b.title), 'ru'));
+                else if (sortMode === 'year') filtered.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+                else if (sortMode === 'updated') filtered.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+                else filtered.sort((a, b) => Number(b.addedAt || 0) - Number(a.addedAt || 0));
+                const grid = document.getElementById('cards-grid');
+                const empty = document.getElementById('empty-state');
+                empty.classList.toggle('hidden', filtered.length > 0);
+                grid.innerHTML = filtered.map(cardHTML).join('');
+                updateStats();
+                if (!filtered.length) render();
+            }
+
+            /* ---- обработчики рецензии ---- */
+            document.getElementById('review-rating').addEventListener('input', (e) => {
+                reviewDraft.rating = Number(e.target.value) || 0;
+                document.getElementById('review-rating-value').textContent = ratingLabel(reviewDraft.rating);
+            });
+            document.getElementById('review-status-choices').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-review-status]');
+                if (!btn) return;
+                reviewDraft.status = btn.dataset.reviewStatus;
+                renderReviewStatusChoices();
+            });
+            document.getElementById('review-text').addEventListener('input', updateReviewCounter);
+            document.getElementById('review-fav-btn').addEventListener('click', () => {
+                reviewDraft.favorite = !reviewDraft.favorite;
+                syncFavButton();
+            });
+            document.getElementById('tag-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    reviewDraft.tags = addTag(reviewDraft.tags, e.target.value);
+                    e.target.value = '';
+                    renderTagEditor();
+                    return;
+                }
+                if (e.key === 'Backspace' && !e.target.value && reviewDraft.tags.length) {
+                    reviewDraft.tags = reviewDraft.tags.slice(0, -1);
+                    renderTagEditor();
+                }
+            });
+            document.getElementById('tag-input').addEventListener('blur', (e) => {
+                if (!e.target.value.trim()) return;
+                reviewDraft.tags = addTag(reviewDraft.tags, e.target.value);
+                e.target.value = '';
+                renderTagEditor();
+            });
+            document.getElementById('tag-input').addEventListener('change', (e) => {
+                if (!e.target.value.trim()) return;
+                reviewDraft.tags = addTag(reviewDraft.tags, e.target.value);
+                e.target.value = '';
+                renderTagEditor();
+            });
+            document.getElementById('tag-editor').addEventListener('click', (e) => {
+                const remove = e.target.closest('[data-tag-remove]');
+                if (remove) {
+                    reviewDraft.tags = reviewDraft.tags.filter((_, i) => i !== Number(remove.dataset.tagRemove));
+                    renderTagEditor();
+                    return;
+                }
+                const suggest = e.target.closest('[data-tag-suggest]');
+                if (suggest) {
+                    reviewDraft.tags = addTag(reviewDraft.tags, suggest.dataset.tagSuggest);
+                    renderTagEditor();
+                }
+            });
+            document.getElementById('review-save-btn').addEventListener('click', commitReview);
+            document.getElementById('review-remove-btn').addEventListener('click', removeFromEditor);
+
+            /* ---- фильтры: сортировка, избранное, теги ---- */
+            document.getElementById('sort-select').addEventListener('change', (e) => {
+                smoothSwap(() => setSortMode(e.target.value));
+            });
+            document.getElementById('fav-toggle').addEventListener('click', () => {
+                favoriteOnly = !favoriteOnly;
+                smoothSwap(render);
+            });
+            document.getElementById('fav-clear').addEventListener('click', () => {
+                favoriteOnly = false;
+                smoothSwap(render);
+            });
+            document.getElementById('tag-filter-chip').addEventListener('click', () => setTagFilter(''));
+            document.getElementById('tag-filter-list').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-tag-select]');
+                if (btn) setTagFilter(btn.dataset.tagSelect);
+            });
+            document.getElementById('rv-tags').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-tag-filter]');
+                if (btn) setTagFilter(btn.dataset.tagFilter);
+            });
+            document.getElementById('export-btn').addEventListener('click', exportList);
+
+            bindModalDismiss((id) => {
+                if (id === 'modal-review') {
+                    reviewTarget = null;
+                    selectedSearchItem = null;
+                }
+            });
+
+            admin.check();
+            fetchList();
+        });
+    </script>
+</body>
+</html>

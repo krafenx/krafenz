@@ -29,6 +29,46 @@
         'm.media-amazon.com',
     ]);
 
+    /* ---------- профили (krafen / danonsha) ---------- */
+    // Профиль берётся из адреса: /danonsha/* — личный профиль, всё остальное — основной.
+    // Через заголовок X-Krafen-Profile сервер понимает, чью коллекцию читать и чью
+    // сессию проверять; у каждого профиля своя cookie.
+    const PAGE_PROFILE = (location.pathname === '/danonsha' || location.pathname.startsWith('/danonsha/'))
+        ? 'danonsha'
+        : 'krafen';
+    // На /admin профиль выбирается логином при входе, поэтому он изменяемый.
+    const PROFILE_KEY = 'krafen-admin-profile';
+    let activeProfile = PAGE_PROFILE;
+    if (location.pathname === '/admin' || location.pathname === '/admin.html') {
+        try {
+            const saved = localStorage.getItem(PROFILE_KEY);
+            if (saved === 'krafen' || saved === 'danonsha') activeProfile = saved;
+        } catch {}
+    }
+
+    function getProfile() {
+        return activeProfile;
+    }
+
+    function setProfile(name) {
+        if (name !== 'krafen' && name !== 'danonsha') return;
+        activeProfile = name;
+        try { localStorage.setItem(PROFILE_KEY, name); } catch {}
+    }
+
+    function profileFetch(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        headers.set('X-Krafen-Profile', activeProfile);
+        return fetch(url, { ...options, headers, credentials: 'same-origin' });
+    }
+
+    /** Ссылка с учётом профиля: profilePath('/watchlist') → '/danonsha/watchlist'. */
+    function profilePath(path) {
+        if (!path || !path.startsWith('/')) return path;
+        if (path === '/' || path.startsWith('/api/') || path.startsWith('/#') || path.startsWith('/assets/')) return path;
+        return (activeProfile === 'danonsha' ? '/danonsha' : '') + path;
+    }
+
     function escapeHTML(value) {
         return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
             '&': '&amp;',
@@ -623,12 +663,17 @@
         const logoutBtn = document.getElementById('admin-logout-btn');
         const loginBtn = document.getElementById('login-btn');
         const passInput = document.getElementById('admin-password-input');
+        const loginInput = document.getElementById('admin-login-input');
         const errBox = document.getElementById('admin-login-error');
+
+        // Логин по умолчанию — профиль текущей страницы: /danonsha/* → danonsha.
+        if (loginInput && !loginInput.value) loginInput.value = activeProfile;
         const adminBar = document.getElementById('admin-bar');
 
-        if (adminBar && !adminBar.querySelector('a[href="/admin"]') && location.pathname !== '/admin') {
+        const dashPath = profilePath('/admin');
+        if (adminBar && !adminBar.querySelector('a[href="' + dashPath + '"]') && location.pathname !== dashPath) {
             const dashLink = document.createElement('a');
-            dashLink.href = '/admin';
+            dashLink.href = dashPath;
             dashLink.className = 'btn-action';
             dashLink.textContent = 'панель управления ↗';
             const firstAction = adminBar.querySelector('a.btn-action, button.btn-action');
@@ -654,9 +699,8 @@
 
         async function check() {
             try {
-                const res = await fetch('/api/admin', {
+                const res = await profileFetch('/api/admin', {
                     headers: { Accept: 'application/json' },
-                    credentials: 'same-origin',
                 });
                 const data = await res.json().catch(() => ({}));
                 apply(Boolean(res.ok && data.ok));
@@ -669,31 +713,37 @@
             if (!passInput) return;
             const password = passInput.value.trim();
             if (!password) return;
+            const loginName = (loginInput?.value || activeProfile).trim().toLowerCase();
             if (loginBtn) {
                 loginBtn.disabled = true;
                 loginBtn.textContent = 'Проверка...';
             }
             if (errBox) errBox.classList.add('hidden');
             try {
-                const res = await fetch('/api/admin', {
+                const res = await profileFetch('/api/admin', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ password }),
+                    body: JSON.stringify({ password, login: loginName }),
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
                     if (errBox) {
-                        errBox.textContent = data.error === 'admin_password_missing'
-                            ? 'На сервере не задан ADMIN_PASSWORD (укажите его в .env).'
-                            : 'Неверный пароль или сервер недоступен.';
+                        if (data.error === 'admin_password_missing') {
+                            const envName = data.profile === 'danonsha' ? 'ADMIN_PASSWORD_DANONSHA' : 'ADMIN_PASSWORD';
+                            errBox.textContent = `На сервере не задан ${envName} (укажите его в .env).`;
+                        } else if (data.error === 'invalid_password') {
+                            errBox.textContent = `Неверный логин или пароль для профиля «${data.profile || loginName}».`;
+                        } else {
+                            errBox.textContent = 'Неверный пароль или сервер недоступен.';
+                        }
                         errBox.classList.remove('hidden');
                     }
                 } else {
+                    if (data.profile) setProfile(data.profile);
                     apply(true);
                     closeModal('modal-admin');
                     passInput.value = '';
-                    toast('Режим администратора включён');
+                    toast(`Режим администратора включён: ${getProfile()}`);
                 }
             } catch {
                 if (errBox) {
@@ -709,9 +759,8 @@
         }
 
         async function logout() {
-            await fetch('/api/admin', {
+            await profileFetch('/api/admin', {
                 method: 'DELETE',
-                credentials: 'same-origin',
             }).catch(() => {});
             apply(false);
             toast('Вы вышли из режима администратора');
@@ -852,6 +901,12 @@
 
     window.KrafenUI = {
         onReady,
+        getProfile,
+        setProfile,
+        // обратная совместимость: PROFILE — профиль страницы
+        PROFILE: PAGE_PROFILE,
+        profileFetch,
+        profilePath,
         escapeHTML,
         safeHttpUrl,
         proxyImgUrl,
