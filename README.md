@@ -52,7 +52,7 @@ flowchart LR
 | `/gamelist` | `gamelist.html` | Библиотека пройденных и активных игр с оценками `0–10`, отзывами, тегами, избранным и поиском в **IGDB** |
 | `/setup` | `setup.html` | Конфигурация системного блока и рабочей периферии с быстрыми ссылками |
 | `/wishlist` | `wishlist.html` | Список желаемых покупок с приоритетами, статусами, тегами, избранным и подсчётом бюджета в `RUB` / `USD` / `EUR` |
-| `/tasks` | `tasks.html` | Служебная страница: калькулятор заданий BP (VIP / X2) и таймеры клубных квестов. Нет в меню и `sitemap.xml`, закрыта в `robots.txt` |
+| `/tasks` | `tasks.html` | Служебная страница: калькулятор заданий BP (VIP / X2) и таймеры клубных квестов. Нет в меню и `sitemap.xml`, отдаётся с `X-Robots-Tag: noindex` |
 | `/danonsha` | `danonsha.html` | Страница **danonsha**: статус канала, архив стримов из Google Drive, кинотеатр VOD, `ЧАТ ЗАПИСИ` и блок со ссылками на её коллекции |
 | `/admin` | `admin.html` | Панель управления: аналитика трафика и VOD, интеграции, кэш, резервные копии, аудит и `server.log` |
 | `/danonsha/watchlist` · `/gamelist` · `/setup` · `/wishlist` | `danonsha/*.html` | Собственные коллекции danonsha — полный функционал и отдельные данные |
@@ -122,6 +122,19 @@ npm install jsdom
 node tests/pages.test.js http://127.0.0.1:8080 <пароль>            # основной профиль
 KF_DANONSHA=<пароль> node tests/pages.test.js http://127.0.0.1:8080 <пароль>   # + профиль
 ```
+
+SEO-проверки выполняются отдельно, с временной базой данных:
+
+```bash
+python -m pip install -r requirements.txt httpx
+python -m unittest discover -s tests -p 'test_seo.py'
+```
+
+FastAPI перенаправляет `/index.html`, а также `.html` и варианты с завершающим
+слешем для публичных страниц на адреса из sitemap. Если перед ним Nginx сначала
+перенаправляет весь HTTP на HTTPS с сохранением пути, для
+`http://krafen.me/index.html` останется два перехода: убрать первый лишний переход
+можно только на уровне Nginx или другого внешнего прокси.
 
 ## 🗂 Структура проекта
 

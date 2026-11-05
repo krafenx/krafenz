@@ -2547,7 +2547,8 @@ _analytics_flusher_started = False
 _analytics_last_prune_ts = 0.0
 
 # Страницы, которые не должны попадать в поиск: панель, служебные разделы.
-# Отдаются с X-Robots-Tag: noindex, а /tasks дополнительно закрыт в robots.txt.
+# Отдаются с X-Robots-Tag: noindex; сканирование /tasks разрешено в robots.txt,
+# чтобы поисковые роботы могли увидеть этот заголовок.
 _NOINDEX_PAGES = {"admin.html", "tasks.html"}
 
 _TRACKED_PAGES: dict[str, tuple[str, str]] = {
@@ -3519,9 +3520,12 @@ def make_get_list(name: str):
         try:
             profile = request_profile(request)
             state = read_list(name, owner=profile)
-            return j({"items": state["items"], "revision": state["revision"], "profile": profile})
+            response = j({"items": state["items"], "revision": state["revision"], "profile": profile})
         except Exception:
-            return j({"error": "storage_error", "items": [], "revision": 0}, 500)
+            response = j({"error": "storage_error", "items": [], "revision": 0}, 500)
+        # JSON нужен для рендеринга страниц, но не является поисковой страницей.
+        response.headers["X-Robots-Tag"] = "noindex"
+        return response
 
     endpoint.__name__ = f"get_{name}"
     return endpoint
@@ -6563,6 +6567,12 @@ STATIC_ALLOWED = {
 STATIC_EXACT_NAMES = {"CNAME"}
 STATIC_BLOCKED_ROOTS = {"data", "recorder", "vods", ".git", ".github", ".venv", "venv", "__pycache__"}
 
+# Явный список не затрагивает API, файлы и несуществующие адреса.
+_STATIC_PAGE_REDIRECTS = {"/index.html": "/"}
+for _page in ("watchlist", "gamelist", "setup", "wishlist", "danonsha"):
+    _STATIC_PAGE_REDIRECTS[f"/{_page}.html"] = f"/{_page}"
+    _STATIC_PAGE_REDIRECTS[f"/{_page}/"] = f"/{_page}"
+
 
 def resolve_static(full_path: str) -> Path | None:
     rel = (full_path or "").replace("\\", "/").lstrip("/")
@@ -6613,6 +6623,11 @@ def resolve_static(full_path: str) -> Path | None:
 
 @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
 def static_file(full_path: str, request: Request) -> Response:
+    target = _STATIC_PAGE_REDIRECTS.get("/" + full_path)
+    if target is not None:
+        query = request.url.query
+        return RedirectResponse(target + (f"?{query}" if query else ""), status_code=301)
+
     path = resolve_static(full_path)
     if not path:
         return j({"error": "not found"}, 404)
