@@ -1,7 +1,11 @@
 User-agent: *
 Allow: /
 Disallow: /api/
-# Служебная страница, не для индексации
-Disallow: /tasks
+# Публичные коллекции нужны для рендеринга страниц; сами JSON-ответы отдаются с noindex.
+Allow: /api/watchlist$
+Allow: /api/gamelist$
+Allow: /api/setup$
+Allow: /api/wishlist$
+# /tasks доступна для сканирования, чтобы роботы увидели X-Robots-Tag: noindex.
 
 Sitemap: https://krafen.me/sitemap.xml
